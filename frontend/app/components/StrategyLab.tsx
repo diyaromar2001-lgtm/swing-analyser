@@ -391,6 +391,15 @@ function CompTable({
   const [sortKey, setSortKey] = useState<keyof LabStrategyResult>("score");
   const sorted = [...strategies].sort((a, b) => (b[sortKey] as number) - (a[sortKey] as number));
 
+  // Calcul bestOverall local pour les badges dans le tableau
+  const eligible       = strategies.filter(r => r.eligible);
+  const tradable       = eligible.filter(r => r.tradable_status === "TRADABLE");
+  const confirmed      = eligible.filter(r => r.tradable_status === "À CONFIRMER");
+  const pool           = tradable.length > 0 ? tradable : confirmed.length > 0 ? confirmed : eligible.length > 0 ? eligible : strategies.filter(r => r.total_trades > 0);
+  const isBestTradable  = tradable.length > 0;
+  const isBestConfirmed = !isBestTradable && confirmed.length > 0;
+  const bestOverall    = pool.length > 0 ? pool.reduce((a, b) => b.score > a.score ? b : a) : null;
+
   type Col = { label: string; k: keyof LabStrategyResult; fmt?: (v: number) => string; invert?: boolean };
   const cols: Col[] = [
     { label: "Score /100",    k: "score",            fmt: v => v.toFixed(1) },
