@@ -63,6 +63,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Health check (keep-alive pour Railway) ───────────────────────────────────
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 # ── Cache globals ─────────────────────────────────────────────────────────────
 _cache: Dict[str, dict] = {}
 _sp500_perf_3m: float = 0.0
