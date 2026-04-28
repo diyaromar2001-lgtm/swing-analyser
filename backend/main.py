@@ -736,15 +736,30 @@ def strategy_lab_endpoint(period: int = Query(12)):
         lab_results.append(result)
 
     lab_results.sort(key=lambda r: r["score"], reverse=True)
-    eligible = [r for r in lab_results if r["eligible"]]
-    pool     = eligible if eligible else lab_results
+
+    # ── Classement par critère ────────────────────────────────────────────────
+    tradable  = [r for r in lab_results if r.get("tradable_status") == "TRADABLE"]
+    confirmed = [r for r in lab_results if r.get("tradable_status") == "À CONFIRMER"]
+    eligible  = [r for r in lab_results if r.get("eligible")]
+
+    robust_pool  = tradable or confirmed or eligible or lab_results
+    quality_pool = [r for r in robust_pool if not r.get("overfitting_risk", False)] or robust_pool
+
+    def _best(lst, fn, default="—"):
+        valid = [r for r in lst if r.get("total_trades", 0) > 0]
+        return fn(valid)["key"] if valid else default
 
     return {
-        "strategies":      lab_results,
-        "best_overall":    pool[0]["key"],
-        "best_win_rate":   max(pool, key=lambda r: r["win_rate"])["key"],
-        "best_expectancy": max(pool, key=lambda r: r["expectancy"])["key"],
-        "period_months":   period,
+        "strategies":          lab_results,
+        "best_overall":        _best(robust_pool,  lambda l: max(l, key=lambda r: r["score"])),
+        "best_win_rate":       _best(quality_pool, lambda l: max(l, key=lambda r: r["win_rate"])),
+        "best_expectancy":     _best(quality_pool, lambda l: max(l, key=lambda r: r["expectancy"])),
+        "best_pf":             _best(quality_pool, lambda l: max(l, key=lambda r: r["profit_factor"])),
+        "best_low_dd":         _best(quality_pool, lambda l: min(l, key=lambda r: r["max_drawdown_pct"])),
+        "has_robust_strategy": len(tradable) > 0,
+        "tradable_count":      len(tradable),
+        "confirmed_count":     len(confirmed),
+        "period_months":       period,
     }
 
 

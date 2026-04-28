@@ -1,224 +1,322 @@
 """
-Strategy Lab — backteste 6 stratégies swing trading et les classe.
-Utilise le Portfolio Backtest Engine pour une simulation réaliste
-avec gestion du capital (10 000 $ · risque 1 % · max 8 positions).
+Strategy Lab v2 — moteur de backtesting avancé.
+
+Améliorations v2 :
+  • 5 familles de stratégies avec EMA20, volume confirmé, pente SMA50
+  • Walk-forward validation (75 % train / 25 % test)
+  • Détection d'overfitting (divergence train/test, concentration ticker)
+  • Critères TRADABLE stricts (≥ 50 trades, PF > 1.3, DD < 25 %, Sharpe > 0.5)
+  • Classement : Best Robust / Best WR / Best PF / Best Low DD
 """
+
 import numpy as np
 import pandas as pd
-from typing import List, Dict, Any
-from indicators import sma, rsi, macd, atr
-from portfolio_backtest import run_portfolio_backtest, INITIAL_CAPITAL
+from typing import List, Dict, Any, Tuple, Optional
+from indicators import sma, ema, rsi, macd, atr
+from portfolio_backtest import run_portfolio_backtest, INITIAL_CAPITAL, _empty_result
 
 
-# ── Définition des stratégies ─────────────────────────────────────────────────
-
-def _sig_pullback_sma50(close, high, low, volume, s50_s, s200_s, r_s, mh_s, atr_s, i):
-    """Pullback vers SMA50 en uptrend."""
-    p   = float(close.iloc[i])
-    s50 = float(s50_s.iloc[i])
-    s200= float(s200_s.iloc[i])
-    r   = float(r_s.iloc[i])
-    mh  = float(mh_s.iloc[i])
-    if s50 <= 0 or s200 <= 0:
-        return False
-    dist = (p - s50) / s50 * 100
-    return (
-        p > s200
-        and -5.0 <= dist <= 0.5
-        and 40 <= r <= 57
-        and mh > -0.3
-    )
+# ─── Signal functions ──────────────────────────────────────────────────────────
+#
+# Signature commune :
+#   fn(close, high, low, volume, s50, s200, rsi_s, mh_s, atr_s, e20_s, i)
+# Toutes les séries sont des pd.Series.
 
 
-def _sig_breakout_30d(close, high, low, volume, s50_s, s200_s, r_s, mh_s, atr_s, i):
-    """Cassure du plus haut des 30 derniers jours avec volume."""
-    if i < 30:
+def _sig_pullback_trend(close, high, low, volume, s50, s200, rsi_s, mh_s, atr_s, e20_s, i):
+    """
+    A. Pullback Trend — retour vers EMA20 en uptrend qualifié.
+
+    Conditions :
+      • prix > SMA200, SMA50 > SMA200 (double uptrend)
+      • SMA50 en pente positive (hausse sur 10 barres)
+      • prix revient sur EMA20 (dist -4 % → +1 %)
+      • RSI 42-60 (momentum sain, non suracheté)
+      • MACD histogram > -0.3 (pas de retournement fort)
+      • volume stable ou décroissant (pullback ordonné)
+    """
+    if i < 10:
         return False
     p    = float(close.iloc[i])
-    h    = float(high.iloc[i])
-    s200 = float(s200_s.iloc[i])
-    r    = float(r_s.iloc[i])
-    mh   = float(mh_s.iloc[i])
-    if s200 <= 0:
+    s50v = float(s50.iloc[i])
+    s200v= float(s200.iloc[i])
+    e20v = float(e20_s.iloc[i])
+    rv   = float(rsi_s.iloc[i])
+    mhv  = float(mh_s.iloc[i])
+
+    if s50v <= 0 or s200v <= 0 or e20v <= 0:
         return False
-    high_30  = float(high.iloc[i - 29: i + 1].max())
-    vol_avg  = float(volume.iloc[max(0, i - 19): i + 1].mean())
-    vol_cur  = float(volume.iloc[i])
+
+    # Pente SMA50 (hausse sur 10 barres)
+    s50_prev = float(s50.iloc[i - 10])
+    sma50_rising = s50v > s50_prev if not np.isnan(s50_prev) else False
+
+    dist_e20 = (p - e20v) / e20v * 100.0
+
+    # Volume : moyenne 10j vs 5j (pullback calme)
+    vol_avg10 = float(volume.iloc[max(0, i - 9): i + 1].mean())
+    vol_avg5  = float(volume.iloc[max(0, i - 4): i + 1].mean())
+    calm_vol  = (vol_avg5 <= vol_avg10 * 1.15) if vol_avg10 > 0 else True
+
     return (
-        p > s200
-        and h >= high_30
-        and 55 <= r <= 76
-        and mh > 0
-        and vol_cur > vol_avg * 1.25
+        p > s200v
+        and s50v > s200v
+        and sma50_rising
+        and -4.0 <= dist_e20 <= 1.0
+        and 42 <= rv <= 60
+        and mhv > -0.3
+        and calm_vol
     )
 
 
-def _sig_momentum_fort(close, high, low, volume, s50_s, s200_s, r_s, mh_s, atr_s, i):
-    """RSI 60-72 + MACD positif + surperformance 3 mois."""
-    if i < 63:
-        return False
-    p    = float(close.iloc[i])
-    s50  = float(s50_s.iloc[i])
-    s200 = float(s200_s.iloc[i])
-    r    = float(r_s.iloc[i])
-    mh   = float(mh_s.iloc[i])
-    if s50 <= 0 or s200 <= 0:
-        return False
-    p3m = (p / float(close.iloc[i - 63]) - 1) * 100
-    return (
-        p > s50
-        and s50 > s200
-        and 60 <= r <= 72
-        and mh > 0
-        and p3m > 5.0
-    )
+def _sig_breakout_quality(close, high, low, volume, s50, s200, rsi_s, mh_s, atr_s, e20_s, i):
+    """
+    B. Breakout Quality — cassure de plus haut 20 jours avec confirmation volume.
 
-
-def _sig_mean_reversion(close, high, low, volume, s50_s, s200_s, r_s, mh_s, atr_s, i):
-    """Pullback profond (5-15%) sous SMA50 en tendance haussière."""
-    p    = float(close.iloc[i])
-    s50  = float(s50_s.iloc[i])
-    s200 = float(s200_s.iloc[i])
-    r    = float(r_s.iloc[i])
-    if s50 <= 0 or s200 <= 0:
-        return False
-    dist = (p - s50) / s50 * 100
-    return (
-        p > s200
-        and -15.0 <= dist <= -5.0
-        and 30 <= r <= 48
-    )
-
-
-def _sig_low_vol_swing(close, high, low, volume, s50_s, s200_s, r_s, mh_s, atr_s, i):
-    """ATR stable + prix dans ±2% de SMA50 + RSI neutre."""
+    Conditions :
+      • SMA50 > SMA200 (tendance haussière)
+      • nouveau plus haut 20 jours sur High
+      • volume > 1.4× moyenne 20 jours
+      • RSI 52-72 (force mais pas suracheté)
+      • prix dans les 5 % au-dessus de l'EMA20 (pas trop extended)
+      • MACD positif
+    """
     if i < 20:
         return False
     p    = float(close.iloc[i])
-    s50  = float(s50_s.iloc[i])
-    s200 = float(s200_s.iloc[i])
-    r    = float(r_s.iloc[i])
-    if s50 <= 0 or s200 <= 0:
+    h    = float(high.iloc[i])
+    s50v = float(s50.iloc[i])
+    s200v= float(s200.iloc[i])
+    e20v = float(e20_s.iloc[i])
+    rv   = float(rsi_s.iloc[i])
+    mhv  = float(mh_s.iloc[i])
+
+    if s50v <= 0 or s200v <= 0 or e20v <= 0:
         return False
-    dist     = (p - s50) / s50 * 100
-    atr_vals = atr_s.iloc[i - 19: i + 1]
-    atr_m    = float(atr_vals.mean())
-    stable   = (float(atr_vals.std()) / atr_m < 0.20) if atr_m > 0 else False
+
+    high_20  = float(high.iloc[i - 19: i + 1].max())
+    vol_avg  = float(volume.iloc[i - 19: i + 1].mean())
+    vol_cur  = float(volume.iloc[i])
+    dist_e20 = (p - e20v) / e20v * 100.0
+
     return (
-        p > s200
-        and -2.0 <= dist <= 2.0
-        and 45 <= r <= 60
-        and stable
+        s50v > s200v
+        and h >= high_20
+        and vol_cur >= vol_avg * 1.4
+        and 52 <= rv <= 72
+        and 0.0 <= dist_e20 <= 5.0
+        and mhv > 0
     )
 
 
-def _sig_conservative_trend(close, high, low, volume, s50_s, s200_s, r_s, mh_s, atr_s, i):
-    """Tendance stricte: RSI 50-62, MACD>0, perf 3m et 6m positives."""
-    if i < 126:
+def _sig_relative_strength(close, high, low, volume, s50, s200, rsi_s, mh_s, atr_s, e20_s, i):
+    """
+    C. Relative Strength Leader — action en tête de marché.
+
+    Conditions :
+      • prix > SMA50 > SMA200
+      • performance 3 mois > 8 % (proxy force relative)
+      • performance 1 mois > 2 %
+      • RSI 50-68 (momentum fort mais contrôlé)
+      • pullback contrôlé vers EMA20 ou SMA50 (-5 % → +3 % vs EMA20)
+      • volume > 0.8× moyenne (institutionnels toujours présents)
+    """
+    if i < 63:
         return False
     p    = float(close.iloc[i])
-    s50  = float(s50_s.iloc[i])
-    s200 = float(s200_s.iloc[i])
-    r    = float(r_s.iloc[i])
-    mh   = float(mh_s.iloc[i])
-    if s50 <= 0 or s200 <= 0:
+    s50v = float(s50.iloc[i])
+    s200v= float(s200.iloc[i])
+    e20v = float(e20_s.iloc[i])
+    rv   = float(rsi_s.iloc[i])
+    mhv  = float(mh_s.iloc[i])
+
+    if s50v <= 0 or s200v <= 0 or e20v <= 0:
         return False
-    dist = (p - s50) / s50 * 100
-    p3m  = (p / float(close.iloc[i - 63]) - 1) * 100
-    p6m  = (p / float(close.iloc[i - 126]) - 1) * 100
+
+    p3m = (p / float(close.iloc[i - 63]) - 1.0) * 100.0
+    p1m = (p / float(close.iloc[i - 21]) - 1.0) * 100.0 if i >= 21 else 0.0
+    dist_e20 = (p - e20v) / e20v * 100.0
+
+    vol_avg  = float(volume.iloc[max(0, i - 19): i + 1].mean())
+    vol_cur  = float(volume.iloc[i])
+    vol_ok   = (vol_cur >= vol_avg * 0.8) if vol_avg > 0 else True
+
     return (
-        p > s200
-        and -1.0 <= dist <= 2.5
-        and 50 <= r <= 62
-        and mh > 0
-        and p3m > 0
-        and p6m > 0
-        and r < 65
+        p > s50v > s200v
+        and p3m >= 8.0
+        and p1m >= 2.0
+        and 50 <= rv <= 68
+        and -5.0 <= dist_e20 <= 3.0
+        and vol_ok
     )
 
 
-# ── Registre des stratégies ────────────────────────────────────────────────────
+def _sig_low_vol_compounder(close, high, low, volume, s50, s200, rsi_s, mh_s, atr_s, e20_s, i):
+    """
+    D. Low Volatility Compounder — tendance régulière, faible ATR.
+
+    Conditions :
+      • prix > SMA200
+      • ATR/prix < 2.5 % (faible volatilité)
+      • prix dans ±2.5 % de la SMA50
+      • RSI 45-58 (zone neutre stable)
+      • performance 3 mois positive
+      • MACD positif ou légèrement négatif (> -0.2)
+    """
+    if i < 20:
+        return False
+    p    = float(close.iloc[i])
+    s50v = float(s50.iloc[i])
+    s200v= float(s200.iloc[i])
+    rv   = float(rsi_s.iloc[i])
+    mhv  = float(mh_s.iloc[i])
+    atr_v= float(atr_s.iloc[i])
+
+    if s50v <= 0 or s200v <= 0 or p <= 0:
+        return False
+
+    dist_s50  = (p - s50v) / s50v * 100.0
+    atr_ratio = atr_v / p * 100.0
+
+    # ATR stable (faible std/mean sur 20 barres)
+    atr_vals = atr_s.iloc[max(0, i - 19): i + 1]
+    atr_mean = float(atr_vals.mean())
+    atr_std  = float(atr_vals.std()) if len(atr_vals) > 1 else 0.0
+    atr_stable = (atr_std / atr_mean < 0.20) if atr_mean > 0 else False
+
+    p3m = (p / float(close.iloc[i - 63]) - 1.0) * 100.0 if i >= 63 else 0.0
+
+    return (
+        p > s200v
+        and atr_ratio < 2.5
+        and atr_stable
+        and -2.5 <= dist_s50 <= 2.5
+        and 45 <= rv <= 58
+        and mhv > -0.2
+        and p3m > 0.0
+    )
+
+
+def _sig_mean_reversion_uptrend(close, high, low, volume, s50, s200, rsi_s, mh_s, atr_s, e20_s, i):
+    """
+    E. Mean Reversion in Uptrend — pullback vers support en marché haussier.
+
+    Conditions :
+      • prix > SMA200 (uptrend fondamental intact)
+      • SMA50 > SMA200
+      • prix a tiré vers EMA20 (dist -8 % → -1 %)
+      • RSI 35-52 (oversold temporaire)
+      • MACD histogram > -1.5 (pas de retournement majeur)
+      • volume décroissant sur le pullback (vente épuisée)
+    """
+    if i < 10:
+        return False
+    p    = float(close.iloc[i])
+    s50v = float(s50.iloc[i])
+    s200v= float(s200.iloc[i])
+    e20v = float(e20_s.iloc[i])
+    rv   = float(rsi_s.iloc[i])
+    mhv  = float(mh_s.iloc[i])
+
+    if s50v <= 0 or s200v <= 0 or e20v <= 0:
+        return False
+
+    dist_e20 = (p - e20v) / e20v * 100.0
+
+    # Volume décroissant (épuisement des vendeurs)
+    vol_prev5 = float(volume.iloc[max(0, i - 7): max(0, i - 2) + 1].mean())
+    vol_cur3  = float(volume.iloc[max(0, i - 2): i + 1].mean())
+    vol_declining = (vol_cur3 <= vol_prev5 * 1.1) if vol_prev5 > 0 else True
+
+    return (
+        p > s200v
+        and s50v > s200v
+        and -8.0 <= dist_e20 <= -1.0
+        and 35 <= rv <= 52
+        and mhv > -1.5
+        and vol_declining
+    )
+
+
+# ─── Registre des stratégies ───────────────────────────────────────────────────
 
 LAB_STRATEGIES: List[Dict] = [
     {
-        "key":         "pullback_sma50",
-        "name":        "Pullback SMA50",
-        "description": "Achat sur retour vers SMA50 en tendance haussière",
+        "key":         "pullback_trend",
+        "name":        "Pullback Trend",
+        "description": "Retour vers EMA20 en double uptrend (SMA50 > SMA200)",
         "color":       "#818cf8",
         "emoji":       "📉",
         "tp_pct":      0.07,
         "sl_pct":      0.03,
-        "fn":          _sig_pullback_sma50,
+        "fn":          _sig_pullback_trend,
         "screener_strategy": "standard",
         "screener_signal":   "Pullback",
     },
     {
-        "key":         "breakout_30d",
-        "name":        "Breakout 30 jours",
-        "description": "Cassure du plus haut des 30 jours avec volume",
+        "key":         "breakout_quality",
+        "name":        "Breakout Quality",
+        "description": "Cassure plus haut 20j avec volume × 1.4 + RSI 52-72",
         "color":       "#f59e0b",
         "emoji":       "🚀",
         "tp_pct":      0.10,
         "sl_pct":      0.04,
-        "fn":          _sig_breakout_30d,
+        "fn":          _sig_breakout_quality,
         "screener_strategy": "standard",
         "screener_signal":   "Breakout",
     },
     {
-        "key":         "momentum_fort",
-        "name":        "Momentum Fort",
-        "description": "RSI 60-72 + MACD positif + surperformance 3 mois",
+        "key":         "relative_strength",
+        "name":        "Relative Strength Leader",
+        "description": "Action en tête de marché : perf 3m > 8 %, RSI 50-68",
         "color":       "#4ade80",
         "emoji":       "⚡",
-        "tp_pct":      0.08,
-        "sl_pct":      0.03,
-        "fn":          _sig_momentum_fort,
+        "tp_pct":      0.09,
+        "sl_pct":      0.035,
+        "fn":          _sig_relative_strength,
         "screener_strategy": "standard",
         "screener_signal":   "Momentum",
     },
     {
-        "key":         "mean_reversion",
-        "name":        "Mean Reversion Qualité",
-        "description": "Achat sur pullback profond (5-15%) en uptrend",
-        "color":       "#f87171",
-        "emoji":       "🔄",
-        "tp_pct":      0.06,
-        "sl_pct":      0.03,
-        "fn":          _sig_mean_reversion,
-        "screener_strategy": "standard",
-        "screener_signal":   "Pullback",
-    },
-    {
-        "key":         "low_vol_swing",
-        "name":        "Low Volatility Swing",
-        "description": "ATR stable + prix proche SMA50 + RSI neutre",
+        "key":         "low_vol_compounder",
+        "name":        "Low Volatility Compounder",
+        "description": "ATR faible + SMA50 stable + RSI neutre 45-58",
         "color":       "#38bdf8",
         "emoji":       "🧊",
         "tp_pct":      0.05,
         "sl_pct":      0.02,
-        "fn":          _sig_low_vol_swing,
+        "fn":          _sig_low_vol_compounder,
         "screener_strategy": "conservative",
         "screener_signal":   "",
     },
     {
-        "key":         "conservative_trend",
-        "name":        "Conservative Trend",
-        "description": "Tendance stricte: RSI 50-62, MACD>0, perf positive",
-        "color":       "#34d399",
-        "emoji":       "🛡",
+        "key":         "mean_reversion",
+        "name":        "Mean Reversion in Uptrend",
+        "description": "Pullback profond (-8%/-1% EMA20), RSI 35-52, volume épuisé",
+        "color":       "#f87171",
+        "emoji":       "🔄",
         "tp_pct":      0.05,
-        "sl_pct":      0.02,
-        "fn":          _sig_conservative_trend,
-        "screener_strategy": "conservative",
-        "screener_signal":   "",
+        "sl_pct":      0.025,
+        "fn":          _sig_mean_reversion_uptrend,
+        "screener_strategy": "standard",
+        "screener_signal":   "Pullback",
     },
 ]
 
 
-# ── Backtest d'un ticker pour une stratégie ───────────────────────────────────
+# ─── Backtest d'un ticker ──────────────────────────────────────────────────────
 
-def backtest_ticker_lab(ticker: str, df: pd.DataFrame, strategy_def: Dict, period_months: int = 12) -> List[Dict]:
-    """Simule une stratégie sur un ticker. Retourne la liste des trades."""
+def backtest_ticker_lab(
+    ticker: str,
+    df: pd.DataFrame,
+    strategy_def: Dict,
+    period_months: int = 12,
+) -> List[Dict]:
+    """
+    Simule une stratégie sur un ticker.
+    Inclut EMA20 pour les nouvelles fonctions de signal.
+    Retourne la liste des trades (incluant les OPEN).
+    """
     try:
         close  = df["Close"].squeeze()
         high   = df["High"].squeeze()
@@ -227,6 +325,7 @@ def backtest_ticker_lab(ticker: str, df: pd.DataFrame, strategy_def: Dict, perio
 
         s50_s  = sma(close, 50)
         s200_s = sma(close, 200)
+        e20_s  = ema(close, 20)          # EMA20 — nouveau
         r_s    = rsi(close, 14)
         _, _, mh_s = macd(close)
         atr_s  = atr(high, low, close, 14)
@@ -234,7 +333,7 @@ def backtest_ticker_lab(ticker: str, df: pd.DataFrame, strategy_def: Dict, perio
         tp_pct   = strategy_def["tp_pct"]
         sl_pct   = strategy_def["sl_pct"]
         fn       = strategy_def["fn"]
-        max_days = 30
+        max_days = 30                     # timeout par défaut
 
         n              = len(df)
         trading_days   = int(252 * period_months / 12)
@@ -251,12 +350,14 @@ def backtest_ticker_lab(ticker: str, df: pd.DataFrame, strategy_def: Dict, perio
             s200_v = float(s200_s.iloc[i])
             r_v    = float(r_s.iloc[i])
             mh_v   = float(mh_s.iloc[i])
-            if any(np.isnan([s50_v, s200_v, r_v, mh_v])):
+            e20_v  = float(e20_s.iloc[i])
+
+            if any(np.isnan(x) for x in [s50_v, s200_v, r_v, mh_v, e20_v]):
                 continue
 
             if in_trade:
-                tp_price    = entry_price * (1 + tp_pct)
-                sl_price    = entry_price * (1 - sl_pct)
+                tp_price    = entry_price * (1.0 + tp_pct)
+                sl_price    = entry_price * (1.0 - sl_pct)
                 today_high  = float(high.iloc[i])
                 today_low   = float(low.iloc[i])
                 today_close = float(close.iloc[i])
@@ -277,7 +378,7 @@ def backtest_ticker_lab(ticker: str, df: pd.DataFrame, strategy_def: Dict, perio
                 else:
                     continue
 
-                pnl = (exit_price / entry_price - 1) * 100
+                pnl = (exit_price / entry_price - 1.0) * 100.0
                 trades.append({
                     "ticker":        ticker,
                     "entry_date":    entry_date,
@@ -294,19 +395,23 @@ def backtest_ticker_lab(ticker: str, df: pd.DataFrame, strategy_def: Dict, perio
 
             else:
                 try:
-                    sig = fn(close, high, low, volume, s50_s, s200_s, r_s, mh_s, atr_s, i)
+                    sig = fn(
+                        close, high, low, volume,
+                        s50_s, s200_s, r_s, mh_s, atr_s, e20_s, i,
+                    )
                 except Exception:
                     sig = False
+
                 if sig:
                     entry_price = float(close.iloc[i + 1])
                     entry_date  = str(close.index[i + 1])[:10]
                     entry_idx   = i + 1
                     in_trade    = True
 
-        # Trade ouvert à la fin
+        # Trade encore ouvert à la fin
         if in_trade and len(close) > entry_idx:
             last_close = float(close.iloc[-1])
-            pnl        = (last_close / entry_price - 1) * 100
+            pnl        = (last_close / entry_price - 1.0) * 100.0
             trades.append({
                 "ticker":        ticker,
                 "entry_date":    entry_date,
@@ -326,28 +431,119 @@ def backtest_ticker_lab(ticker: str, df: pd.DataFrame, strategy_def: Dict, perio
         return []
 
 
-# ── Agrégation des résultats ──────────────────────────────────────────────────
+# ─── Walk-Forward Validation ───────────────────────────────────────────────────
 
-def compute_lab_score(total_trades: int, win_rate: float, expectancy: float, max_dd: float) -> float:
-    """Score /100 : win rate 35%, expectancy 30%, drawdown 20%, trades 15%."""
-    wr_score  = min(win_rate / 65.0, 1.0) * 35
-    exp_score = min(max(expectancy, 0) / 2.5, 1.0) * 30
-    dd_score  = max(0.0, 1.0 - abs(max_dd) / 25.0) * 20
-    tr_score  = min(total_trades / 40.0, 1.0) * 15
-    return round(wr_score + exp_score + dd_score + tr_score, 1)
-
-
-def aggregate_lab_result(strategy_def: Dict, all_trades: List[Dict], period_months: int) -> Dict:
+def _walk_forward_split(
+    all_trades: List[Dict],
+    train_pct: float = 0.75,
+) -> Tuple[List[Dict], List[Dict]]:
     """
-    Calcule les stats agrégées d'une stratégie via le Portfolio Backtest Engine.
-
-    Remplace la simple sommation de % par une simulation réaliste :
-      - Capital 10 000 $, risque 1 % / trade, max 8 positions simultanées
-      - Position sizing dynamique (sl_pct de chaque trade)
-      - Commission 0.05 % aller/retour
-    Les signaux fonctions (LAB_STRATEGIES) et backtest_ticker_lab() restent inchangés.
+    Divise les trades chronologiquement.
+    Train : première `train_pct` des trades (75 %).
+    Test  : derniers (1 - train_pct) des trades (25 %).
     """
-    # ── Métadonnées de la stratégie ───────────────────────────────────────────
+    if not all_trades:
+        return [], []
+    sorted_t = sorted(
+        [t for t in all_trades if t.get("exit_reason") != "OPEN"],
+        key=lambda t: t["entry_date"],
+    )
+    n     = len(sorted_t)
+    split = max(1, int(n * train_pct))
+    return sorted_t[:split], sorted_t[split:]
+
+
+def _overfitting_warnings(
+    total_trades: int,
+    train_pf: float,
+    test_pf:  float,
+    train_wr: float,
+    test_wr:  float,
+    ticker_returns: Dict[str, float],
+) -> Tuple[bool, List[str]]:
+    """
+    Détecte les signaux d'overfitting.
+    Retourne (overfitting_risk: bool, reasons: List[str]).
+    """
+    risk    = False
+    reasons = []
+
+    # 1. Nombre de trades insuffisant
+    if total_trades < 50:
+        reasons.append(f"Seulement {total_trades} trades — minimum 50 requis")
+
+    # 2. Divergence train / test (risque majeur)
+    if train_pf > 1.5 and test_pf < 1.0:
+        risk = True
+        reasons.append(f"Divergence train/test : PF train={train_pf:.2f} → PF test={test_pf:.2f}")
+
+    if abs(train_wr - test_wr) > 20:
+        risk = True
+        reasons.append(
+            f"Win rate s'effondre en test : {train_wr:.0f}% → {test_wr:.0f}%"
+        )
+
+    # 3. Concentration sur un seul ticker
+    if ticker_returns:
+        total_abs = sum(abs(v) for v in ticker_returns.values())
+        if total_abs > 0:
+            best_t  = max(ticker_returns, key=lambda k: abs(ticker_returns[k]))
+            best_v  = abs(ticker_returns[best_t])
+            conc    = best_v / total_abs
+            if conc >= 0.40:
+                risk = True
+                reasons.append(
+                    f"Concentration excessive : {best_t} représente {conc*100:.0f}% du P&L"
+                )
+
+    return risk, reasons
+
+
+# ─── Score composite ───────────────────────────────────────────────────────────
+
+def compute_lab_score(
+    total_trades: int,
+    win_rate: float,
+    expectancy: float,
+    max_dd: float,
+    profit_factor: float,
+    sharpe: float,
+    overfitting_risk: bool,
+    test_pf: float,
+) -> float:
+    """
+    Score /100 intégrant la robustesse walk-forward.
+    Penalise les stratégies avec overfitting ou mauvais test.
+    """
+    wr_s   = min(win_rate / 65.0,        1.0) * 25
+    exp_s  = min(max(expectancy, 0) / 2.5, 1.0) * 20
+    pf_s   = min(max(profit_factor - 1.0, 0) / 2.0, 1.0) * 20
+    dd_s   = max(0.0, 1.0 - abs(max_dd) / 25.0) * 15
+    sh_s   = min(max(sharpe, 0) / 2.0,    1.0) * 10
+    tr_s   = min(total_trades / 60.0,     1.0) * 10
+
+    raw = wr_s + exp_s + pf_s + dd_s + sh_s + tr_s
+
+    # Pénalité overfitting
+    if overfitting_risk:
+        raw *= 0.60
+    elif test_pf < 1.0 and total_trades >= 10:
+        raw *= 0.80   # test non profitable mais pas d'overfitting flagrant
+
+    return round(raw, 1)
+
+
+# ─── Agrégation des résultats ──────────────────────────────────────────────────
+
+def aggregate_lab_result(
+    strategy_def: Dict,
+    all_trades: List[Dict],
+    period_months: int,
+) -> Dict:
+    """
+    Calcule les stats agrégées via le Portfolio Backtest Engine
+    + Walk-Forward Validation + détection d'overfitting.
+    """
     base = {
         "key":               strategy_def["key"],
         "name":              strategy_def["name"],
@@ -361,27 +557,83 @@ def aggregate_lab_result(strategy_def: Dict, all_trades: List[Dict], period_mont
         "period_months":     period_months,
     }
 
-    # ── Simulation portfolio ──────────────────────────────────────────────────
-    portfolio = run_portfolio_backtest(all_trades, period_months, INITIAL_CAPITAL)
+    # ── Simulation portfolio complète ─────────────────────────────────────────
+    closed_trades = [t for t in all_trades if t.get("exit_reason") != "OPEN"]
+    portfolio     = run_portfolio_backtest(closed_trades, period_months, INITIAL_CAPITAL)
 
-    # ── Score composite (compatible avec le tri existant) ────────────────────
-    score = compute_lab_score(
-        portfolio["total_trades"],
-        portfolio["win_rate"],
-        portfolio["expectancy"],          # % moyen / trade
-        portfolio["max_drawdown_pct"],
+    # ── Walk-Forward (75 % train / 25 % test) ─────────────────────────────────
+    train_trades, test_trades = _walk_forward_split(all_trades, train_pct=0.75)
+
+    empty = _empty_result(INITIAL_CAPITAL)
+    train_portfolio = (
+        run_portfolio_backtest(train_trades, period_months, INITIAL_CAPITAL)
+        if train_trades else empty
+    )
+    test_portfolio = (
+        run_portfolio_backtest(test_trades, period_months, INITIAL_CAPITAL)
+        if test_trades else empty
     )
 
-    # ── ticker_returns en $ (pour compatibilité avec les outils existants) ───
+    train_pf = train_portfolio["profit_factor"]
+    test_pf  = test_portfolio["profit_factor"]
+    train_wr = train_portfolio["win_rate"]
+    test_wr  = test_portfolio["win_rate"]
+
+    # Dégradation en %
+    wr_degradation = round(train_wr - test_wr, 1)
+    pf_degradation = round((train_pf - test_pf) / max(train_pf, 0.01) * 100, 1)
+
+    # ── Ticker returns ($ par ticker) ─────────────────────────────────────────
     ticker_returns: Dict[str, float] = {}
     for t in portfolio.get("trades", []):
         tk = t["ticker"]
         ticker_returns[tk] = ticker_returns.get(tk, 0.0) + t["pnl_dollars"]
 
+    # ── Overfitting detection ─────────────────────────────────────────────────
+    overfitting_risk, overfitting_reasons = _overfitting_warnings(
+        portfolio["total_trades"],
+        train_pf, test_pf,
+        train_wr, test_wr,
+        ticker_returns,
+    )
+
+    # ── Score final ───────────────────────────────────────────────────────────
+    score = compute_lab_score(
+        portfolio["total_trades"],
+        portfolio["win_rate"],
+        portfolio["expectancy"],
+        portfolio["max_drawdown_pct"],
+        portfolio["profit_factor"],
+        portfolio["sharpe_ratio"],
+        overfitting_risk,
+        test_pf,
+    )
+
+    # eligible = au moins 30 trades (affichage) ; TRADABLE = ≥ 50 (portfolio_backtest)
+    eligible = portfolio["total_trades"] >= 30
+
     return {
         **base,
         **portfolio,
-        "score":          score,
-        "eligible":       portfolio["total_trades"] >= 20,
+        "score":   score,
+        "eligible": eligible,
         "ticker_returns": ticker_returns,
+
+        # ── Walk-Forward ──────────────────────────────────────────────────────
+        "walk_forward": {
+            "train_trades":    train_portfolio["total_trades"],
+            "train_win_rate":  train_portfolio["win_rate"],
+            "train_pf":        train_pf,
+            "train_expectancy":train_portfolio["expectancy"],
+            "test_trades":     test_portfolio["total_trades"],
+            "test_win_rate":   test_wr,
+            "test_pf":         test_pf,
+            "test_expectancy": test_portfolio["expectancy"],
+            "wr_degradation":  wr_degradation,
+            "pf_degradation":  pf_degradation,
+        },
+
+        # ── Overfitting ───────────────────────────────────────────────────────
+        "overfitting_risk":    overfitting_risk,
+        "overfitting_reasons": overfitting_reasons,
     }

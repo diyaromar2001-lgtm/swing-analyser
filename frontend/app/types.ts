@@ -237,6 +237,19 @@ export interface SentimentResult {
 
 // ── Strategy Lab ──────────────────────────────────────────────────────────────
 
+export interface WalkForward {
+  train_trades:     number;
+  train_win_rate:   number;
+  train_pf:         number;
+  train_expectancy: number;
+  test_trades:      number;
+  test_win_rate:    number;
+  test_pf:          number;
+  test_expectancy:  number;
+  wr_degradation:   number;
+  pf_degradation:   number;
+}
+
 export interface LabStrategyResult {
   key:               string;
   name:              string;
@@ -253,8 +266,8 @@ export interface LabStrategyResult {
   wins:              number;
   losses:            number;
   win_rate:          number;
-  expectancy:        number;          // % moyen / trade
-  expectancy_dollars?: number;        // $ moyen / trade
+  expectancy:        number;
+  expectancy_dollars?: number;
   profit_factor:     number;
   max_drawdown_pct:  number;
   total_return_pct:  number;
@@ -264,7 +277,7 @@ export interface LabStrategyResult {
   worst_ticker:      string;
   score:             number;
   eligible:          boolean;
-  // Portfolio metrics (nouveau moteur)
+  // Portfolio metrics
   sharpe_ratio:             number;
   cagr_pct:                 number;
   final_capital:            number;
@@ -276,14 +289,23 @@ export interface LabStrategyResult {
   // Curves & details
   equity_curve:      number[];
   ticker_returns:    Record<string, number>;
+  // Walk-forward & overfitting (v2)
+  walk_forward?:        WalkForward;
+  overfitting_risk?:    boolean;
+  overfitting_reasons?: string[];
 }
 
 export interface LabSummary {
-  strategies:      LabStrategyResult[];
-  best_overall:    string;
-  best_win_rate:   string;
-  best_expectancy: string;
-  period_months:   number;
+  strategies:          LabStrategyResult[];
+  best_overall:        string;
+  best_win_rate:       string;
+  best_expectancy:     string;
+  best_pf?:            string;
+  best_low_dd?:        string;
+  has_robust_strategy?: boolean;
+  tradable_count?:     number;
+  confirmed_count?:    number;
+  period_months:       number;
 }
 
 // ── Parameter Optimizer ───────────────────────────────────────────────────────

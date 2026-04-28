@@ -20,12 +20,12 @@ COMMISSION        = 0.0005      # 0.05 % par côté (aller & retour)
 
 # ── Critères de tradabilité ────────────────────────────────────────────────────
 
-TRADABLE_MIN_TRADES = 30
+TRADABLE_MIN_TRADES = 50        # robustesse statistique (v2)
 TRADABLE_MIN_PF     = 1.30
 TRADABLE_MAX_DD     = -25.0    # max drawdown acceptable (%)
 TRADABLE_MIN_SHARPE = 0.50
 
-CONFIRM_MIN_TRADES  = 15
+CONFIRM_MIN_TRADES  = 25
 CONFIRM_MIN_PF      = 1.00
 CONFIRM_MAX_DD      = -35.0
 

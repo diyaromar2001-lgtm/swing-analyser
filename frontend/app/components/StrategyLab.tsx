@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { LabStrategyResult, LabSummary, OptimizedParamSet, OptimizerResult } from "../types";
+import { LabStrategyResult, LabSummary, WalkForward, OptimizedParamSet, OptimizerResult } from "../types";
 import { Strategy } from "./Dashboard";
 import { EngineBanner } from "./BacktestView";
 
@@ -97,6 +97,83 @@ function EquityCurve({ data, color, height = 50 }: { data: number[]; color: stri
       <path d={`${path} L ${w} ${h} L 0 ${h} Z`} fill={`url(#lg-${color.slice(1)})`} />
       <path d={path} fill="none" stroke={lineColor} strokeWidth="1.5" />
     </svg>
+  );
+}
+
+// ── Walk-Forward Table ────────────────────────────────────────────────────────
+
+function WalkForwardTable({ wf }: { wf: WalkForward }) {
+  const rows = [
+    { label: "Trades",         train: String(wf.train_trades),                   test: String(wf.test_trades) },
+    { label: "Win Rate",       train: `${wf.train_win_rate.toFixed(1)}%`,        test: `${wf.test_win_rate.toFixed(1)}%` },
+    { label: "Profit Factor",  train: wf.train_pf.toFixed(2),                    test: wf.test_pf.toFixed(2) },
+    { label: "Expectancy",     train: `${wf.train_expectancy >= 0 ? "+" : ""}${wf.train_expectancy.toFixed(2)}%`, test: `${wf.test_expectancy >= 0 ? "+" : ""}${wf.test_expectancy.toFixed(2)}%` },
+  ];
+  const wrDeg = wf.wr_degradation;
+  const pfDeg = wf.pf_degradation;
+  const robustColor = (Math.abs(wrDeg) < 10 && Math.abs(pfDeg) < 20) ? "#10b981" : Math.abs(wrDeg) < 20 ? "#f59e0b" : "#ef4444";
+
+  return (
+    <div className="rounded-lg overflow-hidden mt-3" style={{ border: "1px solid #1a1a2e" }}>
+      <div className="flex items-center justify-between px-3 py-2" style={{ background: "#07070f", borderBottom: "1px solid #1a1a2e" }}>
+        <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Walk-Forward Validation (75% train / 25% test)</p>
+        <span className="text-[9px] font-black px-2 py-0.5 rounded"
+          style={{ background: robustColor + "18", color: robustColor, border: `1px solid ${robustColor}33` }}>
+          {Math.abs(wrDeg) < 10 ? "ROBUST" : Math.abs(wrDeg) < 20 ? "MODERATE" : "FRAGILE"}
+        </span>
+      </div>
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr style={{ background: "#0a0a14" }}>
+            <th className="px-3 py-1.5 text-left text-gray-600 font-semibold" />
+            <th className="px-3 py-1.5 text-right text-indigo-400 font-black">TRAIN 75%</th>
+            <th className="px-3 py-1.5 text-right text-amber-400 font-black">TEST 25%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={row.label} style={{ borderTop: "1px solid #1a1a2e", background: i % 2 === 0 ? "#0a0a14" : "#07070f" }}>
+              <td className="px-3 py-1.5 text-gray-500">{row.label}</td>
+              <td className="px-3 py-1.5 text-right font-mono font-bold text-indigo-300">{row.train}</td>
+              <td className="px-3 py-1.5 text-right font-mono font-bold"
+                style={{ color: parseFloat(row.test) >= parseFloat(row.train) * 0.75 ? "#6ee7b7" : "#fca5a5" }}>
+                {row.test}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="flex gap-4 px-3 py-2 text-[10px]" style={{ background: "#07070f", borderTop: "1px solid #1a1a2e" }}>
+        <span className="text-gray-600">
+          WR degradation: <strong style={{ color: Math.abs(wrDeg) < 10 ? "#10b981" : "#f59e0b" }}>
+            {wrDeg >= 0 ? "-" : "+"}{Math.abs(wrDeg).toFixed(1)} pts
+          </strong>
+        </span>
+        <span className="text-gray-600">
+          PF degradation: <strong style={{ color: Math.abs(pfDeg) < 20 ? "#10b981" : "#f59e0b" }}>
+            {pfDeg >= 0 ? "-" : "+"}{Math.abs(pfDeg).toFixed(1)}%
+          </strong>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Overfitting Warning ───────────────────────────────────────────────────────
+
+function OverfittingWarning({ reasons }: { reasons: string[] }) {
+  if (!reasons.length) return null;
+  return (
+    <div className="rounded-lg px-3 py-2.5 mt-2" style={{ background: "#140404", border: "1px solid #7f1d1d" }}>
+      <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-1.5">⚠ Overfitting Risk</p>
+      <ul className="space-y-0.5">
+        {reasons.map((r, i) => (
+          <li key={i} className="text-[10px] text-red-400 flex items-start gap-1.5">
+            <span className="mt-px flex-shrink-0">•</span>{r}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -215,22 +292,31 @@ function StrategyCard({
             <Badge label={`⚠️ ${r.total_trades} trades < seuil ${minTrades}`} bg="#1a0800" text="#f59e0b" />
           )}
           {badges.includes("best_overall_provisional") && (
-            <Badge label="🔎 Provisoire — non tradable" bg="#1a0800" text="#f59e0b" />
+            <Badge label="🔎 Provisoire" bg="#1a0800" text="#f59e0b" />
           )}
           {badges.includes("best_overall_confirmed") && (
-            <Badge label="⚠️ Best — À confirmer" bg="#1a1000" text="#fbbf24" />
+            <Badge label="⚠️ Best·À confirmer" bg="#1a1000" text="#fbbf24" />
           )}
           {badges.includes("best_overall") && (
-            <Badge label="🏆 Best Overall" bg="#052e16" text="#4ade80" />
+            <Badge label="🏆 Best Robust" bg="#052e16" text="#4ade80" />
           )}
           {badges.includes("best_win_rate") && (
-            <Badge label="🎯 Best Win Rate" bg="#052e16" text="#4ade80" />
+            <Badge label="🎯 Best WR" bg="#052e16" text="#4ade80" />
           )}
           {badges.includes("best_expectancy") && (
-            <Badge label="⚡ Best Expectancy" bg="#0f1a3a" text="#818cf8" />
+            <Badge label="⚡ Best Exp" bg="#0f1a3a" text="#818cf8" />
+          )}
+          {badges.includes("best_pf") && (
+            <Badge label="⚙️ Best PF" bg="#0f1a3a" text="#a78bfa" />
+          )}
+          {badges.includes("best_low_dd") && (
+            <Badge label="🛡 Best DD" bg="#041310" text="#34d399" />
+          )}
+          {r.overfitting_risk && (
+            <Badge label="🔴 Overfitting Risk" bg="#140404" text="#ef4444" />
           )}
           {isActive && (
-            <Badge label="✓ En cours d'utilisation" bg="#0f1a3a" text="#818cf8" />
+            <Badge label="✓ Actif" bg="#0f1a3a" text="#818cf8" />
           )}
         </div>
 
@@ -327,23 +413,32 @@ function StrategyCard({
 
       {/* Détail expandable */}
       {expanded && (
-        <div className="px-4 pb-3 text-[11px] text-gray-500 space-y-1"
+        <div className="px-4 pb-3 space-y-2"
           style={{ borderTop: "1px solid #1a1a28", paddingTop: "10px" }}>
-          <p>⏱ Durée moy. : <span className="text-gray-300">{r.avg_duration_days.toFixed(1)}j</span></p>
-          <p>🟢 Meilleur ticker : <span className="text-green-400 font-bold">{r.best_ticker}</span></p>
-          <p>🔴 Pire ticker : <span className="text-red-400 font-bold">{r.worst_ticker}</span></p>
-          <p>📊 Gains / Pertes : <span className="text-gray-300">{r.wins}W / {r.losses}L</span></p>
-          {r.max_concurrent_positions !== undefined && (
-            <p>🔀 Max positions simultanées : <span className="text-gray-300">{r.max_concurrent_positions}</span></p>
+          {/* Walk-Forward */}
+          {r.walk_forward && <WalkForwardTable wf={r.walk_forward} />}
+          {/* Overfitting warning */}
+          {r.overfitting_risk && r.overfitting_reasons && (
+            <OverfittingWarning reasons={r.overfitting_reasons} />
           )}
-          {r.time_in_market_pct !== undefined && (
-            <p>📈 Temps investi : <span className="text-gray-300">{r.time_in_market_pct.toFixed(1)}%</span></p>
-          )}
-          {r.expectancy_dollars !== undefined && (
-            <p>💰 Gain moyen / trade : <span style={{ color: r.expectancy_dollars >= 0 ? "#4ade80" : "#f87171" }}>
-              {r.expectancy_dollars >= 0 ? "+" : ""}${r.expectancy_dollars.toFixed(2)}
-            </span></p>
-          )}
+          {/* Trade details */}
+          <div className="text-[11px] text-gray-500 space-y-1 pt-1">
+            <p>⏱ Durée moy. : <span className="text-gray-300">{r.avg_duration_days.toFixed(1)}j</span></p>
+            <p>🟢 Meilleur ticker : <span className="text-green-400 font-bold">{r.best_ticker}</span></p>
+            <p>🔴 Pire ticker : <span className="text-red-400 font-bold">{r.worst_ticker}</span></p>
+            <p>📊 Gains / Pertes : <span className="text-gray-300">{r.wins}W / {r.losses}L</span></p>
+            {r.max_concurrent_positions !== undefined && (
+              <p>🔀 Max positions sim. : <span className="text-gray-300">{r.max_concurrent_positions}</span></p>
+            )}
+            {r.time_in_market_pct !== undefined && (
+              <p>📈 Temps investi : <span className="text-gray-300">{r.time_in_market_pct.toFixed(1)}%</span></p>
+            )}
+            {r.expectancy_dollars !== undefined && (
+              <p>💰 Gain moy./trade : <span style={{ color: r.expectancy_dollars >= 0 ? "#4ade80" : "#f87171" }}>
+                {r.expectancy_dollars >= 0 ? "+" : ""}${r.expectancy_dollars.toFixed(2)}
+              </span></p>
+            )}
+          </div>
         </div>
       )}
 
@@ -454,12 +549,15 @@ function CompTable({
                         <p className="font-bold text-white text-sm">{r.emoji} {r.name}</p>
                         <div className="flex gap-1 mt-0.5 flex-wrap">
                           <TradabilityBadge r={r} />
-                          {r.key === bestOverall?.key && isBestTradable  && <Badge label="🏆 Best"      bg="#052e16" text="#4ade80" />}
+                          {r.key === bestOverall?.key && isBestTradable  && <Badge label="🏆 Best Robust"    bg="#052e16" text="#4ade80" />}
                           {r.key === bestOverall?.key && isBestConfirmed && <Badge label="⚠️ Best·À confirmer" bg="#1a1000" text="#fbbf24" />}
                           {r.key === bestOverall?.key && !isBestTradable && !isBestConfirmed && <Badge label="🔎 Provisoire" bg="#1a0800" text="#f59e0b" />}
-                          {r.key === data.best_win_rate   && <Badge label="🎯 WR"   bg="#052e16" text="#4ade80" />}
-                          {r.key === data.best_expectancy && <Badge label="⚡ Exp"  bg="#0f1a3a" text="#818cf8" />}
-                          {r.total_trades < minTrades     && <Badge label={r.total_trades === 0 ? "0 trades" : `${r.total_trades}T < ${minTrades}`} bg="#1a0a00" text="#f59e0b" />}
+                          {r.key === data.best_win_rate   && <Badge label="🎯 WR"     bg="#052e16" text="#4ade80" />}
+                          {r.key === data.best_expectancy && <Badge label="⚡ Exp"    bg="#0f1a3a" text="#818cf8" />}
+                          {r.key === data.best_pf         && <Badge label="⚙️ PF"    bg="#0f1a3a" text="#a78bfa" />}
+                          {r.key === data.best_low_dd     && <Badge label="🛡 DD"    bg="#041310" text="#34d399" />}
+                          {r.overfitting_risk             && <Badge label="🔴 Overfit" bg="#140404" text="#ef4444" />}
+                          {r.total_trades < minTrades     && <Badge label={r.total_trades === 0 ? "0 trades" : `${r.total_trades}T`} bg="#1a0a00" text="#f59e0b" />}
                         </div>
                       </div>
                     </div>
@@ -543,7 +641,7 @@ export function StrategyLab({ onUseStrategy, activeStrategyKey }: StrategyLabPro
   const [period, setPeriod]     = useState<12 | 24>(12);
   const [banner, setBanner]     = useState<LabStrategyResult | null>(null);
   const [view, setView]         = useState<"cards" | "table">("cards");
-  const [minTrades, setMinTrades] = useState(20);   // seuil d'éligibilité configurable
+  const [minTrades, setMinTrades] = useState(30);   // seuil d'éligibilité configurable (TRADABLE = 50)
 
   const run = useCallback(async (p?: 12 | 24) => {
     setLoading(true);
@@ -579,12 +677,12 @@ export function StrategyLab({ onUseStrategy, activeStrategyKey }: StrategyLabPro
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
         </svg>
         <div className="text-center">
-          <p className="text-white font-bold text-lg mb-1">Strategy Lab en cours…</p>
-          <p className="text-gray-500 text-sm">6 stratégies × 40 tickers × {period} mois</p>
+          <p className="text-white font-bold text-lg mb-1">Strategy Lab v2 en cours…</p>
+          <p className="text-gray-500 text-sm">5 stratégies × univers complet × {period} mois · Walk-Forward</p>
           <p className="text-gray-600 text-xs mt-1">⏱ Durée estimée : 1 à 3 minutes</p>
         </div>
-        <div className="flex gap-2 mt-2">
-          {["Pullback SMA50", "Breakout 30j", "Momentum Fort", "Mean Reversion", "Low Vol Swing", "Conservative"].map((s, i) => (
+        <div className="flex gap-2 mt-2 flex-wrap justify-center">
+          {["Pullback Trend", "Breakout Quality", "Relative Strength", "Low Vol Compounder", "Mean Reversion"].map((s, i) => (
             <span key={i} className="text-[10px] px-2 py-1 rounded-full text-gray-600" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
               {s}
             </span>
@@ -602,21 +700,20 @@ export function StrategyLab({ onUseStrategy, activeStrategyKey }: StrategyLabPro
           <p className="text-5xl mb-4">🧬</p>
           <h2 className="text-2xl font-black text-white mb-2">Strategy Lab</h2>
           <p className="text-gray-400 text-sm leading-relaxed mb-1">
-            Backteste automatiquement 6 stratégies swing trading sur l&apos;ensemble des 40 tickers et
-            les classe selon un score composite : win rate, expectancy, drawdown et nombre de trades.
+            Backteste 5 stratégies swing sur l&apos;univers complet avec walk-forward validation (75% train / 25% test)
+            et détection d&apos;overfitting. TRADABLE = min 50 trades + PF &gt; 1.3 + DD &lt; 25% + Sharpe &gt; 0.5.
           </p>
-          <p className="text-gray-600 text-xs">TP variable par stratégie · SL variable · Timeout 30 jours · Minimum 20 trades</p>
+          <p className="text-gray-600 text-xs">Portfolio réaliste · $10 000 · 1% risque/trade · Max 8 positions · Commissions incluses</p>
         </div>
 
         {/* Stratégies preview */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-2xl">
           {[
-            ["📉", "Pullback SMA50",       "TP +7% / SL -3%"],
-            ["🚀", "Breakout 30 jours",    "TP +10% / SL -4%"],
-            ["⚡", "Momentum Fort",        "TP +8% / SL -3%"],
-            ["🔄", "Mean Reversion",       "TP +6% / SL -3%"],
-            ["🧊", "Low Volatility Swing", "TP +5% / SL -2%"],
-            ["🛡", "Conservative Trend",   "TP +5% / SL -2%"],
+            ["📉", "Pullback Trend",              "EMA20 pullback · TP +7% / SL -3%"],
+            ["🚀", "Breakout Quality",            "Vol ×1.4 · TP +10% / SL -4%"],
+            ["⚡", "Relative Strength Leader",    "Perf 3m >8% · TP +9% / SL -3.5%"],
+            ["🧊", "Low Volatility Compounder",   "ATR faible · TP +5% / SL -2%"],
+            ["🔄", "Mean Reversion in Uptrend",   "EMA20 -8%/-1% · TP +5% / SL -2.5%"],
           ].map(([em, name, params]) => (
             <div key={name} className="rounded-xl p-3" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
               <p className="text-base mb-1">{em}</p>
@@ -680,18 +777,27 @@ export function StrategyLab({ onUseStrategy, activeStrategyKey }: StrategyLabPro
   const bestOverall = pool.length > 0
     ? pool.reduce((a, b) => b.score > a.score ? b : a)
     : null;
-  const bestWRKey   = pool.length > 0 ? pool.reduce((a, b) => b.win_rate   > a.win_rate   ? b : a).key : "";
-  const bestExpKey  = pool.length > 0 ? pool.reduce((a, b) => b.expectancy > a.expectancy ? b : a).key : "";
+  // Filtrer les stratégies sans overfitting pour le ranking qualité
+  const qualityPool = pool.filter(r => !r.overfitting_risk).length > 0
+    ? pool.filter(r => !r.overfitting_risk)
+    : pool;
+
+  const bestWRKey   = qualityPool.length > 0 ? qualityPool.reduce((a, b) => b.win_rate      > a.win_rate      ? b : a).key : "";
+  const bestExpKey  = qualityPool.length > 0 ? qualityPool.reduce((a, b) => b.expectancy    > a.expectancy    ? b : a).key : "";
+  const bestPFKey   = qualityPool.length > 0 ? qualityPool.reduce((a, b) => b.profit_factor > a.profit_factor ? b : a).key : "";
+  const bestLowDDKey= qualityPool.length > 0 ? qualityPool.reduce((a, b) => b.max_drawdown_pct < a.max_drawdown_pct ? b : a).key : "";
 
   const getBadges = (key: string) => {
     const b: string[] = [];
     if (bestOverall?.key === key) {
-      if (isBestTradable)  b.push("best_overall");
+      if (isBestTradable)       b.push("best_overall");
       else if (isBestConfirmed) b.push("best_overall_confirmed");
-      else                 b.push("best_overall_provisional");
+      else                      b.push("best_overall_provisional");
     }
-    if (bestWRKey  === key) b.push("best_win_rate");
-    if (bestExpKey === key) b.push("best_expectancy");
+    if (bestWRKey    === key) b.push("best_win_rate");
+    if (bestExpKey   === key) b.push("best_expectancy");
+    if (bestPFKey    === key) b.push("best_pf");
+    if (bestLowDDKey === key) b.push("best_low_dd");
     return b;
   };
 
@@ -751,7 +857,7 @@ export function StrategyLab({ onUseStrategy, activeStrategyKey }: StrategyLabPro
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-xs text-gray-600">Seuil min trades</span>
           <input
-            type="range" min={5} max={30} step={5} value={minTrades}
+            type="range" min={10} max={60} step={5} value={minTrades}
             onChange={e => setMinTrades(Number(e.target.value))}
             className="w-20 accent-amber-500"
           />
