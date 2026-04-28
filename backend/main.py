@@ -44,6 +44,7 @@ from portfolio_backtest import run_portfolio_backtest
 from market_context import compute_market_context
 from earnings import get_earnings_date
 from setup_validator import validate_setup
+from market_regime_engine import compute_regime_engine
 
 app = FastAPI(title="Swing Trading Screener Pro")
 
@@ -280,6 +281,8 @@ class TickerResult(BaseModel):
     earnings_warning: bool           = False
     # ── Setup status (indépendant du marché ouvert/fermé) ─────────────────
     setup_status:     str            = "READY"   # READY | WAIT | INVALID
+    # ── Strategy fit ──────────────────────────────────────────────────────
+    strategy_fit:     str            = "PULLBACK" # BREAKOUT | PULLBACK | MEAN_REVERSION
     # ── Filtres fondamentaux ──────────────────────────────────────────────
     risk_filters_status: str         = "OK"      # OK | CAUTION | BLOCKED
     risk_filter_reasons: List[str]   = []
@@ -407,7 +410,16 @@ def analyze_ticker(
         else:
             setup_status = "WAIT"
 
-        # ── 5. Filtres fondamentaux ────────────────────────────────────────
+        # ── 5. Strategy fit ───────────────────────────────────────────────
+        _STRATEGY_FIT_MAP = {
+            "Breakout":  "BREAKOUT",
+            "Momentum":  "BREAKOUT",
+            "Pullback":  "PULLBACK",
+            "Neutral":   "MEAN_REVERSION",
+        }
+        strategy_fit = _STRATEGY_FIT_MAP.get(signal_type, "PULLBACK")
+
+        # ── 6. Filtres fondamentaux ────────────────────────────────────────
         mkt_ctx         = _get_market_ctx()
         vix_val         = mkt_ctx.get("vix", 20.0)
         sector_strength = mkt_ctx.get("sector_strength", {})
@@ -472,6 +484,7 @@ def analyze_ticker(
             earnings_days=earnings_days,
             earnings_warning=earnings_warning,
             setup_status=setup_status,
+            strategy_fit=strategy_fit,
             risk_filters_status=fund["risk_filters_status"],
             risk_filter_reasons=fund["risk_filter_reasons"],
             fundamental_risk=fund["fundamental_risk"],
@@ -589,6 +602,18 @@ def market_regime():
     data = _compute_market_regime()
     _market_regime_cache = {"ts": now, "data": data}
     return data
+
+
+
+# ── Regime Engine (5 états + stratégie active) ────────────────────────────────
+
+@app.get("/api/regime-engine")
+def regime_engine():
+    """
+    Retourne le régime de marché avancé (5 états) + la stratégie active unique.
+    Cache 1h côté serveur.
+    """
+    return compute_regime_engine()
 
 
 # ── Backtest ──────────────────────────────────────────────────────────────────

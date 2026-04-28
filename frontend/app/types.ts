@@ -62,6 +62,8 @@ export interface TickerResult {
   earnings_warning?: boolean;
   // Setup status (indépendant du marché ouvert/fermé)
   setup_status?:     "READY" | "WAIT" | "INVALID";
+  // Strategy fit
+  strategy_fit?:     "BREAKOUT" | "PULLBACK" | "MEAN_REVERSION";
   // Filtres fondamentaux
   risk_filters_status?: "OK" | "CAUTION" | "BLOCKED";
   risk_filter_reasons?: string[];
@@ -372,4 +374,32 @@ export interface MarketRegime {
   spy_perf_1m:   number;
   data_ok?:      boolean;
   data_warning?: string | null;
+}
+
+// ── Regime Engine (5 états + stratégie active) ────────────────────────────────
+
+export type ActiveStrategy = "BREAKOUT" | "PULLBACK" | "MEAN_REVERSION" | "NO_TRADE";
+
+export interface RegimeEngine {
+  regime:                "BULL_TREND" | "PULLBACK_TREND" | "RANGE" | "HIGH_VOLATILITY" | "BEAR_TREND" | "UNKNOWN";
+  regime_label:          string;
+  regime_color:          string;
+  active_strategy:       ActiveStrategy;
+  strategy_name:         string;
+  strategy_description:  string;
+  strategy_emoji:        string;
+  strategy_color:        string;
+  strategy_min_score:    number;
+  strategy_min_rr:       number;
+  signal_filter:         string[];
+  activation_reason:     string[];
+  confidence:            number;
+  can_trade:             boolean;
+  spy_price:             number;
+  spy_sma50:             number;
+  spy_sma200:            number;
+  spy_rsi:               number;
+  sma50_rising:          boolean;
+  vix:                   number;
+  error?:                string;
 }
