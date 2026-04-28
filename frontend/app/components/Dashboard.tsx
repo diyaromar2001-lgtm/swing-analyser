@@ -10,6 +10,7 @@ import { StrategyLab } from "./StrategyLab";
 import { ApiStatusDot, ApiStatusPanel } from "./ApiStatus";
 import { MarketContext } from "./MarketContext";
 import { SignalTracker } from "./SignalTracker";
+import { SimpleView } from "./SimpleView";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -170,6 +171,10 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [minScore, setMinScore]     = useState(0);
   const [excludeEarnings, setExcludeEarnings] = useState(false);
   const [view, setView]             = useState<"table" | "dynamic" | "backtest" | "lab" | "signals">("table");
+  const [uiMode, setUiMode]         = useState<"simple" | "pro">(() => {
+    if (typeof window === "undefined") return "simple";
+    return (localStorage.getItem("swing_ui_mode") as "simple" | "pro") ?? "simple";
+  });
 
   // Strategy Lab
   const [activeLabKey, setActiveLabKey] = useState<string>("");
@@ -300,8 +305,26 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
         <div className="flex items-center gap-2 flex-wrap justify-end">
 
+          {/* Toggle Simple / Pro */}
+          <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
+            {(["simple", "pro"] as const).map(m => (
+              <button key={m} onClick={() => {
+                setUiMode(m);
+                localStorage.setItem("swing_ui_mode", m);
+              }}
+                className="px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-all"
+                style={{
+                  background: uiMode === m ? (m === "simple" ? "#031a0d" : "#1e1e3a") : "#0d0d18",
+                  color:      uiMode === m ? (m === "simple" ? "#4ade80" : "#818cf8") : "#4b5563",
+                  borderRight: m === "simple" ? "1px solid #1e1e2a" : undefined,
+                }}>
+                {m === "simple" ? "⚡ Simple" : "🔬 Pro"}
+              </button>
+            ))}
+          </div>
+
           {/* Toggle Stratégie screener */}
-          {view !== "lab" && view !== "signals" && (
+          {uiMode === "pro" && view !== "lab" && view !== "signals" && (
             <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
               {([["standard", "📊 Standard"], ["conservative", "🛡 Conservative"]] as [Strategy, string][]).map(([s, label]) => (
                 <button key={s} onClick={() => switchStrategy(s)}
@@ -317,8 +340,8 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             </div>
           )}
 
-          {/* Onglets vue */}
-          <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
+          {/* Onglets vue — Pro seulement */}
+          {uiMode === "pro" && <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
             {([
               ["table",    "📋 Tableau"],
               ["dynamic",  "⚡ Signaux"],
@@ -340,11 +363,11 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
                 {label}
               </button>
             ))}
-          </div>
+          </div>}
 
           <ApiStatusDot onClick={() => setShowApiStatus(true)} />
 
-          {view !== "lab" && view !== "signals" && (
+          {uiMode === "pro" && view !== "lab" && view !== "signals" && (
             <button
               onClick={() => refresh()}
               disabled={loading}
@@ -365,6 +388,24 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           )}
         </div>
       </div>
+
+      {/* ── MODE SIMPLE ─────────────────────────────────────────────────── */}
+      {uiMode === "simple" && (
+        <SimpleView
+          data={data}
+          regime={regime}
+          backtestStatus={backtestStatus}
+          loading={loading}
+          onRefresh={() => refresh()}
+          onAdvanced={() => {
+            setUiMode("pro");
+            localStorage.setItem("swing_ui_mode", "pro");
+          }}
+        />
+      )}
+
+      {/* ── MODE PRO ────────────────────────────────────────────────────── */}
+      {uiMode === "pro" && <>
 
       {/* GLOBAL STATUS BAR */}
       {view !== "lab" && view !== "signals" && (
@@ -552,6 +593,8 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           }
         />
       )}
+
+      </> /* fin uiMode === "pro" */}
     </div>
   );
 }
