@@ -60,6 +60,8 @@ export interface TickerResult {
   earnings_date?:    string | null;
   earnings_days?:    number | null;
   earnings_warning?: boolean;
+  // Setup status (indépendant du marché ouvert/fermé)
+  setup_status?:     "READY" | "WAIT" | "INVALID";
   error?:            string;
 }
 

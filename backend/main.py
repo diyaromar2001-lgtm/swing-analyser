@@ -68,6 +68,40 @@ app.add_middleware(
 def health():
     return {"status": "ok"}
 
+
+# ── Market Status (ouvert / fermé) ────────────────────────────────────────────
+@app.get("/api/market-status")
+def market_status():
+    """
+    Retourne si le marché US est actuellement ouvert.
+    Les setups swing sont basés sur OHLC daily → disponibles 24/7.
+    Le statut marché sert uniquement à l'UI (mode Exécution vs Préparation).
+    """
+    from datetime import datetime, timezone, timedelta
+    import pytz
+    try:
+        et = pytz.timezone("America/New_York")
+        now_et = datetime.now(et)
+        weekday = now_et.weekday()  # 0=lundi, 6=dimanche
+        hour    = now_et.hour
+        minute  = now_et.minute
+        # Marché ouvert lun-ven 9h30-16h00 ET
+        is_open = (
+            weekday < 5 and
+            (hour > 9 or (hour == 9 and minute >= 30)) and
+            hour < 16
+        )
+        return {
+            "is_open":      is_open,
+            "mode":         "EXECUTION" if is_open else "PREPARATION",
+            "time_et":      now_et.strftime("%H:%M ET"),
+            "day":          now_et.strftime("%A"),
+            "message":      "Market Open — Execution Mode" if is_open else "Market Closed — Trade Plan Ready",
+        }
+    except Exception:
+        return {"is_open": False, "mode": "PREPARATION", "time_et": "--:--", "day": "--",
+                "message": "Market Closed — Trade Plan Ready"}
+
 # ── Cache globals ─────────────────────────────────────────────────────────────
 _cache: Dict[str, dict] = {}
 _sp500_perf_3m: float = 0.0
@@ -75,9 +109,10 @@ _sp500_perf_6m: float = 0.0
 _market_regime_cache: dict = {}
 _opt_data_cache: Dict[str, object] = {}
 
-# ── Cache OHLCV (TTL 2h) — évite de re-télécharger à chaque scan ─────────────
+# ── Cache OHLCV (TTL 24h) — données daily valides toute la journée ───────────
+# Les setups swing sont basés sur OHLC daily → valides 24/7 même marché fermé
 _ohlcv_cache: Dict[str, dict] = {}   # {ticker: {"df": DataFrame, "ts": float}}
-_OHLCV_TTL = 7_200   # 2h
+_OHLCV_TTL = 86_400   # 24h — données daily stables toute la journée
 
 
 def _get_ohlcv(ticker: str) -> Optional[object]:
@@ -214,6 +249,8 @@ class TickerResult(BaseModel):
     earnings_date:    Optional[str]  = None
     earnings_days:    Optional[int]  = None
     earnings_warning: bool           = False
+    # ── Setup status (indépendant du marché ouvert/fermé) ─────────────────
+    setup_status:     str            = "READY"   # READY | WAIT | INVALID
     error:            Optional[str]  = None
 
 
@@ -320,6 +357,19 @@ def analyze_ticker(
             details=details,
         )
 
+        # ── Setup status (basé sur qualité du setup, pas marché ouvert) ──────
+        # READY   : prix proche de l'entrée (< 2%), bon R/R, grade A/A+
+        # WAIT    : prix trop loin de l'entrée ou grade B
+        # INVALID : R/R insuffisant ou conditions dégradées
+        if rr_ratio < 1.5 or dist_entry > 8:
+            setup_status = "INVALID"
+        elif setup_grade in ("A+", "A") and dist_entry <= 2:
+            setup_status = "READY"
+        elif dist_entry <= 5:
+            setup_status = "WAIT"
+        else:
+            setup_status = "WAIT"
+
         return TickerResult(
             ticker=ticker,
             sector=TICKER_SECTOR.get(ticker, "Other"),
@@ -357,6 +407,7 @@ def analyze_ticker(
             earnings_date=earnings_date,
             earnings_days=earnings_days,
             earnings_warning=earnings_warning,
+            setup_status=setup_status,
         )
     except Exception:
         return None

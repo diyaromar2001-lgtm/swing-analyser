@@ -1,8 +1,19 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { TickerResult, MarketRegime } from "../types";
 
 type TradableStatus = "TRADABLE" | "À CONFIRMER" | "NON TRADABLE" | null;
+
+interface MarketStatusInfo {
+  is_open:  boolean;
+  mode:     "EXECUTION" | "PREPARATION";
+  time_et:  string;
+  day:      string;
+  message:  string;
+}
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -106,28 +117,69 @@ function DecisionBanner({
   );
 }
 
+// ── Setup Status Badge ────────────────────────────────────────────────────────
+
+function SetupStatusBadge({ status }: { status?: string }) {
+  const cfg = {
+    READY:   { color: "#4ade80", bg: "#031a0d", border: "#4ade8044", label: "✓ READY" },
+    WAIT:    { color: "#fbbf24", bg: "#1a1000", border: "#fbbf2444", label: "⏳ WAIT" },
+    INVALID: { color: "#f87171", bg: "#1a0505", border: "#f8717144", label: "✗ INVALID" },
+  };
+  const c = cfg[status as keyof typeof cfg] ?? cfg.WAIT;
+  return (
+    <span className="px-2 py-0.5 rounded text-[10px] font-black"
+      style={{ background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
+      {c.label}
+    </span>
+  );
+}
+
+// ── Market Status Banner ──────────────────────────────────────────────────────
+
+function MarketStatusBanner({ marketStatus }: { marketStatus: MarketStatusInfo | null }) {
+  if (!marketStatus) return null;
+  const isOpen = marketStatus.is_open;
+  return (
+    <div className="flex items-center gap-3 px-4 py-2 rounded-xl mb-3"
+      style={{
+        background: isOpen ? "#031a0d" : "#0d0d18",
+        border: `1px solid ${isOpen ? "#16a34a44" : "#1e1e2a"}`,
+      }}>
+      <span className="w-2 h-2 rounded-full animate-pulse"
+        style={{ background: isOpen ? "#4ade80" : "#6b7280" }} />
+      <span className="text-xs font-bold" style={{ color: isOpen ? "#4ade80" : "#9ca3af" }}>
+        {isOpen ? "🟢 MARKET OPEN — Execution Mode" : "🌙 MARKET CLOSED — Trade Plan Ready"}
+      </span>
+      <span className="ml-auto text-[10px] text-gray-600">{marketStatus.time_et} · {marketStatus.day}</span>
+    </div>
+  );
+}
+
 // ── Setup Card ────────────────────────────────────────────────────────────────
 
 function SetupCard({
   r,
   backtestStatus,
   rank,
+  marketStatus,
 }: {
   r: TickerResult;
   backtestStatus: TradableStatus;
   rank: number;
+  marketStatus: MarketStatusInfo | null;
 }) {
   const conf    = confidenceLabel(r, backtestStatus);
   const phrase  = actionPhrase(r);
   const gradeColor = r.setup_grade === "A+" ? "#4ade80" : r.setup_grade === "A" ? "#bef264" : "#fde047";
+  const isNearEntry = r.dist_entry_pct <= 1.5;
 
   return (
     <div className="rounded-2xl p-5"
       style={{ background: "#0d0d18", border: `1px solid ${gradeColor}33` }}>
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-bold text-gray-600">#{rank}</span>
           <span className="text-xl font-black text-white">{r.ticker}</span>
           <span className="px-2 py-0.5 rounded text-[10px] font-black"
@@ -138,6 +190,15 @@ function SetupCard({
             style={{ background: "#1e1e2a", color: "#9ca3af" }}>
             {r.signal_type}
           </span>
+          {/* Setup status — indépendant du marché */}
+          <SetupStatusBadge status={r.setup_status} />
+          {/* Near entry highlight quand marché ouvert */}
+          {marketStatus?.is_open && isNearEntry && (
+            <span className="px-2 py-0.5 rounded text-[10px] font-black animate-pulse"
+              style={{ background: "#052e16", color: "#4ade80", border: "1px solid #16a34a" }}>
+              🎯 NEAR ENTRY
+            </span>
+          )}
         </div>
         {/* Confidence badge */}
         <span className="px-2 py-0.5 rounded text-[10px] font-black"
@@ -225,6 +286,21 @@ export function SimpleView({
   onRefresh: () => void;
   onAdvanced: () => void;
 }) {
+  const [marketStatus, setMarketStatus] = useState<MarketStatusInfo | null>(null);
+
+  useEffect(() => {
+    const fetchStatus = () => {
+      fetch(`${API_URL}/api/market-status`)
+        .then(r => r.json())
+        .then(setMarketStatus)
+        .catch(() => null);
+    };
+    fetchStatus();
+    // Rafraîchir toutes les 60 secondes
+    const interval = setInterval(fetchStatus, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
   const isNonTradable = backtestStatus === "NON TRADABLE";
   const isBear        = regime?.regime === "BEAR";
 
@@ -274,6 +350,9 @@ export function SimpleView({
         </div>
       </div>
 
+      {/* Market status banner */}
+      <MarketStatusBanner marketStatus={marketStatus} />
+
       {/* Section 1 — Decision */}
       <DecisionBanner regime={regime} backtestStatus={backtestStatus} topSetups={topSetups} />
 
@@ -284,7 +363,7 @@ export function SimpleView({
             🎯 Top {topSetups.length} Setup{topSetups.length > 1 ? "s" : ""} du Jour
           </p>
           {topSetups.map((r, i) => (
-            <SetupCard key={r.ticker} r={r} backtestStatus={backtestStatus} rank={i + 1} />
+            <SetupCard key={r.ticker} r={r} backtestStatus={backtestStatus} rank={i + 1} marketStatus={marketStatus} />
           ))}
         </div>
       )}
