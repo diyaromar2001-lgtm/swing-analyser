@@ -185,8 +185,11 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   // API Status modal
   const [showApiStatus, setShowApiStatus] = useState(false);
 
-  // Fetch market regime once on mount
+  // Chargement initial des données au montage (client-side)
   useEffect(() => {
+    if (initialData.length === 0) {
+      refresh();
+    }
     fetch(`${API_URL}/api/market-regime`)
       .then(r => r.json())
       .then(setRegime)
@@ -286,6 +289,30 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     "A":  "#bef264",
     "B":  "#fde047",
   };
+
+  // Écran de chargement initial
+  if (loading && data.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#070710" }}>
+        <div className="text-center space-y-4">
+          <div className="flex items-center justify-center gap-3">
+            <svg className="animate-spin h-6 w-6 text-indigo-400" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+            <p className="text-white font-bold text-lg">Analyse en cours…</p>
+          </div>
+          <p className="text-gray-600 text-sm">Récupération des données marché · 20-30 sec</p>
+          <div className="flex gap-1 justify-center mt-2">
+            {[0,1,2,3,4].map(i => (
+              <div key={i} className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"
+                style={{ animationDelay: `${i * 150}ms` }} />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen p-5" style={{ background: "#070710" }}>
