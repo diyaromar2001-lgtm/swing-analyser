@@ -414,6 +414,48 @@ def compute_quality_score(
     return min(100, pts)
 
 
+
+# ── Final Decision (technique + filtres fondamentaux) ─────────────────────────
+
+def compute_final_decision(
+    setup_grade:   str,    # "A+" | "A" | "B" | "REJECT"
+    setup_status:  str,    # "READY" | "WAIT" | "INVALID"
+    risk_status:   str,    # "OK" | "CAUTION" | "BLOCKED"
+    rr_ratio:      float,
+    regime:        str,    # "BULL" | "RANGE" | "BEAR" | "UNKNOWN"
+    vix_val:       float,
+) -> str:
+    """
+    Décision finale combinant signal technique et filtres fondamentaux.
+
+    BUY  : Grade A/A+ + setup READY + risques OK/CAUTION + R/R ≥ 1.5
+    WAIT : Setup valide mais conditions non réunies (CAUTION ou pas READY)
+    SKIP : BLOCKED par filtres, ou grade REJECT, ou R/R insuffisant
+    """
+    # SKIP si bloqué ou qualité insuffisante
+    if risk_status == "BLOCKED":
+        return "SKIP"
+    if setup_grade == "REJECT":
+        return "SKIP"
+    if setup_status == "INVALID":
+        return "SKIP"
+    if rr_ratio < 1.5:
+        return "SKIP"
+
+    # BUY si tout est aligné
+    if (
+        setup_grade in ("A+", "A")
+        and setup_status == "READY"
+        and risk_status == "OK"
+        and rr_ratio >= 1.5
+        and regime in ("BULL", "RANGE")
+    ):
+        return "BUY"
+
+    # WAIT dans tous les autres cas valides
+    return "WAIT"
+
+
 def detect_buy_signal_standard(
     price, sma50, sma200, rsi_val, macd_hist, perf_3m=0, perf_6m=0,
 ) -> bool:

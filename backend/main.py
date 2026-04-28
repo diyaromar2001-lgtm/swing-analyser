@@ -25,12 +25,13 @@ from backtest import run_backtest, BacktestResult
 from strategy import (
     hard_filter, compute_dynamic_levels, compute_professional_score,
     classify_setup, compute_confidence, detect_signal_type,
-    compute_quality_score,
+    compute_quality_score, compute_final_decision,
     grade_to_category, grade_to_position,
     # rétrocompat
     classify_standard, classify_conservative,
     detect_buy_signal_standard, detect_buy_signal_conservative,
 )
+from fundamental_filters import compute_fundamental_risk
 from tickers import ALL_TICKERS, TICKER_SECTOR, TICKERS
 from strategy_lab import LAB_STRATEGIES, backtest_ticker_lab, aggregate_lab_result
 from sentiment import get_sentiment
@@ -114,6 +115,10 @@ _opt_data_cache: Dict[str, object] = {}
 _ohlcv_cache: Dict[str, dict] = {}   # {ticker: {"df": DataFrame, "ts": float}}
 _OHLCV_TTL = 86_400   # 24h — données daily stables toute la journée
 
+# ── Market context cache (VIX + sector strength pour les filtres fondamentaux) ─
+_mkt_ctx_cache: dict = {}          # {"vix": float, "sector_strength": dict, "ts": float}
+_MKT_CTX_TTL = 3600               # 1h — contexte marché stable sur la journée
+
 
 def _get_ohlcv(ticker: str) -> Optional[object]:
     """
@@ -133,6 +138,30 @@ def _get_ohlcv(ticker: str) -> Optional[object]:
         return df
     except Exception:
         return None
+
+
+def _get_market_ctx() -> dict:
+    """
+    Retourne {vix, sector_strength} depuis le cache (TTL 1h).
+    Utilisé par analyze_ticker pour les filtres fondamentaux.
+    """
+    now = _time.time()
+    if _mkt_ctx_cache and (now - _mkt_ctx_cache.get("ts", 0)) < _MKT_CTX_TTL:
+        return _mkt_ctx_cache
+
+    try:
+        ctx = compute_market_context()
+        _mkt_ctx_cache.update({
+            "vix":              ctx.get("vix", 20.0),
+            "sector_strength":  ctx.get("sector_strength", {}),
+            "ts":               now,
+        })
+    except Exception:
+        _mkt_ctx_cache.setdefault("vix", 20.0)
+        _mkt_ctx_cache.setdefault("sector_strength", {})
+        _mkt_ctx_cache["ts"] = now
+
+    return _mkt_ctx_cache
 
 
 # ── S&P500 perf ──────────────────────────────────────────────────────────────
@@ -251,6 +280,14 @@ class TickerResult(BaseModel):
     earnings_warning: bool           = False
     # ── Setup status (indépendant du marché ouvert/fermé) ─────────────────
     setup_status:     str            = "READY"   # READY | WAIT | INVALID
+    # ── Filtres fondamentaux ──────────────────────────────────────────────
+    risk_filters_status: str         = "OK"      # OK | CAUTION | BLOCKED
+    risk_filter_reasons: List[str]   = []
+    fundamental_risk:    str         = "LOW"     # LOW | MEDIUM | HIGH
+    news_risk:           str         = "LOW"     # LOW | MEDIUM | HIGH
+    sector_rank:         str         = "NEUTRAL" # STRONG | NEUTRAL | WEAK
+    vix_risk:            str         = "LOW"     # LOW | MEDIUM | HIGH
+    final_decision:      str         = "WAIT"    # BUY | WAIT | SKIP
     error:            Optional[str]  = None
 
 
@@ -370,6 +407,33 @@ def analyze_ticker(
         else:
             setup_status = "WAIT"
 
+        # ── 5. Filtres fondamentaux ────────────────────────────────────────
+        mkt_ctx         = _get_market_ctx()
+        vix_val         = mkt_ctx.get("vix", 20.0)
+        sector_strength = mkt_ctx.get("sector_strength", {})
+        regime_str      = _market_regime_cache.get("regime", "UNKNOWN")
+        ticker_sector   = TICKER_SECTOR.get(ticker, "Other")
+
+        fund = compute_fundamental_risk(
+            ticker           = ticker,
+            sector           = ticker_sector,
+            earnings_days    = earnings_days,
+            earnings_warning = earnings_warning,
+            sector_strength  = sector_strength,
+            vix_val          = vix_val,
+            regime           = regime_str,
+            fetch_news       = True,
+        )
+
+        final_decision = compute_final_decision(
+            setup_grade  = setup_grade,
+            setup_status = setup_status,
+            risk_status  = fund["risk_filters_status"],
+            rr_ratio     = rr_ratio,
+            regime       = regime_str,
+            vix_val      = vix_val,
+        )
+
         return TickerResult(
             ticker=ticker,
             sector=TICKER_SECTOR.get(ticker, "Other"),
@@ -408,6 +472,13 @@ def analyze_ticker(
             earnings_days=earnings_days,
             earnings_warning=earnings_warning,
             setup_status=setup_status,
+            risk_filters_status=fund["risk_filters_status"],
+            risk_filter_reasons=fund["risk_filter_reasons"],
+            fundamental_risk=fund["fundamental_risk"],
+            news_risk=fund["news_risk"],
+            sector_rank=fund["sector_rank"],
+            vix_risk=fund["vix_risk"],
+            final_decision=final_decision,
         )
     except Exception:
         return None

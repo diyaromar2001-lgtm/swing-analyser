@@ -231,12 +231,21 @@ function TradePlanPanel({
   const ps   = posSize(t);
   const exec = execBadge(t, regime, bt);
 
+  const fd = t.final_decision ?? "WAIT";
   const verdict =
-    bt === "NON TRADABLE"     ? "Skip — strategy not validated (open Strategy Lab)" :
-    regime?.regime === "BEAR" ? "Skip — bear market conditions (wait for recovery)" :
-    t.dist_entry_pct > 5     ? `Wait for pullback to $${t.entry.toFixed(2)}` :
-    exec.label === "READY"    ? `Buy near $${t.entry.toFixed(2)} (at limit)` :
-    `Wait for pullback to $${t.entry.toFixed(2)}`;
+    fd === "SKIP" && t.risk_filters_status === "BLOCKED"
+      ? `Skip — risk filter BLOCKED (${(t.risk_filter_reasons ?? [])[0] ?? "fundamental risk"})` :
+    fd === "SKIP" && bt === "NON TRADABLE"
+      ? "Skip — strategy not validated (open Strategy Lab)" :
+    fd === "SKIP" && regime?.regime === "BEAR"
+      ? "Skip — bear market conditions (wait for recovery)" :
+    fd === "SKIP"
+      ? `Skip — setup invalid or R/R insufficient` :
+    fd === "BUY"
+      ? `Buy near $${t.entry.toFixed(2)} (at limit)` :
+    t.dist_entry_pct > 5
+      ? `Wait for pullback to $${t.entry.toFixed(2)}` :
+    `Wait — conditions not yet aligned`;
 
   const invalidations = [
     `Price closes below stop loss at $${t.stop_loss.toFixed(2)}`,
@@ -358,6 +367,53 @@ function TradePlanPanel({
             </p>
           </div>
         )}
+
+        {/* ⑤ Risk Filters */}
+        {t.risk_filters_status && (
+          <section className="rounded-xl p-4" style={{
+            background: "#07070f",
+            border: `1px solid ${t.risk_filters_status === "BLOCKED" ? "#ef444440" : t.risk_filters_status === "CAUTION" ? "#f59e0b40" : "#10b98130"}`
+          }}>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[9px] font-black uppercase tracking-widest"
+                style={{ color: t.risk_filters_status === "BLOCKED" ? "#ef4444" : t.risk_filters_status === "CAUTION" ? "#f59e0b" : "#10b981" }}>
+                ⑤ Risk Filters
+              </p>
+              <span className="text-[10px] font-black px-2 py-0.5 rounded"
+                style={{
+                  background: t.risk_filters_status === "BLOCKED" ? "#130404" : t.risk_filters_status === "CAUTION" ? "#120d00" : "#041310",
+                  color: t.risk_filters_status === "BLOCKED" ? "#ef4444" : t.risk_filters_status === "CAUTION" ? "#f59e0b" : "#10b981",
+                }}>
+                {t.risk_filters_status}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mb-2">
+              {[
+                { label: "News",   val: t.news_risk   ?? "—" },
+                { label: "Sector", val: t.sector_rank ?? "—" },
+                { label: "VIX",    val: t.vix_risk    ?? "—" },
+              ].map(row => {
+                const c = row.val === "HIGH" || row.val === "WEAK" ? "#ef4444"
+                        : row.val === "MEDIUM" || row.val === "NEUTRAL" ? "#f59e0b" : "#10b981";
+                return (
+                  <div key={row.label} className="text-center rounded-lg p-1.5" style={{ background: "#0c0c18" }}>
+                    <p className="text-[8px] text-gray-700 uppercase tracking-widest">{row.label}</p>
+                    <p className="text-[10px] font-black" style={{ color: c }}>{row.val}</p>
+                  </div>
+                );
+              })}
+            </div>
+            {(t.risk_filter_reasons ?? []).length > 0 && (
+              <ul className="space-y-1">
+                {(t.risk_filter_reasons ?? []).map((r, i) => (
+                  <li key={i} className="text-[10px] text-gray-500 flex items-start gap-1.5">
+                    <span className="text-yellow-600 mt-px flex-shrink-0">!</span>{r}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
       </div>
     </div>
   );
@@ -381,10 +437,13 @@ function OpportunityCard({
   const exec = execBadge(t, regime, bt);
   const ps   = posSize(t);
 
-  const action =
+  // Utiliser final_decision du backend (combine technique + fondamentaux)
+  const fd = t.final_decision ?? (
     bt === "NON TRADABLE" || regime?.regime === "BEAR" ? "SKIP" :
-    t.dist_entry_pct > 3                               ? "WAIT" :
-    exec.label === "READY"                             ? "BUY NEAR" : "WAIT";
+    t.dist_entry_pct > 3 ? "WAIT" :
+    exec.label === "READY" ? "BUY" : "WAIT"
+  );
+  const action = fd === "BUY" ? "BUY NEAR" : fd === "SKIP" ? "SKIP" : "WAIT";
 
   const aColor =
     action === "BUY NEAR" ? "#10b981" :
@@ -456,10 +515,16 @@ function OpportunityCard({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center gap-4 text-[10px] text-gray-700">
+      <div className="flex items-center gap-4 text-[10px] text-gray-700 flex-wrap">
         <span>R/R <strong className="text-gray-500">1:{t.rr_ratio.toFixed(1)}</strong></span>
         <span>Size <strong className="text-gray-500">{ps.pct}% cap.</strong></span>
         <span>Confidence <strong style={{ color: confColor }}>{conf}</strong></span>
+        {t.risk_filters_status === "BLOCKED" && (
+          <span className="px-1.5 py-0.5 rounded text-[9px] font-black" style={{ background: "#130404", color: "#ef4444" }}>🚫 BLOCKED</span>
+        )}
+        {t.risk_filters_status === "CAUTION" && (
+          <span className="px-1.5 py-0.5 rounded text-[9px] font-black" style={{ background: "#120d00", color: "#f59e0b" }}>⚠ CAUTION</span>
+        )}
         <span className="ml-auto text-gray-700 text-[9px]">Tap for trade plan →</span>
       </div>
     </div>

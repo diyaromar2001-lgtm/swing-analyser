@@ -62,6 +62,14 @@ export interface TickerResult {
   earnings_warning?: boolean;
   // Setup status (indépendant du marché ouvert/fermé)
   setup_status?:     "READY" | "WAIT" | "INVALID";
+  // Filtres fondamentaux
+  risk_filters_status?: "OK" | "CAUTION" | "BLOCKED";
+  risk_filter_reasons?: string[];
+  fundamental_risk?:    "LOW" | "MEDIUM" | "HIGH";
+  news_risk?:           "LOW" | "MEDIUM" | "HIGH";
+  sector_rank?:         "STRONG" | "NEUTRAL" | "WEAK";
+  vix_risk?:            "LOW" | "MEDIUM" | "HIGH";
+  final_decision?:      "BUY" | "WAIT" | "SKIP";
   error?:            string;
 }
 
