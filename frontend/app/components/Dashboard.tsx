@@ -10,7 +10,7 @@ import { StrategyLab } from "./StrategyLab";
 import { ApiStatusDot, ApiStatusPanel } from "./ApiStatus";
 import { MarketContext } from "./MarketContext";
 import { SignalTracker } from "./SignalTracker";
-import { SimpleView } from "./SimpleView";
+import { CommandCenter } from "./CommandCenter";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -323,7 +323,9 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
         <div>
           <div className="flex items-center gap-3 mb-1">
             <div className="w-2 h-8 rounded-full" style={{ background: "linear-gradient(to bottom, #818cf8, #10b981)" }} />
-            <h1 className="text-2xl font-black text-white tracking-tight">Swing Screener Pro</h1>
+            <h1 className="text-2xl font-black text-white tracking-tight">
+              {uiMode === "simple" ? "Command Center" : "Advanced View"}
+            </h1>
           </div>
           <p className="text-gray-600 text-xs ml-5" suppressHydrationWarning>
             {data.length} setups qualifiés · mis à jour {lastUpdate.toLocaleTimeString("fr-FR")}
@@ -332,7 +334,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
         <div className="flex items-center gap-2 flex-wrap justify-end">
 
-          {/* Toggle Simple / Pro */}
+          {/* Toggle Command / Advanced */}
           <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
             {(["simple", "pro"] as const).map(m => (
               <button key={m} onClick={() => {
@@ -341,11 +343,11 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
               }}
                 className="px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-all"
                 style={{
-                  background: uiMode === m ? (m === "simple" ? "#031a0d" : "#1e1e3a") : "#0d0d18",
-                  color:      uiMode === m ? (m === "simple" ? "#4ade80" : "#818cf8") : "#4b5563",
+                  background: uiMode === m ? (m === "simple" ? "#041310" : "#1e1e3a") : "#0d0d18",
+                  color:      uiMode === m ? (m === "simple" ? "#10b981" : "#818cf8") : "#4b5563",
                   borderRight: m === "simple" ? "1px solid #1e1e2a" : undefined,
                 }}>
-                {m === "simple" ? "⚡ Simple" : "🔬 Pro"}
+                {m === "simple" ? "⚡ Command" : "🔬 Advanced"}
               </button>
             ))}
           </div>
@@ -416,16 +418,21 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
         </div>
       </div>
 
-      {/* ── MODE SIMPLE ─────────────────────────────────────────────────── */}
+      {/* ── COMMAND CENTER ───────────────────────────────────────────────── */}
       {uiMode === "simple" && (
-        <SimpleView
+        <CommandCenter
           data={data}
           regime={regime}
           backtestStatus={backtestStatus}
           loading={loading}
           onRefresh={() => refresh()}
-          onAdvanced={() => {
+          onAdvancedView={() => {
             setUiMode("pro");
+            localStorage.setItem("swing_ui_mode", "pro");
+          }}
+          onGoToLab={() => {
+            setUiMode("pro");
+            setView("lab");
             localStorage.setItem("swing_ui_mode", "pro");
           }}
         />
