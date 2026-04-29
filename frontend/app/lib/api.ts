@@ -7,8 +7,8 @@ export function getApiUrl() {
     if (host === "localhost" || host === "127.0.0.1") {
       return process.env.NEXT_PUBLIC_API_URL || LOCAL_API_URL;
     }
-    return process.env.NEXT_PUBLIC_API_URL || PROD_API_URL;
+    return PROD_API_URL;
   }
 
-  return process.env.NEXT_PUBLIC_API_URL || LOCAL_API_URL;
+  return PROD_API_URL;
 }
