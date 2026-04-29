@@ -10,7 +10,7 @@ import { SetupGradeBadge, SignalBadge, ConfidenceBadge } from "./CategoryBadge";
 import { ScoreBreakdown } from "./ScoreBreakdown";
 import { TradePlan } from "./TradePlan";
 import { SentimentCell } from "./SentimentPanel";
-import { EdgeStatusBadge, EdgeScoreBar, BestStrategyBadge } from "./EdgeBadge";
+import { EdgeStatusBadge, EdgeScoreBar, BestStrategyBadge, EdgeValidationNote } from "./EdgeBadge";
 
 type SortKey = "score" | "rsi_val" | "perf_3m" | "perf_6m" | "dist_entry_pct" | "risk_now_pct" | "rr_ratio" | "confidence" | "edge_score" | "final_score" | "edge_train_pf" | "edge_test_pf";
 
@@ -197,6 +197,7 @@ export function ScreenerTable({ data, showEdge = false }: { data: TickerResult[]
                         <td className="px-3 py-2.5">
                           <div className="flex flex-col gap-0.5">
                             <EdgeStatusBadge status={row.ticker_edge_status} />
+                            <EdgeValidationNote status={row.ticker_edge_status} setupGrade={row.setup_grade} />
                             <BestStrategyBadge
                               name={row.best_strategy_name}
                               color={row.best_strategy_color}

@@ -710,6 +710,17 @@ def analyze_ticker(
         _audit_inc(f"edge_{te_status.lower()}")
 
         # ── 8. Final Score composite ─────────────────────────────────────────
+        final_decision = compute_final_decision(
+            setup_grade=setup_grade,
+            setup_status=setup_status,
+            risk_status=fund["risk_filters_status"],
+            rr_ratio=rr_ratio,
+            regime=regime_str,
+            vix_val=vix_val,
+            ticker_edge_status=te_status,
+            overfit_warning=overfit_warn,
+        )
+
         _regime_fit  = 1.0 if engine_regime == "BULL_TREND" else \
                        0.6 if engine_regime in ("PULLBACK_TREND", "RANGE") else 0.2
         exec_quality = max(0, int(100 - abs(dist_entry) * 12))

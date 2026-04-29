@@ -19,6 +19,45 @@ const API_URL     = getApiUrl();
 const SIM_CAPITAL = 10_000;
 const RISK_PCT    = 0.01;
 
+function hasValidatedEdge(t: TickerResult): boolean {
+  return t.ticker_edge_status === "STRONG_EDGE" || t.ticker_edge_status === "VALID_EDGE";
+}
+
+function hasCriticalOverfit(t: TickerResult): boolean {
+  return t.ticker_edge_status === "OVERFITTED" || !!t.overfit_warning;
+}
+
+function isTradeCandidate(
+  t: TickerResult,
+  engine: RegimeEngine | null,
+  signalFilter: string[],
+): boolean {
+  if (!hasValidatedEdge(t)) return false;
+  if (hasCriticalOverfit(t)) return false;
+  if (t.setup_grade === "REJECT") return false;
+  if (t.setup_status === "INVALID") return false;
+  if (t.final_decision === "SKIP") return false;
+  if (t.tradable === false) return false;
+  if (engine?.can_trade === false) return false;
+  if (signalFilter.length > 0 && !signalFilter.includes(t.signal_type ?? "")) return false;
+  return true;
+}
+
+function isTechnicalWatchlistCandidate(
+  t: TickerResult,
+  engine: RegimeEngine | null,
+  signalFilter: string[],
+): boolean {
+  if (signalFilter.length > 0 && !signalFilter.includes(t.signal_type ?? "")) return false;
+  if (hasValidatedEdge(t)) return false;
+  if (hasCriticalOverfit(t)) return false;
+  if (t.setup_grade === "REJECT") return false;
+  if (t.setup_status === "INVALID") return false;
+  if ((t.final_decision ?? "WAIT") === "SKIP") return false;
+  if (engine?.can_trade === false) return false;
+  return true;
+}
+
 // ─── Decision Score ─────────────────────────────────────────────────────────
 
 function decisionScore(
@@ -225,7 +264,14 @@ function getDecision(
   if (bt === "NON TRADABLE")
     return { title: "PAS DE TRADE", sub: "Stratégie non validée — ouvrir le Strategy Lab d'abord", emoji: "🚫", color: "#ef4444", bg: "#130404", border: "#7f1d1d" };
   if (tops.length === 0)
-    return { title: "ATTENDRE", sub: `Aucun setup ${engine.strategy_name} qualifié aujourd'hui`, emoji: "👁", color: "#6b7280", bg: "#0c0c18", border: "#1e1e2a" };
+    return {
+      title: "NO TRADE",
+      sub: "Aucun setup avec edge validé aujourd'hui. Le screener détecte des setups techniques, mais aucun n'a une validation historique suffisante pour être proposé en trade.",
+      emoji: "🛑",
+      color: "#ef4444",
+      bg: "#130404",
+      border: "#7f1d1d",
+    };
 
   const ready = tops.filter(t => t.setup_status === "READY");
   if (ms?.is_open && ready.length > 0)
@@ -257,6 +303,8 @@ function getBlockReasons(
   const reasons: string[] = [];
   if (isAlreadyTaken)          reasons.push("Déjà en portefeuille");
   if (activeCount >= 3)        reasons.push("Maximum 3 positions simultanées atteint");
+  if (!hasValidatedEdge(t))    reasons.push("Edge historique non validé");
+  if (hasCriticalOverfit(t))   reasons.push("Overfit critique — éviter");
   // Backend rejection reason (highest priority — most specific)
   if (t.tradable === false && t.rejection_reason)
     reasons.push(t.rejection_reason);
@@ -604,6 +652,8 @@ function OpportunityCard({
 
   const fd = t.final_decision ?? (
     !engine?.can_trade ? "SKIP" :
+    !hasValidatedEdge(t) ? "WAIT" :
+    hasCriticalOverfit(t) ? "SKIP" :
     t.dist_entry_pct > 3 ? "WAIT" :
     exec.label === "READY" ? "BUY" : "WAIT"
   );
@@ -676,10 +726,13 @@ function OpportunityCard({
         ))}
       </div>
 
-      {/* Edge Info (si disponible) */}
-      {t.ticker_edge_status && t.ticker_edge_status !== "NO_EDGE" && (
+      {/* Edge Info */}
+      {t.ticker_edge_status && (
         <div className="flex items-center gap-2 mb-2.5 px-2 py-1.5 rounded-lg flex-wrap"
-          style={{ background: "#040d04", border: "1px solid #16a34a22" }}>
+          style={{
+            background: hasValidatedEdge(t) ? "#040d04" : "#111118",
+            border: `1px solid ${hasValidatedEdge(t) ? "#16a34a22" : "#2a2a3a"}`,
+          }}>
           <span className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Edge :</span>
           {t.ticker_edge_status === "STRONG_EDGE" && (
             <span className="text-[9px] font-black text-green-400">⚡ STRONG EDGE</span>
@@ -689,6 +742,12 @@ function OpportunityCard({
           )}
           {t.ticker_edge_status === "WEAK_EDGE" && (
             <span className="text-[9px] font-black text-yellow-500">~ WEAK EDGE</span>
+          )}
+          {t.ticker_edge_status === "NO_EDGE" && (
+            <span className="text-[9px] font-black text-gray-500">○ EDGE NON VALIDÉ</span>
+          )}
+          {t.ticker_edge_status === "OVERFITTED" && (
+            <span className="text-[9px] font-black text-amber-400">⚠ OVERFIT — ÉVITER</span>
           )}
           {t.best_strategy_name && (
             <span className="text-[9px]" style={{ color: t.best_strategy_color ?? "#6b7280" }}>
@@ -809,16 +868,19 @@ export function CommandCenter({
   const signalFilter: string[] = engine?.signal_filter ?? [];
 
   const scored = data
-    .filter(r => r.setup_grade !== "REJECT" && r.rr_ratio >= 1.5)
-    .filter(r => engine?.can_trade !== false)
-    .filter(r => signalFilter.length === 0 || signalFilter.includes(r.signal_type ?? ""))
-    // Only show tradable setups in Command Center — strict quality filter
-    .filter(r => r.tradable !== false)
+    .filter(r => r.rr_ratio >= 1.5)
+    .filter(r => isTradeCandidate(r, engine, signalFilter))
     .map(r => ({ ...r, _score: decisionScore(r, engine, backtestStatus) }))
     .sort((a, b) => b._score - a._score);
 
   // TOP 3 ONLY — one clear action per day
   const topOpps = scored.slice(0, 3);
+
+  const technicalWatchlist = data
+    .filter(r => isTechnicalWatchlistCandidate(r, engine, signalFilter))
+    .map(r => ({ ...r, _score: decisionScore(r, engine, backtestStatus) }))
+    .sort((a, b) => b._score - a._score)
+    .slice(0, 8);
 
   const decision = getDecision(engine, backtestStatus, topOpps, ms);
 
@@ -830,7 +892,7 @@ export function CommandCenter({
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-bold text-gray-700 uppercase tracking-widest">
-          {data.length} setups analysés · {topOpps.length} correspond{topOpps.length > 1 ? "ent" : ""} à la stratégie active
+          {data.length} setups analysés · {topOpps.length} setup{topOpps.length > 1 ? "s" : ""} avec edge validé
         </p>
         <div className="flex items-center gap-2">
           <button
@@ -869,7 +931,7 @@ export function CommandCenter({
       {topOpps.length > 0 && (
         <div>
           <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-2 px-1">
-            🎯 Meilleures Opportunités — {engine?.strategy_name ?? "Stratégie Active"} uniquement
+            🎯 Meilleures actions à trader aujourd'hui — edge validé uniquement
           </p>
           <div className="space-y-3">
             {topOpps.map((t, i) => (
@@ -890,27 +952,54 @@ export function CommandCenter({
         </div>
       )}
 
-      {/* No trade — watchlist mode */}
-      {cannotTrade && data.length > 0 && (
+      {/* No trade / technical watchlist */}
+      {(topOpps.length === 0 || cannotTrade) && (
         <div className="rounded-xl px-5 py-4" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
           <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-2">
-            👁 Watchlist — Aucun trade actif
+            🛑 NO TRADE — aucun setup avec edge validé aujourd'hui
           </p>
-          <div className="flex flex-wrap gap-2">
-            {data.slice(0, 8).map(t => (
-              <span key={t.ticker}
-                className="px-2 py-1 rounded text-xs font-black text-gray-500 cursor-pointer hover:text-gray-300 transition-colors"
-                style={{ background: "#07070f", border: "1px solid #1a1a2e" }}
-                onClick={() => setSelected(t)}
-              >
-                {t.ticker}
-                <span className="ml-1 text-[9px]" style={{ color: t.setup_grade === "A+" ? "#10b981" : t.setup_grade === "A" ? "#a3e635" : "#f59e0b" }}>
-                  {t.setup_grade}
-                </span>
-              </span>
-            ))}
-          </div>
-          <p className="text-[9px] text-gray-700 mt-2">Setups en attente — conditions non réunies pour trade (qualité stricte)</p>
+          <p className="text-[10px] text-gray-500 mb-3">
+            Le screener détecte des setups techniques, mais aucun n&apos;a une validation historique suffisante pour être proposé en trade.
+          </p>
+          {technicalWatchlist.length > 0 && (
+            <>
+              <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-2">
+                👁 Watchlist technique — à surveiller, pas trade
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {technicalWatchlist.map(t => (
+                  <button
+                    key={t.ticker}
+                    className="text-left px-3 py-2 rounded-lg transition-colors hover:bg-white/[0.03]"
+                    style={{ background: "#07070f", border: "1px solid #1a1a2e" }}
+                    onClick={() => setSelected(t)}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-black text-white">{t.ticker}</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded font-black" style={{ background: "#052e16", color: "#4ade80" }}>
+                          Technique OK
+                        </span>
+                        <span
+                          className="text-[9px] px-1.5 py-0.5 rounded font-black"
+                          style={{
+                            background: t.ticker_edge_status === "OVERFITTED" ? "#1c1000" : "#111118",
+                            color: t.ticker_edge_status === "OVERFITTED" ? "#f59e0b" : "#9ca3af",
+                          }}
+                        >
+                          {t.ticker_edge_status === "OVERFITTED" ? "Overfit — éviter" : "Edge non validé"}
+                        </span>
+                      </div>
+                      <span className="text-xs font-black text-gray-400">{t.score}</span>
+                    </div>
+                    <p className="text-[10px] text-gray-600 mt-1">
+                      {t.signal_type} · {t.setup_grade} · final {t.final_decision ?? "WAIT"}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

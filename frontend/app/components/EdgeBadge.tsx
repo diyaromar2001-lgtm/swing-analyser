@@ -8,16 +8,16 @@ export type EdgeStatus =
   | "OVERFITTED";
 
 const EDGE_CFG: Record<EdgeStatus, { label: string; color: string; bg: string }> = {
-  STRONG_EDGE: { label: "⚡ STRONG",   color: "#4ade80", bg: "#052e16" },
-  VALID_EDGE:  { label: "✓ VALID",    color: "#86efac", bg: "#031a0d" },
-  WEAK_EDGE:   { label: "~ WEAK",     color: "#fde047", bg: "#1c1500" },
-  NO_EDGE:     { label: "— NO EDGE",  color: "#6b7280", bg: "#111118" },
-  OVERFITTED:  { label: "⚠ OVERFIT",  color: "#f59e0b", bg: "#1c1000" },
+  STRONG_EDGE: { label: "⚡ STRONG EDGE", color: "#4ade80", bg: "#052e16" },
+  VALID_EDGE:  { label: "✓ VALID EDGE",  color: "#86efac", bg: "#031a0d" },
+  WEAK_EDGE:   { label: "~ WEAK EDGE",   color: "#fde047", bg: "#1c1500" },
+  NO_EDGE:     { label: "○ NO EDGE",     color: "#6b7280", bg: "#111118" },
+  OVERFITTED:  { label: "⚠ OVERFIT",     color: "#f59e0b", bg: "#1c1000" },
 };
 
 export function EdgeStatusBadge({ status }: { status?: EdgeStatus | string | null }) {
   const s = (status as EdgeStatus) ?? "NO_EDGE";
-  const c = EDGE_CFG[s] ?? EDGE_CFG["NO_EDGE"];
+  const c = EDGE_CFG[s] ?? EDGE_CFG.NO_EDGE;
   return (
     <span
       className="text-[10px] font-black px-1.5 py-0.5 rounded whitespace-nowrap"
@@ -26,6 +26,28 @@ export function EdgeStatusBadge({ status }: { status?: EdgeStatus | string | nul
       {c.label}
     </span>
   );
+}
+
+export function EdgeValidationNote({
+  status,
+  setupGrade,
+}: {
+  status?: EdgeStatus | string | null;
+  setupGrade?: string;
+}) {
+  if (setupGrade === "REJECT") {
+    return <span className="text-[10px] text-red-400 font-bold">Setup invalide</span>;
+  }
+  if (status === "OVERFITTED") {
+    return <span className="text-[10px] text-amber-400 font-bold">Overfit — éviter</span>;
+  }
+  if (status === "NO_EDGE" || !status) {
+    return <span className="text-[10px] text-gray-500 font-bold">Non validé historiquement</span>;
+  }
+  if (status === "WEAK_EDGE") {
+    return <span className="text-[10px] text-yellow-500 font-bold">Edge faible</span>;
+  }
+  return <span className="text-[10px] text-green-500 font-bold">Edge validé</span>;
 }
 
 export function EdgeScoreBar({ score }: { score?: number }) {
@@ -46,7 +68,6 @@ export function EdgeScoreBar({ score }: { score?: number }) {
   );
 }
 
-/** Petit badge pour la stratégie avec son emoji + nom court */
 export function BestStrategyBadge({
   name,
   color,
@@ -58,7 +79,6 @@ export function BestStrategyBadge({
 }) {
   if (!name) return <span className="text-[10px] text-gray-700">—</span>;
   const c = color ?? "#6b7280";
-  // Abréger le nom
   const short = name
     .replace("Pullback Trend", "Pullback")
     .replace("Breakout Quality", "Breakout")

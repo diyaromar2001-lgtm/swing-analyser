@@ -502,13 +502,15 @@ def compute_final_decision(
     rr_ratio:      float,
     regime:        str,    # "BULL" | "RANGE" | "BEAR" | "UNKNOWN"
     vix_val:       float,
+    ticker_edge_status: str = "NO_EDGE",
+    overfit_warning: bool = False,
 ) -> str:
     """
     Décision finale combinant signal technique et filtres fondamentaux.
 
-    BUY  : Grade A/A+ + setup READY + risques OK/CAUTION + R/R ≥ 1.5
-    WAIT : Setup valide mais conditions non réunies (CAUTION ou pas READY)
-    SKIP : BLOCKED par filtres, ou grade REJECT, ou R/R insuffisant
+    BUY  : Grade A/A+ + setup READY + risques OK + edge validé
+    WAIT : Setup technique visible mais edge non validé / conditions incomplètes
+    SKIP : BLOCKED, REJECT, INVALID, overfit, ou R/R insuffisant
     """
     # SKIP si bloqué ou qualité insuffisante
     if risk_status == "BLOCKED":
@@ -519,6 +521,8 @@ def compute_final_decision(
         return "SKIP"
     if rr_ratio < 1.5:
         return "SKIP"
+    if overfit_warning or ticker_edge_status == "OVERFITTED":
+        return "SKIP"
 
     # BUY si tout est aligné
     if (
@@ -526,6 +530,7 @@ def compute_final_decision(
         and setup_status == "READY"
         and risk_status == "OK"
         and rr_ratio >= 1.5
+        and ticker_edge_status in ("STRONG_EDGE", "VALID_EDGE")
         and regime in ("BULL", "RANGE")
     ):
         return "BUY"
