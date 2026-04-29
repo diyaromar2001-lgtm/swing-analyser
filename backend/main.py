@@ -45,6 +45,7 @@ from market_context import compute_market_context
 from earnings import get_earnings_date
 from setup_validator import validate_setup
 from market_regime_engine import compute_regime_engine
+from ticker_edge import compute_ticker_edge, get_cached_edge, invalidate_cache as _invalidate_edge_cache
 
 app = FastAPI(title="Swing Trading Screener Pro")
 
@@ -359,6 +360,25 @@ class TickerResult(BaseModel):
     # ── Tradabilité (qualité > quantité) ─────────────────────────────────
     tradable:            bool        = True
     rejection_reason:    str         = ""
+    # ── Strategy Edge per Ticker ──────────────────────────────────────────
+    ticker_edge_status:  str         = "NO_EDGE"   # STRONG_EDGE | VALID_EDGE | WEAK_EDGE | OVERFITTED | NO_EDGE
+    best_strategy_for_ticker: Optional[str] = None  # clé de la meilleure stratégie
+    best_strategy_name:  Optional[str] = None
+    best_strategy_color: str         = "#6b7280"
+    best_strategy_emoji: str         = ""
+    edge_score:          int         = 0            # 0–100
+    edge_train_pf:       float       = 0.0
+    edge_test_pf:        float       = 0.0
+    edge_trades:         int         = 0
+    edge_win_rate:       float       = 0.0
+    edge_pf:             float       = 0.0
+    edge_expectancy:     float       = 0.0
+    edge_max_dd:         float       = 0.0
+    overfit_warning:     bool        = False
+    overfit_reasons:     List[str]   = []
+    # ── Final Score composite (edge + setup + RR + regime + execution) ────
+    final_score:         int         = 0            # 0–100
+    execution_quality:   int         = 0            # 0–100 (proximité entrée)
     error:            Optional[str]  = None
 
 
@@ -558,6 +578,41 @@ def analyze_ticker(
                 f"S&P500 {_sp500_perf_3m:+.1f}% (besoin de +5% d'avance)"
             )
 
+        # ── 7. Strategy Edge (cache — recalcul à la demande) ────────────────
+        # On lit uniquement le cache (24h). Si absent → NO_EDGE (recalcul via endpoint).
+        # Le calcul complet (5 backtests × ticker) serait trop lourd ici.
+        edge_data    = get_cached_edge(ticker) or {}
+        te_status    = edge_data.get("ticker_edge_status",  "NO_EDGE")
+        best_strat   = edge_data.get("best_strategy",       None)
+        best_s_name  = edge_data.get("best_strategy_name",  None)
+        best_s_color = edge_data.get("best_strategy_color", "#6b7280")
+        best_s_emoji = edge_data.get("best_strategy_emoji", "")
+        edge_sc      = int(edge_data.get("edge_score",      0))
+        edge_train_p = float(edge_data.get("train_pf",      0.0))
+        edge_test_p  = float(edge_data.get("test_pf",       0.0))
+        edge_trades_ = int(edge_data.get("total_trades",    0))
+        edge_wr      = float(edge_data.get("win_rate",      0.0))
+        edge_pf_     = float(edge_data.get("pf",            0.0))
+        edge_exp     = float(edge_data.get("expectancy",    0.0))
+        edge_dd      = float(edge_data.get("max_dd",        0.0))
+        overfit_warn = bool(edge_data.get("overfit_warning", False))
+        overfit_r    = list(edge_data.get("overfit_reasons", []))
+
+        # ── 8. Final Score composite ─────────────────────────────────────────
+        # 30 % edge + 25 % setup + 20 % R/R + 15 % régime + 10 % execution
+        _regime_fit  = 1.0 if engine_regime == "BULL_TREND" else \
+                       0.6 if engine_regime in ("PULLBACK_TREND", "RANGE") else 0.2
+        exec_quality = max(0, int(100 - abs(dist_entry) * 12))   # proche entrée = bon
+        rr_norm      = min(rr_ratio / 3.0, 1.0)                  # R/R 3:1 = max
+
+        final_score = int(
+            0.30 * edge_sc +
+            0.25 * score +
+            0.20 * (rr_norm * 100) +
+            0.15 * (_regime_fit * 100) +
+            0.10 * exec_quality
+        )
+
         return TickerResult(
             ticker=ticker,
             sector=TICKER_SECTOR.get(ticker, "Other"),
@@ -606,6 +661,25 @@ def analyze_ticker(
             final_decision=final_decision,
             tradable=tradable,
             rejection_reason=rejection_reason,
+            # Edge
+            ticker_edge_status=te_status,
+            best_strategy_for_ticker=best_strat,
+            best_strategy_name=best_s_name,
+            best_strategy_color=best_s_color,
+            best_strategy_emoji=best_s_emoji,
+            edge_score=edge_sc,
+            edge_train_pf=edge_train_p,
+            edge_test_pf=edge_test_p,
+            edge_trades=edge_trades_,
+            edge_win_rate=edge_wr,
+            edge_pf=edge_pf_,
+            edge_expectancy=edge_exp,
+            edge_max_dd=edge_dd,
+            overfit_warning=overfit_warn,
+            overfit_reasons=overfit_r,
+            # Final score
+            final_score=final_score,
+            execution_quality=exec_quality,
         )
     except Exception:
         return None
@@ -1105,3 +1179,86 @@ def optimizer_endpoint(period: int = Query(12)):
                     _opt_data_cache[ticker] = df
 
     return run_optimizer(_opt_data_cache, period_months=period)
+
+
+# ── Strategy Edge per Ticker ──────────────────────────────────────────────────
+
+@app.get("/api/ticker-edge/{ticker}")
+def ticker_edge_endpoint(ticker: str):
+    """
+    Calcule (ou retourne depuis le cache 24h) l'edge historique par stratégie pour un ticker.
+    Teste les 5 stratégies du Strategy Lab sur 24 mois, split train/test.
+    """
+    t = ticker.upper()
+    df = _get_ohlcv(t)
+    if df is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"{t} : données insuffisantes")
+    return compute_ticker_edge(t, df)
+
+
+@app.post("/api/strategy-edge/compute")
+def compute_strategy_edge(
+    tickers: Optional[str] = Query(None, description="Sous-ensemble tickers séparés par virgule (défaut : tous)")
+):
+    """
+    Calcule l'edge pour une liste de tickers (ou tous) en parallèle.
+    Résultats mis en cache 24h — à appeler manuellement via bouton 'Recalculate Edge'.
+    Peut prendre 2-5 minutes pour tous les tickers.
+    """
+    ticker_list = (
+        [t.strip().upper() for t in tickers.split(",") if t.strip()]
+        if tickers else ALL_TICKERS
+    )
+
+    computed = 0
+    errors   = 0
+
+    def _compute_one(t: str):
+        nonlocal computed, errors
+        df = _get_ohlcv(t)
+        if df is None:
+            errors += 1
+            return
+        try:
+            compute_ticker_edge(t, df)
+            computed += 1
+        except Exception:
+            errors += 1
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        list(ex.map(_compute_one, ticker_list))
+
+    return {
+        "status":   "ok",
+        "computed": computed,
+        "errors":   errors,
+        "total":    len(ticker_list),
+        "message":  f"Edge calculé pour {computed}/{len(ticker_list)} tickers (cache 24h)",
+    }
+
+
+@app.get("/api/strategy-edge/status")
+def strategy_edge_status():
+    """Retourne l'état du cache edge (combien de tickers ont un edge calculé)."""
+    from ticker_edge import _edge_cache, _EDGE_TTL
+    now   = _time.time()
+    valid = sum(1 for v in _edge_cache.values() if (now - v.get("ts", 0)) < _EDGE_TTL)
+    by_status: Dict[str, int] = {}
+    for v in _edge_cache.values():
+        s = v.get("data", {}).get("ticker_edge_status", "NO_EDGE")
+        by_status[s] = by_status.get(s, 0) + 1
+    return {
+        "cached_tickers": len(_edge_cache),
+        "valid_tickers":  valid,
+        "total_tickers":  len(ALL_TICKERS),
+        "coverage_pct":   round(valid / max(len(ALL_TICKERS), 1) * 100, 1),
+        "by_status":      by_status,
+    }
+
+
+@app.delete("/api/strategy-edge/cache")
+def clear_edge_cache(ticker: Optional[str] = Query(None)):
+    """Vide le cache edge (tout ou un ticker spécifique)."""
+    _invalidate_edge_cache(ticker.upper() if ticker else None)
+    return {"cleared": True, "ticker": ticker}

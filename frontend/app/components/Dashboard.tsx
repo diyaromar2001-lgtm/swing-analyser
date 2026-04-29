@@ -183,6 +183,31 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [secondsSincePrice, setSecondsSincePrice] = useState(0);
   const priceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Strategy Edge
+  const [edgeCoverage, setEdgeCoverage] = useState<number>(0);
+  const [edgeComputing, setEdgeComputing] = useState(false);
+
+  const recalculateEdge = useCallback(async () => {
+    setEdgeComputing(true);
+    try {
+      await fetch(`${API_URL}/api/strategy-edge/compute`, { method: "POST" });
+      // Re-fetch screener pour avoir les nouvelles données edge
+      await fetchData();
+      // Actualiser le statut
+      const r = await fetch(`${API_URL}/api/strategy-edge/status`);
+      const j = await r.json();
+      setEdgeCoverage(j?.coverage_pct ?? 0);
+    } catch { /* silencieux */ }
+    finally { setEdgeComputing(false); }
+  }, [fetchData]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/strategy-edge/status`)
+      .then(r => r.json())
+      .then(j => setEdgeCoverage(j?.coverage_pct ?? 0))
+      .catch(() => {});
+  }, []);
+
   // Strategy Lab
   const [activeLabKey, setActiveLabKey] = useState<string>("");
   const [backtestStatus, setBacktestStatus] = useState<TradableStatus>(() => {
@@ -465,6 +490,26 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
           <ApiStatusDot onClick={() => setShowApiStatus(true)} />
 
+          {/* Bouton Recalculate Edge — mode Advanced uniquement */}
+          {uiMode === "pro" && view === "table" && (
+            <button
+              onClick={recalculateEdge}
+              disabled={edgeComputing}
+              title={`Recalculer l'edge historique par ticker (cache 24h)\nCouverture actuelle : ${edgeCoverage.toFixed(0)}%`}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all disabled:opacity-40"
+              style={{ background: "#0a1a0a", border: "1px solid #16a34a44", color: edgeComputing ? "#4ade8088" : "#4ade80" }}
+            >
+              {edgeComputing ? (
+                <><svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>Edge…</>
+              ) : (
+                <>⚡ Edge {edgeCoverage > 0 ? `${edgeCoverage.toFixed(0)}%` : "?"}</>
+              )}
+            </button>
+          )}
+
           {uiMode === "pro" && view !== "lab" && view !== "signals" && view !== "trades" && (
             <button
               onClick={() => refresh()}
@@ -679,7 +724,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
               Aucun résultat pour ces filtres.
             </div>
           ) : (
-            <ScreenerTable data={filtered} />
+            <ScreenerTable data={filtered} showEdge={true} />
           )}
         </>
       ) : view === "dynamic" ? (

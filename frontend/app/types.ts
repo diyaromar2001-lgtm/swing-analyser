@@ -75,6 +75,25 @@ export interface TickerResult {
   // Tradability (qualité > quantité)
   tradable?:            boolean;
   rejection_reason?:    string;
+  // Strategy Edge per Ticker
+  ticker_edge_status?:  "STRONG_EDGE" | "VALID_EDGE" | "WEAK_EDGE" | "NO_EDGE" | "OVERFITTED";
+  best_strategy_for_ticker?: string | null;
+  best_strategy_name?:  string | null;
+  best_strategy_color?: string;
+  best_strategy_emoji?: string;
+  edge_score?:          number;   // 0–100
+  edge_train_pf?:       number;
+  edge_test_pf?:        number;
+  edge_trades?:         number;
+  edge_win_rate?:       number;
+  edge_pf?:             number;
+  edge_expectancy?:     number;
+  edge_max_dd?:         number;
+  overfit_warning?:     boolean;
+  overfit_reasons?:     string[];
+  // Final Score composite
+  final_score?:         number;   // 0–100
+  execution_quality?:   number;   // 0–100
   // Prix temps réel (injecté côté frontend par polling /api/prices)
   change_pct?:          number;
   change_abs?:          number;

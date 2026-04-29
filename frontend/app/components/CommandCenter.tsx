@@ -461,6 +461,64 @@ function TradePlanPanel({
           </section>
         )}
 
+        {/* ⑥ Strategy Edge */}
+        {t.ticker_edge_status && (
+          <section className="rounded-xl p-4" style={{
+            background: "#07070f",
+            border: `1px solid ${
+              t.ticker_edge_status === "STRONG_EDGE" ? "#16a34a40" :
+              t.ticker_edge_status === "VALID_EDGE"  ? "#16a34a20" :
+              t.ticker_edge_status === "NO_EDGE"     ? "#1e1e2a"   : "#92400e40"
+            }`
+          }}>
+            <p className="text-[9px] font-black uppercase tracking-widest mb-2"
+              style={{ color: t.ticker_edge_status === "STRONG_EDGE" ? "#4ade80" : t.ticker_edge_status === "VALID_EDGE" ? "#86efac" : "#6b7280" }}>
+              ⑥ Strategy Edge Historique
+            </p>
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <span className="text-[10px] font-black px-1.5 py-0.5 rounded"
+                style={{
+                  background: t.ticker_edge_status === "STRONG_EDGE" ? "#052e16" : t.ticker_edge_status === "VALID_EDGE" ? "#031a0d" : "#111118",
+                  color: t.ticker_edge_status === "STRONG_EDGE" ? "#4ade80" : t.ticker_edge_status === "VALID_EDGE" ? "#86efac" : "#6b7280",
+                }}>
+                {t.ticker_edge_status === "STRONG_EDGE" ? "⚡ STRONG EDGE"
+                 : t.ticker_edge_status === "VALID_EDGE" ? "✓ VALID EDGE"
+                 : t.ticker_edge_status === "WEAK_EDGE"  ? "~ WEAK EDGE"
+                 : t.ticker_edge_status === "OVERFITTED" ? "⚠ OVERFITTED"
+                 : "— PAS D'EDGE CALCULÉ"}
+              </span>
+              {t.best_strategy_name && (
+                <span className="text-[10px]" style={{ color: t.best_strategy_color ?? "#6b7280" }}>
+                  {t.best_strategy_emoji} {t.best_strategy_name}
+                </span>
+              )}
+            </div>
+            {t.ticker_edge_status !== "NO_EDGE" && (
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { label: "Trades",    val: t.edge_trades   ?? "—" },
+                  { label: "Win Rate",  val: t.edge_win_rate ? `${t.edge_win_rate.toFixed(0)}%` : "—" },
+                  { label: "Train PF",  val: t.edge_train_pf ? t.edge_train_pf.toFixed(2) : "—" },
+                  { label: "Test PF",   val: t.edge_test_pf  ? t.edge_test_pf.toFixed(2)  : "—" },
+                ].map(m => (
+                  <div key={m.label} className="text-center rounded-lg p-1.5" style={{ background: "#0c0c18" }}>
+                    <p className="text-[8px] text-gray-700 uppercase tracking-widest">{m.label}</p>
+                    <p className="text-[10px] font-black text-gray-300">{m.val}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {t.ticker_edge_status === "NO_EDGE" && (
+              <p className="text-[10px] text-gray-700">
+                Aucun edge historique calculé — cliquez sur ⚡ Edge dans l&apos;Advanced View pour calculer.
+              </p>
+            )}
+            {t.overfit_warning && (
+              <p className="text-[10px] text-amber-500 mt-1.5">⚠ {(t.overfit_reasons ?? [])[0]}</p>
+            )}
+          </section>
+        )}
+
         {/* Earnings warning */}
         {t.earnings_warning && (
           <div className="rounded-xl px-4 py-3 flex items-center gap-2"
@@ -472,11 +530,11 @@ function TradePlanPanel({
           </div>
         )}
 
-        {/* ⑥ Pourquoi ce trade est bloqué */}
+        {/* ⑦ Pourquoi ce trade est bloqué */}
         {isBlocked && (
           <section className="rounded-xl p-4" style={{ background: "#0d0400", border: "1px solid #92400e60" }}>
             <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-3">
-              ⑥ Pourquoi ce trade est bloqué
+              ⑦ Pourquoi ce trade est bloqué
             </p>
             <ul className="space-y-2 mb-3">
               {blockReasons.map((r, i) => (
@@ -616,6 +674,36 @@ function OpportunityCard({
           </div>
         ))}
       </div>
+
+      {/* Edge Info (si disponible) */}
+      {t.ticker_edge_status && t.ticker_edge_status !== "NO_EDGE" && (
+        <div className="flex items-center gap-2 mb-2.5 px-2 py-1.5 rounded-lg flex-wrap"
+          style={{ background: "#040d04", border: "1px solid #16a34a22" }}>
+          <span className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Edge :</span>
+          {t.ticker_edge_status === "STRONG_EDGE" && (
+            <span className="text-[9px] font-black text-green-400">⚡ STRONG EDGE</span>
+          )}
+          {t.ticker_edge_status === "VALID_EDGE" && (
+            <span className="text-[9px] font-black text-green-600">✓ VALID EDGE</span>
+          )}
+          {t.ticker_edge_status === "WEAK_EDGE" && (
+            <span className="text-[9px] font-black text-yellow-500">~ WEAK EDGE</span>
+          )}
+          {t.best_strategy_name && (
+            <span className="text-[9px]" style={{ color: t.best_strategy_color ?? "#6b7280" }}>
+              {t.best_strategy_emoji} {t.best_strategy_name}
+            </span>
+          )}
+          {t.edge_score && t.edge_score > 0 && (
+            <span className="ml-auto text-[9px] font-black text-gray-600">
+              Score edge: <strong className="text-gray-400">{t.edge_score}/100</strong>
+            </span>
+          )}
+          {t.overfit_warning && (
+            <span className="text-[9px] text-amber-400">⚠ overfit</span>
+          )}
+        </div>
+      )}
 
       {/* Footer */}
       <div className="flex items-center gap-4 text-[10px] text-gray-700 flex-wrap">

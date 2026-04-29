@@ -9,8 +9,9 @@ import { SetupGradeBadge, SignalBadge, ConfidenceBadge } from "./CategoryBadge";
 import { ScoreBreakdown } from "./ScoreBreakdown";
 import { TradePlan } from "./TradePlan";
 import { SentimentCell } from "./SentimentPanel";
+import { EdgeStatusBadge, EdgeScoreBar, BestStrategyBadge } from "./EdgeBadge";
 
-type SortKey = "score" | "rsi_val" | "perf_3m" | "perf_6m" | "dist_entry_pct" | "risk_now_pct" | "rr_ratio" | "confidence";
+type SortKey = "score" | "rsi_val" | "perf_3m" | "perf_6m" | "dist_entry_pct" | "risk_now_pct" | "rr_ratio" | "confidence" | "edge_score" | "final_score" | "edge_train_pf" | "edge_test_pf";
 
 function PctCell({ val, good = "positive" }: { val: number; good?: "positive" | "negative" | "neutral" }) {
   const color =
@@ -24,12 +25,16 @@ function PctCell({ val, good = "positive" }: { val: number; good?: "positive" | 
   );
 }
 
-export function ScreenerTable({ data }: { data: TickerResult[] }) {
+type EdgeFilter = "all" | "STRONG_EDGE" | "VALID_EDGE" | "no_no_edge";
+
+export function ScreenerTable({ data, showEdge = false }: { data: TickerResult[]; showEdge?: boolean }) {
   const [expanded, setExpanded]   = useState<string | null>(null);
   const [tradePlan, setTradePlan] = useState<TickerResult | null>(null);
   const [sortKey, setSortKey]     = useState<SortKey>("score");
   const [sortAsc, setSortAsc]     = useState(false);
   const [apisConfigured, setApisConfigured] = useState<boolean>(true);
+  const [edgeFilter, setEdgeFilter] = useState<EdgeFilter>("all");
+  const [hideOverfit, setHideOverfit] = useState(false);
 
   useEffect(() => {
     fetch(`${API_URL}/api/status`)
@@ -38,8 +43,19 @@ export function ScreenerTable({ data }: { data: TickerResult[] }) {
       .catch(() => {});
   }, []);
 
-  const sorted = [...data].sort((a, b) => {
-    const diff = (a[sortKey] as number) - (b[sortKey] as number);
+  // Filtrage edge
+  const filtered = data.filter(r => {
+    if (edgeFilter === "STRONG_EDGE" && r.ticker_edge_status !== "STRONG_EDGE") return false;
+    if (edgeFilter === "VALID_EDGE"  && !["STRONG_EDGE", "VALID_EDGE"].includes(r.ticker_edge_status ?? "")) return false;
+    if (edgeFilter === "no_no_edge"  && (r.ticker_edge_status === "NO_EDGE" || !r.ticker_edge_status)) return false;
+    if (hideOverfit && r.overfit_warning) return false;
+    return true;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    const av = (a[sortKey] as number) ?? 0;
+    const bv = (b[sortKey] as number) ?? 0;
+    const diff = av - bv;
     return sortAsc ? diff : -diff;
   });
 
@@ -61,9 +77,46 @@ export function ScreenerTable({ data }: { data: TickerResult[] }) {
     "A+": "#4ade80", "A": "#bef264", "B": "#fde047",
   };
 
+  const EdgeFilterBtn = ({ label, val }: { label: string; val: EdgeFilter }) => (
+    <button
+      onClick={() => setEdgeFilter(edgeFilter === val ? "all" : val)}
+      className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+      style={{
+        background: edgeFilter === val ? "#052e16" : "#0d0d18",
+        border: `1px solid ${edgeFilter === val ? "#4ade80" : "#1e1e2a"}`,
+        color: edgeFilter === val ? "#4ade80" : "#4b5563",
+      }}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <>
       {tradePlan && <TradePlan row={tradePlan} onClose={() => setTradePlan(null)} />}
+
+      {/* ── Filtres Edge ── */}
+      {showEdge && (
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <span className="text-[10px] font-bold text-gray-600 uppercase tracking-widest">Edge :</span>
+          <EdgeFilterBtn label="⚡ Strong Edge only" val="STRONG_EDGE" />
+          <EdgeFilterBtn label="✓ Valid+ only"       val="VALID_EDGE" />
+          <EdgeFilterBtn label="Masquer NO_EDGE"      val="no_no_edge" />
+          <button
+            onClick={() => setHideOverfit(v => !v)}
+            className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+            style={{
+              background: hideOverfit ? "#1c1000" : "#0d0d18",
+              border: `1px solid ${hideOverfit ? "#f59e0b" : "#1e1e2a"}`,
+              color: hideOverfit ? "#f59e0b" : "#4b5563",
+            }}
+          >
+            ⚠ Masquer Overfit
+          </button>
+          <span className="text-[10px] text-gray-700 ml-2">{sorted.length} résultats</span>
+        </div>
+      )}
+
       <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -76,6 +129,12 @@ export function ScreenerTable({ data }: { data: TickerResult[] }) {
                 <Th label="Grade" />
                 <Th label="Signal" />
                 <Th label="Conf." k="confidence" />
+                {showEdge && <Th label="Final" k="final_score" />}
+                {showEdge && <Th label="Edge" k="edge_score" />}
+                {showEdge && <Th label="Stratégie" />}
+                {showEdge && <Th label="Train PF" k="edge_train_pf" />}
+                {showEdge && <Th label="Test PF" k="edge_test_pf" />}
+                {showEdge && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Overfit</th>}
                 <Th label="Entree" />
                 <Th label="SL" />
                 <Th label="TP1" />
@@ -122,6 +181,51 @@ export function ScreenerTable({ data }: { data: TickerResult[] }) {
                       <td className="px-3 py-2.5"><SetupGradeBadge grade={row.setup_grade} /></td>
                       <td className="px-3 py-2.5"><SignalBadge signal={row.signal_type} /></td>
                       <td className="px-3 py-2.5"><ConfidenceBadge confidence={row.confidence} /></td>
+                      {showEdge && (
+                        <td className="px-3 py-2.5">
+                          <span className="text-xs font-black tabular-nums"
+                            style={{ color: (row.final_score ?? 0) >= 70 ? "#4ade80" : (row.final_score ?? 0) >= 45 ? "#fde047" : "#6b7280" }}>
+                            {row.final_score ?? "—"}
+                          </span>
+                        </td>
+                      )}
+                      {showEdge && (
+                        <td className="px-3 py-2.5"><EdgeScoreBar score={row.edge_score} /></td>
+                      )}
+                      {showEdge && (
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-col gap-0.5">
+                            <EdgeStatusBadge status={row.ticker_edge_status} />
+                            <BestStrategyBadge
+                              name={row.best_strategy_name}
+                              color={row.best_strategy_color}
+                              emoji={row.best_strategy_emoji}
+                            />
+                          </div>
+                        </td>
+                      )}
+                      {showEdge && (
+                        <td className="px-3 py-2.5 font-mono tabular-nums text-xs"
+                          style={{ color: (row.edge_train_pf ?? 0) >= 1.5 ? "#4ade80" : (row.edge_train_pf ?? 0) >= 1.2 ? "#fde047" : "#6b7280" }}>
+                          {row.edge_train_pf ? row.edge_train_pf.toFixed(2) : "—"}
+                        </td>
+                      )}
+                      {showEdge && (
+                        <td className="px-3 py-2.5 font-mono tabular-nums text-xs"
+                          style={{ color: (row.edge_test_pf ?? 0) >= 1.2 ? "#4ade80" : (row.edge_test_pf ?? 0) >= 1.0 ? "#fde047" : "#ef4444" }}>
+                          {row.edge_test_pf ? row.edge_test_pf.toFixed(2) : "—"}
+                        </td>
+                      )}
+                      {showEdge && (
+                        <td className="px-3 py-2.5">
+                          {row.overfit_warning
+                            ? <span className="text-[10px] text-amber-400 font-bold">⚠ OVERFIT</span>
+                            : row.ticker_edge_status && row.ticker_edge_status !== "NO_EDGE"
+                              ? <span className="text-[10px] text-green-600">✓</span>
+                              : <span className="text-[10px] text-gray-700">—</span>
+                          }
+                        </td>
+                      )}
                       <td className="px-3 py-2.5 font-mono text-gray-300 tabular-nums text-xs">${row.entry.toFixed(2)}</td>
                       <td className="px-3 py-2.5">
                         <div>
@@ -168,7 +272,7 @@ export function ScreenerTable({ data }: { data: TickerResult[] }) {
                     </tr>
                     {isExpanded && (
                       <tr style={{ background: "#0b0b1a", borderBottom: "1px solid #1a1a28" }}>
-                        <td colSpan={18}>
+                        <td colSpan={showEdge ? 24 : 18}>
                           <ScoreBreakdown detail={row.score_detail} ticker={row.ticker} />
                         </td>
                       </tr>
