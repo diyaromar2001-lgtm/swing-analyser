@@ -578,34 +578,37 @@ def analyze_ticker(
                 f"S&P500 {_sp500_perf_3m:+.1f}% (besoin de +5% d'avance)"
             )
 
-        # ── 7. Strategy Edge (cache — recalcul à la demande) ────────────────
-        # On lit uniquement le cache (24h). Si absent → NO_EDGE (recalcul via endpoint).
-        # Le calcul complet (5 backtests × ticker) serait trop lourd ici.
-        edge_data    = get_cached_edge(ticker) or {}
-        te_status    = edge_data.get("ticker_edge_status",  "NO_EDGE")
-        best_strat   = edge_data.get("best_strategy",       None)
-        best_s_name  = edge_data.get("best_strategy_name",  None)
-        best_s_color = edge_data.get("best_strategy_color", "#6b7280")
-        best_s_emoji = edge_data.get("best_strategy_emoji", "")
-        edge_sc      = int(edge_data.get("edge_score",      0))
-        edge_train_p = float(edge_data.get("train_pf",      0.0))
-        edge_test_p  = float(edge_data.get("test_pf",       0.0))
-        edge_trades_ = int(edge_data.get("total_trades",    0))
-        edge_wr      = float(edge_data.get("win_rate",      0.0))
-        edge_pf_     = float(edge_data.get("pf",            0.0))
-        edge_exp     = float(edge_data.get("expectancy",    0.0))
-        edge_dd      = float(edge_data.get("max_dd",        0.0))
-        overfit_warn = bool(edge_data.get("overfit_warning", False))
-        overfit_r    = list(edge_data.get("overfit_reasons", []))
+        # ── 7. Strategy Edge (cache uniquement — non bloquant) ──────────────
+        try:
+            edge_data    = get_cached_edge(ticker) or {}
+            te_status    = edge_data.get("ticker_edge_status",  "NO_EDGE")
+            best_strat   = edge_data.get("best_strategy",       None)
+            best_s_name  = edge_data.get("best_strategy_name",  None)
+            best_s_color = edge_data.get("best_strategy_color", "#6b7280")
+            best_s_emoji = edge_data.get("best_strategy_emoji", "")
+            edge_sc      = int(edge_data.get("edge_score",      0))
+            edge_train_p = float(edge_data.get("train_pf",      0.0))
+            edge_test_p  = float(edge_data.get("test_pf",       0.0))
+            edge_trades_ = int(edge_data.get("total_trades",    0))
+            edge_wr      = float(edge_data.get("win_rate",      0.0))
+            edge_pf_     = float(edge_data.get("pf",            0.0))
+            edge_exp     = float(edge_data.get("expectancy",    0.0))
+            edge_dd      = float(edge_data.get("max_dd",        0.0))
+            overfit_warn = bool(edge_data.get("overfit_warning", False))
+            overfit_r    = list(edge_data.get("overfit_reasons", []))
+        except Exception:
+            te_status = "NO_EDGE"; best_strat = None; best_s_name = None
+            best_s_color = "#6b7280"; best_s_emoji = ""; edge_sc = 0
+            edge_train_p = 0.0; edge_test_p = 0.0; edge_trades_ = 0
+            edge_wr = 0.0; edge_pf_ = 0.0; edge_exp = 0.0; edge_dd = 0.0
+            overfit_warn = False; overfit_r = []
 
         # ── 8. Final Score composite ─────────────────────────────────────────
-        # 30 % edge + 25 % setup + 20 % R/R + 15 % régime + 10 % execution
         _regime_fit  = 1.0 if engine_regime == "BULL_TREND" else \
                        0.6 if engine_regime in ("PULLBACK_TREND", "RANGE") else 0.2
-        exec_quality = max(0, int(100 - abs(dist_entry) * 12))   # proche entrée = bon
-        rr_norm      = min(rr_ratio / 3.0, 1.0)                  # R/R 3:1 = max
-
-        final_score = int(
+        exec_quality = max(0, int(100 - abs(dist_entry) * 12))
+        rr_norm      = min(rr_ratio / 3.0, 1.0)
+        final_score  = int(
             0.30 * edge_sc +
             0.25 * score +
             0.20 * (rr_norm * 100) +
