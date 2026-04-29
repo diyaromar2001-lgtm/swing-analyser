@@ -291,6 +291,9 @@ class TickerResult(BaseModel):
     sector_rank:         str         = "NEUTRAL" # STRONG | NEUTRAL | WEAK
     vix_risk:            str         = "LOW"     # LOW | MEDIUM | HIGH
     final_decision:      str         = "WAIT"    # BUY | WAIT | SKIP
+    # ── Tradabilité (qualité > quantité) ─────────────────────────────────
+    tradable:            bool        = True
+    rejection_reason:    str         = ""
     error:            Optional[str]  = None
 
 
@@ -377,7 +380,9 @@ def analyze_ticker(
 
         confidence    = compute_confidence(score, rr_ratio, rsi_val)
         quality_score = compute_quality_score(dist_entry, rsi_val, close, atr_val, price)
-        signal_type   = detect_signal_type(price, sma50_val, rsi_val, macd_hist_v, high)
+        signal_type, breakout_valid, breakout_issues = detect_signal_type(
+            price, sma50_val, rsi_val, macd_hist_v, high, close, atr_val
+        )
 
         # Support & 52w high
         h52 = _high_52w(high)
@@ -446,6 +451,46 @@ def analyze_ticker(
             vix_val      = vix_val,
         )
 
+        # ── Tradability (qualité > quantité) ──────────────────────────────
+        # Un setup est tradable uniquement si TOUTES les conditions strictes
+        # sont réunies. Sinon il reste visible avec sa rejection_reason.
+        tradable = True
+        rejection_reason = ""
+
+        # 1. Régime de marché — hard filter : BULL_TREND only
+        engine_result = compute_regime_engine()
+        engine_regime = engine_result.get("regime", "UNKNOWN")
+        if engine_regime != "BULL_TREND":
+            tradable = False
+            rejection_reason = f"Régime {engine_result.get('regime_label', engine_regime)} — seulement BULL_TREND"
+        # Pénalité scoring si mauvais régime (déjà appliquée côté scoring si volume faible)
+        elif score < 90:
+            tradable = False
+            rejection_reason = f"Score {score}/100 insuffisant (min 90 requis)"
+        elif not (55 <= rsi_val <= 70):
+            tradable = False
+            rejection_reason = f"RSI {rsi_val:.0f} hors zone optimale (55–70)"
+        elif dist_entry > 2.0:
+            tradable = False
+            rejection_reason = f"Prix {dist_entry:+.1f}% au-dessus de l'entrée (max +2%)"
+        elif rr_ratio < 1.5:
+            tradable = False
+            rejection_reason = f"R/R {rr_ratio:.1f} insuffisant (min 1.5)"
+        elif avg_vol < 1_000_000:
+            tradable = False
+            rejection_reason = f"Liquidité insuffisante ({avg_vol/1_000:.0f}k < 1M)"
+        elif signal_type == "Breakout" and not breakout_valid:
+            tradable = False
+            main_issue = breakout_issues[0] if breakout_issues else "Breakout invalide"
+            rejection_reason = f"Breakout non qualifié : {main_issue}"
+        # Relative strength : outperformer S&P500 d'au moins 5% sur 3 mois
+        elif p3m < _sp500_perf_3m + 5.0:
+            tradable = False
+            rejection_reason = (
+                f"Force relative insuffisante : perf 3m {p3m:+.1f}% vs "
+                f"S&P500 {_sp500_perf_3m:+.1f}% (besoin de +5% d'avance)"
+            )
+
         return TickerResult(
             ticker=ticker,
             sector=TICKER_SECTOR.get(ticker, "Other"),
@@ -492,6 +537,8 @@ def analyze_ticker(
             sector_rank=fund["sector_rank"],
             vix_risk=fund["vix_risk"],
             final_decision=final_decision,
+            tradable=tradable,
+            rejection_reason=rejection_reason,
         )
     except Exception:
         return None

@@ -72,6 +72,9 @@ export interface TickerResult {
   sector_rank?:         "STRONG" | "NEUTRAL" | "WEAK";
   vix_risk?:            "LOW" | "MEDIUM" | "HIGH";
   final_decision?:      "BUY" | "WAIT" | "SKIP";
+  // Tradability (qualité > quantité)
+  tradable?:            boolean;
+  rejection_reason?:    string;
   error?:            string;
 }
 

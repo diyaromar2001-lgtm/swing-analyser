@@ -248,18 +248,19 @@ function DailyDecisionBlock({ decision }: { decision: Decision }) {
 // ─── Block Reasons ────────────────────────────────────────────────────────────
 
 function getBlockReasons(
-  t:             TickerResult,
-  engine:        RegimeEngine | null,
+  t:              TickerResult,
+  engine:         RegimeEngine | null,
   isAlreadyTaken: boolean,
-  activeCount:   number,
+  activeCount:    number,
 ): string[] {
   const reasons: string[] = [];
-  if (isAlreadyTaken)        reasons.push("Déjà en portefeuille");
-  if (!engine?.can_trade)    reasons.push(`Stratégie inactive : ${engine?.active_strategy ?? "NO_TRADE"}`);
-  if (t.earnings_warning)    reasons.push(`Résultats dans ${t.earnings_days}j — risque élevé`);
-  if (t.dist_entry_pct > 2)  reasons.push(`Prix trop éloigné (+${t.dist_entry_pct.toFixed(1)}%) — max autorisé 2%`);
-  if (t.rr_ratio < 1.5)      reasons.push(`R/R insuffisant (${t.rr_ratio.toFixed(1)}) — min 1.5`);
-  if (activeCount >= 3)       reasons.push("Maximum 3 positions simultanées atteint");
+  if (isAlreadyTaken)          reasons.push("Déjà en portefeuille");
+  if (activeCount >= 3)        reasons.push("Maximum 3 positions simultanées atteint");
+  // Backend rejection reason (highest priority — most specific)
+  if (t.tradable === false && t.rejection_reason)
+    reasons.push(t.rejection_reason);
+  if (!engine?.can_trade)      reasons.push(`Stratégie inactive : ${engine?.active_strategy ?? "NO_TRADE"}`);
+  if (t.earnings_warning)      reasons.push(`Résultats dans ${t.earnings_days}j — risque élevé`);
   if (t.risk_filters_status === "BLOCKED")
     (t.risk_filter_reasons ?? []).forEach(r => reasons.push(r));
   return reasons;
@@ -720,8 +721,10 @@ export function CommandCenter({
 
   const scored = data
     .filter(r => r.setup_grade !== "REJECT" && r.rr_ratio >= 1.5)
-    .filter(r => engine?.can_trade !== false)  // block all if NO_TRADE regime
+    .filter(r => engine?.can_trade !== false)
     .filter(r => signalFilter.length === 0 || signalFilter.includes(r.signal_type ?? ""))
+    // Only show tradable setups in Command Center — strict quality filter
+    .filter(r => r.tradable !== false)
     .map(r => ({ ...r, _score: decisionScore(r, engine, backtestStatus) }))
     .sort((a, b) => b._score - a._score);
 
@@ -818,7 +821,7 @@ export function CommandCenter({
               </span>
             ))}
           </div>
-          <p className="text-[9px] text-gray-700 mt-2">Surveiller ces setups — activer quand le régime s'améliore</p>
+          <p className="text-[9px] text-gray-700 mt-2">Setups en attente — conditions non réunies pour trade (qualité stricte)</p>
         </div>
       )}
 

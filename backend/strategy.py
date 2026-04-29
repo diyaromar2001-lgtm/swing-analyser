@@ -1,14 +1,19 @@
 """
 Moteur de scoring professionnel — Minervini / O'Neil / Weinstein / Darvas
 
-Score /100 :
+Score /100 (avec pénalités) :
   Tendance          30 pts  → SMA alignment + slope + proximity to 52W high
   Momentum          25 pts  → RSI zone idéale + MACD + perf 3m
   Risk / Reward     20 pts  → R/R dynamique (SL ATR/support, TP résistance)
   Force Relative    15 pts  → surperformance vs S&P500
   Volume / Qualité  10 pts  → volume vs moyenne 30j
 
-Grades : A+ (≥80) | A (≥65) | B (≥50) | REJECT (<50 ou filtré)
+Pénalités (qualité > quantité) :
+  -20  si prix trop éloigné de l'entrée (> 2%)
+  -15  si prix encore plus éloigné (> 3%)
+  -20  si volume faible (< moyenne 30j)
+
+Grades : A+ (≥90) | A (≥72) | B (≥58) | REJECT (<58 ou filtré)
 """
 
 import pandas as pd
@@ -207,7 +212,17 @@ def compute_professional_score(
     if b_vol_strong:     vol_pts = 10
     elif b_vol_above:    vol_pts = 5
 
-    total = min(100, trend_pts + mom_pts + rr_pts + rs_pts + vol_pts)
+    base_total = trend_pts + mom_pts + rr_pts + rs_pts + vol_pts
+
+    # ── PÉNALITÉS (qualité > quantité) ────────────────────────────────────────
+    dist_entry_pct = (price - entry) / entry * 100 if entry > 0 else 0
+    penalties = 0
+    if dist_entry_pct > 2.0:  penalties += 20   # prix trop étendu
+    if dist_entry_pct > 3.0:  penalties += 15   # encore plus loin (cumulatif)
+    if not b_vol_above:        penalties += 20   # volume faible
+    # Note : pénalité régime (-30) appliquée dans main.py (hard filter)
+
+    total = max(0, min(100, base_total - penalties))
 
     breakdown = {
         "trend":             trend_pts,
@@ -247,11 +262,12 @@ def classify_setup(
     B  → setup en formation, watchlist
     REJECT → éviter
     """
-    if score >= 80 and dist_entry_pct <= 3.0 and rr_ratio >= 2.5 and 50 <= rsi_val <= 70:
-        return "A+", "Setup premium — alignement parfait, entrée immédiate possible"
-    if score >= 65 and dist_entry_pct <= 8.0 and rr_ratio >= 1.5:
+    # Grades resserrés — qualité > quantité
+    if score >= 90 and dist_entry_pct <= 2.0 and rr_ratio >= 2.0 and 55 <= rsi_val <= 70:
+        return "A+", "Setup premium — toutes conditions alignées, entrée possible"
+    if score >= 72 and dist_entry_pct <= 4.0 and rr_ratio >= 1.5 and 50 <= rsi_val <= 72:
         return "A", "Bon setup — légère confirmation ou repli conseillé"
-    if score >= 50:
+    if score >= 58:
         return "B", f"Setup en formation — surveiller (score {score}/100)"
     return "REJECT", f"Score insuffisant ({score}/100) — conditions défavorables"
 
@@ -278,6 +294,56 @@ def compute_confidence(score: int, rr_ratio: float, rsi_val: float) -> int:
     return min(100, conf)
 
 
+# ── Breakout quality check ────────────────────────────────────────────────────
+
+def check_breakout_quality(
+    high:  pd.Series,
+    close: pd.Series,
+    atr_val: float,
+) -> tuple[bool, list[str]]:
+    """
+    Retourne (valid_breakout, rejection_reasons).
+
+    Règles :
+      1. Cassure dans les 3 derniers jours (nouveau high récent)
+      2. Consolidation préalable (volatilité basse les 10j avant)
+      3. Pas de mouvement parabolique (< 10% sur 3 jours)
+    """
+    if len(close) < 15 or len(high) < 15:
+        return False, ["Historique insuffisant pour valider le breakout"]
+
+    reasons = []
+
+    # 1. Breakout récent (dans les 3 derniers jours)
+    recent_high   = float(high.iloc[-3:].max())
+    prior_high    = float(high.iloc[-30:-3].max()) if len(high) >= 30 else float(high.iloc[:-3].max())
+    recent_break  = recent_high > prior_high
+    if not recent_break:
+        reasons.append("Cassure non récente (> 3 jours)")
+
+    # 2. Consolidation préalable (10j avant breakout)
+    if atr_val > 0 and len(close) >= 13:
+        pre_breakout_closes = close.iloc[-13:-3]
+        pre_range = float(pre_breakout_closes.max() - pre_breakout_closes.min())
+        consolidation_ok = pre_range < atr_val * 3.0   # range serré < 3×ATR
+        if not consolidation_ok:
+            reasons.append("Pas de consolidation préalable (range trop large)")
+    else:
+        consolidation_ok = True
+
+    # 3. Pas de mouvement parabolique (< 10% sur 3 jours)
+    if len(close) >= 4:
+        perf_3d = (float(close.iloc[-1]) - float(close.iloc[-4])) / float(close.iloc[-4]) * 100
+        parabolic = perf_3d > 10.0
+        if parabolic:
+            reasons.append(f"Mouvement parabolique ({perf_3d:.1f}% en 3j > 10%)")
+    else:
+        parabolic = False
+
+    valid = recent_break and consolidation_ok and not parabolic
+    return valid, reasons
+
+
 # ── Signal type ───────────────────────────────────────────────────────────────
 
 def detect_signal_type(
@@ -286,19 +352,31 @@ def detect_signal_type(
     rsi_val: float,
     macd_hist: float,
     high: pd.Series,
-) -> str:
+    close: pd.Series | None = None,
+    atr_val: float = 0.0,
+) -> tuple[str, bool, list[str]]:
+    """
+    Retourne (signal_type, breakout_valid, breakout_issues).
+    breakout_valid / breakout_issues uniquement pertinents pour signal Breakout.
+    """
     if sma50 <= 0:
-        return "Neutral"
+        return "Neutral", True, []
     dist = (price - sma50) / sma50 * 100
     is_new_high = new_high_30d(high)
 
     if is_new_high and rsi_val > 55 and macd_hist > 0:
-        return "Breakout"
+        # Valider la qualité du breakout
+        if close is not None and atr_val > 0:
+            valid, issues = check_breakout_quality(high, close, atr_val)
+        else:
+            valid, issues = True, []
+        return "Breakout", valid, issues
+
     if -4 <= dist <= 3 and rsi_val < 68:
-        return "Pullback"
+        return "Pullback", True, []
     if rsi_val > 55 and macd_hist > 0 and 0 <= dist <= 12:
-        return "Momentum"
-    return "Neutral"
+        return "Momentum", True, []
+    return "Neutral", True, []
 
 
 # ── Helpers de mapping ────────────────────────────────────────────────────────
