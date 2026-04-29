@@ -43,7 +43,7 @@ from signal_tracker import (
     get_signals, get_signal_stats,
 )
 from portfolio_backtest import run_portfolio_backtest
-from market_context import compute_market_context
+from market_context import compute_market_context, _fetch_vix, _fetch_sector_strength
 from earnings import get_earnings_date
 from setup_validator import validate_setup
 from market_regime_engine import compute_regime_engine
@@ -118,7 +118,7 @@ _opt_data_cache: Dict[str, object] = {}
 # SMA200, RSI, MACD, ATR… ne bougent pas significativement en intraday.
 _ohlcv_cache: Dict[str, dict] = {}
 _OHLCV_TTL = 14_400   # 4h
-_OHLCV_FETCH_TIMEOUT = 15
+_OHLCV_FETCH_TIMEOUT = 3
 
 # ── Cache prix actuel (60 s) — fetch léger 5 jours ───────────────────────────
 # Seul le "last price" change minute par minute.
@@ -248,10 +248,12 @@ def _get_market_ctx() -> dict:
             return _mkt_ctx_cache
 
         try:
-            ctx = compute_market_context()
+            # Fast path for screener: only fetch the fields actually used by
+            # analyze_ticker (VIX + sector strength). Full market breadth is
+            # reserved for the dedicated /api/market-context endpoint.
             _mkt_ctx_cache.update({
-                "vix":              ctx.get("vix", 20.0),
-                "sector_strength":  ctx.get("sector_strength", {}),
+                "vix":              _fetch_vix(),
+                "sector_strength":  _fetch_sector_strength(),
                 "ts":               now,
             })
         except Exception:
@@ -758,7 +760,7 @@ def screener(
     strategy_filtered = 0
     edge_rejected = 0
     errors = 0
-    with ThreadPoolExecutor(max_workers=16) as executor:
+    with ThreadPoolExecutor(max_workers=32) as executor:
         futures = {
             executor.submit(analyze_ticker, t, strategy, exclude_earnings, False, False, False): t
             for t in ALL_TICKERS
