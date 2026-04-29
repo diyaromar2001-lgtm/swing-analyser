@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { TickerResult, MarketRegime } from "../types";
+import { getApiUrl } from "../lib/api";
 
 type TradableStatus = "TRADABLE" | "À CONFIRMER" | "NON TRADABLE" | null;
 
@@ -13,7 +14,7 @@ interface MarketStatusInfo {
   message:  string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = getApiUrl();
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

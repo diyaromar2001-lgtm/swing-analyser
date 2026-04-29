@@ -4,8 +4,9 @@ import { useState, useCallback } from "react";
 import { LabStrategyResult, LabSummary, WalkForward, OptimizedParamSet, OptimizerResult } from "../types";
 import { Strategy } from "./Dashboard";
 import { EngineBanner } from "./BacktestView";
+import { getApiUrl } from "../lib/api";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = getApiUrl();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

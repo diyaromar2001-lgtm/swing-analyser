@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { SignalTrackerData, TrackedSignal } from "../types";
 import { EngineBanner } from "./BacktestView";
+import { getApiUrl } from "../lib/api";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = getApiUrl();
 
 function OutcomeBadge({ outcome }: { outcome: TrackedSignal["outcome"] }) {
   if (!outcome) return (

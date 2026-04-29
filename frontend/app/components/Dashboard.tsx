@@ -12,8 +12,9 @@ import { MarketContext } from "./MarketContext";
 import { SignalTracker } from "./SignalTracker";
 import { CommandCenter } from "./CommandCenter";
 import { TradeJournal } from "./TradeJournal";
+import { getApiUrl } from "../lib/api";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = getApiUrl();
 
 const SECTORS = [
   "Technology", "Healthcare", "Financials",

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { TickerResult, MarketRegime, MarketContext as MCType, RegimeEngine } from "../types";
 import { useJournal } from "../hooks/useJournal";
 import { TakeTradeModal } from "./TakeTradeModal";
+import { getApiUrl } from "../lib/api";
 
 type TradableStatus = "TRADABLE" | "À CONFIRMER" | "NON TRADABLE" | null;
 
@@ -14,7 +15,7 @@ interface MarketStatus {
   day:     string;
 }
 
-const API_URL     = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL     = getApiUrl();
 const SIM_CAPITAL = 10_000;
 const RISK_PCT    = 0.01;
 
