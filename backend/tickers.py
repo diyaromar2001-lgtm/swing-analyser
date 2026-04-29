@@ -14,7 +14,7 @@ TICKERS = {
         "MRVL", "ON", "NXPI", "ASML", "MCHP", "MPWR",
         # Software / Cloud
         "ADBE", "CRM", "INTU", "NOW", "ORCL", "CSCO", "ACN",
-        "WDAY", "VEEV", "SNOW", "ADSK", "ANSS", "CTSH", "PTC",
+        "WDAY", "VEEV", "SNOW", "ADSK", "CTSH", "PTC",
         # Cyber / AI
         "PANW", "CRWD", "FTNT", "ZS", "DDOG", "PLTR", "ARM", "NET",
         # Hardware / Other
