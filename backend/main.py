@@ -16,6 +16,7 @@ from typing import List, Optional, Dict
 from pydantic import BaseModel
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
+import threading
 
 from indicators import (
     sma, rsi, macd, atr, perf_pct,
@@ -127,6 +128,7 @@ _PRICE_TTL = 60   # 1 minute
 # ── Market context cache ───────────────────────────────────────────────────────
 _mkt_ctx_cache: dict = {}
 _MKT_CTX_TTL = 300   # 5 min
+_mkt_ctx_lock = threading.Lock()
 
 
 def _get_ohlcv(ticker: str) -> Optional[object]:
@@ -233,17 +235,22 @@ def _get_market_ctx() -> dict:
     if _mkt_ctx_cache and (now - _mkt_ctx_cache.get("ts", 0)) < _MKT_CTX_TTL:
         return _mkt_ctx_cache
 
-    try:
-        ctx = compute_market_context()
-        _mkt_ctx_cache.update({
-            "vix":              ctx.get("vix", 20.0),
-            "sector_strength":  ctx.get("sector_strength", {}),
-            "ts":               now,
-        })
-    except Exception:
-        _mkt_ctx_cache.setdefault("vix", 20.0)
-        _mkt_ctx_cache.setdefault("sector_strength", {})
-        _mkt_ctx_cache["ts"] = now
+    with _mkt_ctx_lock:
+        now = _time.time()
+        if _mkt_ctx_cache and (now - _mkt_ctx_cache.get("ts", 0)) < _MKT_CTX_TTL:
+            return _mkt_ctx_cache
+
+        try:
+            ctx = compute_market_context()
+            _mkt_ctx_cache.update({
+                "vix":              ctx.get("vix", 20.0),
+                "sector_strength":  ctx.get("sector_strength", {}),
+                "ts":               now,
+            })
+        except Exception:
+            _mkt_ctx_cache.setdefault("vix", 20.0)
+            _mkt_ctx_cache.setdefault("sector_strength", {})
+            _mkt_ctx_cache["ts"] = now
 
     return _mkt_ctx_cache
 
@@ -405,6 +412,7 @@ def analyze_ticker(
     ticker: str,
     strategy: str = "standard",
     exclude_earnings: bool = False,
+    fetch_news: bool = True,
 ) -> Optional[TickerResult]:
     try:
         # Utiliser le cache OHLCV (évite re-téléchargement à chaque scan)
@@ -543,7 +551,7 @@ def analyze_ticker(
             sector_strength  = sector_strength,
             vix_val          = vix_val,
             regime           = regime_str,
-            fetch_news       = True,
+            fetch_news       = fetch_news,
         )
 
         final_decision = compute_final_decision(
@@ -723,6 +731,16 @@ def screener(
     exclude_earnings: bool          = Query(False),
 ):
     fetch_sp500_perf()
+    # Warm shared caches once to avoid N threads recomputing the same
+    # expensive market context during the bulk screener scan.
+    try:
+        _ = _get_market_ctx()
+    except Exception:
+        pass
+    try:
+        _ = compute_regime_engine()
+    except Exception:
+        pass
     results = []
     ok_ohlcv = 0
     hard_filtered = 0
@@ -732,7 +750,7 @@ def screener(
     errors = 0
     with ThreadPoolExecutor(max_workers=16) as executor:
         futures = {
-            executor.submit(analyze_ticker, t, strategy, exclude_earnings): t
+            executor.submit(analyze_ticker, t, strategy, exclude_earnings, False): t
             for t in ALL_TICKERS
         }
         for future in as_completed(futures):
