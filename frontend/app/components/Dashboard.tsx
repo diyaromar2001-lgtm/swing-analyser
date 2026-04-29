@@ -183,31 +183,6 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [secondsSincePrice, setSecondsSincePrice] = useState(0);
   const priceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Strategy Edge
-  const [edgeCoverage, setEdgeCoverage] = useState<number>(0);
-  const [edgeComputing, setEdgeComputing] = useState(false);
-
-  const recalculateEdge = useCallback(async () => {
-    setEdgeComputing(true);
-    try {
-      await fetch(`${API_URL}/api/strategy-edge/compute`, { method: "POST" });
-      // Re-fetch screener pour avoir les nouvelles données edge
-      await fetchData();
-      // Actualiser le statut
-      const r = await fetch(`${API_URL}/api/strategy-edge/status`);
-      const j = await r.json();
-      setEdgeCoverage(j?.coverage_pct ?? 0);
-    } catch { /* silencieux */ }
-    finally { setEdgeComputing(false); }
-  }, [fetchData]);
-
-  useEffect(() => {
-    fetch(`${API_URL}/api/strategy-edge/status`)
-      .then(r => r.json())
-      .then(j => setEdgeCoverage(j?.coverage_pct ?? 0))
-      .catch(() => {});
-  }, []);
-
   // Strategy Lab
   const [activeLabKey, setActiveLabKey] = useState<string>("");
   const [backtestStatus, setBacktestStatus] = useState<TradableStatus>(() => {
@@ -235,6 +210,29 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, [strategy, excludeEarnings]);
+
+  // ── Strategy Edge — recalcul à la demande (après fetchData) ────────────────
+  const [edgeCoverage, setEdgeCoverage] = useState<number>(0);
+  const [edgeComputing, setEdgeComputing] = useState(false);
+
+  const recalculateEdge = useCallback(async () => {
+    setEdgeComputing(true);
+    try {
+      await fetch(`${API_URL}/api/strategy-edge/compute`, { method: "POST" });
+      await fetchData();
+      const r = await fetch(`${API_URL}/api/strategy-edge/status`);
+      const j = await r.json();
+      setEdgeCoverage(j?.coverage_pct ?? 0);
+    } catch { /* silencieux */ }
+    finally { setEdgeComputing(false); }
+  }, [fetchData]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/strategy-edge/status`)
+      .then(r => r.json())
+      .then(j => setEdgeCoverage(j?.coverage_pct ?? 0))
+      .catch(() => {});
+  }, []);
 
   // ── Refresh manuel : vide le cache prix puis recharge ────────────────────────
   const refresh = useCallback(async (strat?: Strategy, excEarnings?: boolean) => {
