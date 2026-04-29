@@ -149,34 +149,55 @@ def _get_ohlcv(ticker: str) -> Optional[object]:
 def _fetch_price_info(ticker: str) -> Optional[dict]:
     """
     Retourne {price, prev_close, change_abs, change_pct} avec cache 60s.
-    Fetch ultra-léger : 5 jours seulement (vs 26 mois pour le screener).
-    Partagé par _get_current_price() et l'endpoint /api/prices.
+    Utilise fast_info (prix quasi temps réel, 15 min delay) pour le prix actuel,
+    et prev_close pour calculer la variation du jour.
     """
     now   = _time.time()
     entry = _price_cache.get(ticker)
     if entry and (now - entry["ts"]) < _PRICE_TTL:
         return entry
     try:
-        df = yf.download(ticker, period="5d", interval="1d",
-                         progress=False, auto_adjust=True)
-        if df.empty or len(df) < 1:
-            return None
-        close = df["Close"].squeeze()
-        price = float(close.iloc[-1])
-        prev  = float(close.iloc[-2]) if len(close) >= 2 else price
-        if price <= 0:
+        t = yf.Ticker(ticker)
+        fi = t.fast_info
+        price      = float(fi.last_price)
+        prev_close = float(fi.previous_close) if fi.previous_close else price
+        if not price or price <= 0:
             return None
         info = {
             "price":      round(price, 2),
-            "prev_close": round(prev,  2),
-            "change_abs": round(price - prev, 2),
-            "change_pct": round((price - prev) / prev * 100, 2) if prev > 0 else 0.0,
+            "prev_close": round(prev_close, 2),
+            "change_abs": round(price - prev_close, 2),
+            "change_pct": round((price - prev_close) / prev_close * 100, 2) if prev_close > 0 else 0.0,
             "ts":         now,
         }
         _price_cache[ticker] = info
         return info
     except Exception:
-        return None
+        # Fallback : dernière bougie intraday 2 min
+        try:
+            df = yf.download(ticker, period="1d", interval="2m",
+                             progress=False, auto_adjust=True)
+            if df.empty:
+                return None
+            close = df["Close"].squeeze()
+            price = float(close.iloc[-1])
+            # prev_close via 5d daily
+            df5   = yf.download(ticker, period="5d", interval="1d",
+                                progress=False, auto_adjust=True)
+            prev  = float(df5["Close"].squeeze().iloc[-2]) if len(df5) >= 2 else price
+            if price <= 0:
+                return None
+            info = {
+                "price":      round(price, 2),
+                "prev_close": round(prev, 2),
+                "change_abs": round(price - prev, 2),
+                "change_pct": round((price - prev) / prev * 100, 2) if prev > 0 else 0.0,
+                "ts":         now,
+            }
+            _price_cache[ticker] = info
+            return info
+        except Exception:
+            return None
 
 
 def _get_current_price(ticker: str) -> Optional[float]:
