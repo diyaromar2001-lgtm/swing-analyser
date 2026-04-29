@@ -151,12 +151,19 @@ def _get_ohlcv(ticker: str) -> Optional[object]:
                 timeout=_OHLCV_FETCH_TIMEOUT,
             )
 
-        with ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(_download)
-            try:
-                df = future.result(timeout=_OHLCV_FETCH_TIMEOUT)
-            except FuturesTimeoutError:
-                return None
+        ex = ThreadPoolExecutor(max_workers=1)
+        future = ex.submit(_download)
+        try:
+            df = future.result(timeout=_OHLCV_FETCH_TIMEOUT)
+        except FuturesTimeoutError:
+            future.cancel()
+            ex.shutdown(wait=False, cancel_futures=True)
+            return None
+        except Exception:
+            ex.shutdown(wait=False, cancel_futures=True)
+            return None
+        else:
+            ex.shutdown(wait=False, cancel_futures=True)
 
         if df is None or df.empty or len(df) < 210:
             return None
