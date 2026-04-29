@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 import threading
+from collections import Counter
 
 from indicators import (
     sma, rsi, macd, atr, perf_pct,
@@ -120,7 +121,7 @@ _SCREENER_TTL = 60
 # SMA200, RSI, MACD, ATR… ne bougent pas significativement en intraday.
 _ohlcv_cache: Dict[str, dict] = {}
 _OHLCV_TTL = 14_400   # 4h
-_OHLCV_FETCH_TIMEOUT = 3
+_OHLCV_FETCH_TIMEOUT = 8
 
 # ── Cache prix actuel (60 s) — fetch léger 5 jours ───────────────────────────
 # Seul le "last price" change minute par minute.
@@ -426,12 +427,21 @@ def analyze_ticker(
     fetch_news: bool = True,
     use_live_price: bool = True,
     fetch_earnings: bool = True,
+    audit: Optional[Counter] = None,
+    audit_lock: Optional[threading.Lock] = None,
 ) -> Optional[TickerResult]:
+    def _audit_inc(key: str):
+        if audit is not None and audit_lock is not None:
+            with audit_lock:
+                audit[key] += 1
+
     try:
         # Utiliser le cache OHLCV (évite re-téléchargement à chaque scan)
         df = _get_ohlcv(ticker)
         if df is None:
+            _audit_inc("ohlcv_none")
             return None
+        _audit_inc("ohlcv_ok")
 
         close  = df["Close"].squeeze()
         high   = df["High"].squeeze()
@@ -456,7 +466,9 @@ def analyze_ticker(
         # ── 1. Filtres éliminatoires ─────────────────────────────────────
         filtered, filter_reason = hard_filter(price, sma200_val, rsi_val, avg_vol, atr_val)
         if filtered:
+            _audit_inc("hard_filter")
             return None
+        _audit_inc("post_hard")
 
         # ── 1b. Filtre earnings (configurable) ───────────────────────────
         # Récupérer les earnings en avance (best-effort, non bloquant)
@@ -471,6 +483,7 @@ def analyze_ticker(
                 earnings_warning = earn.get("warning", False)
                 # Si filtre actif : exclure si earnings dans ≤ 5 jours
                 if exclude_earnings and earnings_days is not None and 0 <= earnings_days <= 5:
+                    _audit_inc("earnings_block")
                     return None
             except Exception:
                 pass
@@ -502,7 +515,13 @@ def analyze_ticker(
 
         # Exclure les REJECT du résultat (score < 50)
         if setup_grade == "REJECT":
-            return None
+            _audit_inc("grade_reject")
+        elif setup_grade == "B":
+            _audit_inc("grade_b")
+        elif setup_grade == "A":
+            _audit_inc("grade_a")
+        elif setup_grade == "A+":
+            _audit_inc("grade_a_plus")
 
         confidence    = compute_confidence(score, rr_ratio, rsi_val)
         quality_score = compute_quality_score(dist_entry, rsi_val, close, atr_val, price)
@@ -532,7 +551,9 @@ def analyze_ticker(
         # READY   : prix proche de l'entrée (< 2%), bon R/R, grade A/A+
         # WAIT    : prix trop loin de l'entrée ou grade B
         # INVALID : R/R insuffisant ou conditions dégradées
-        if rr_ratio < 1.5 or dist_entry > 8:
+        if setup_grade == "REJECT":
+            setup_status = "INVALID"
+        elif rr_ratio < 1.5 or dist_entry > 8:
             setup_status = "INVALID"
         elif setup_grade in ("A+", "A") and dist_entry <= 2:
             setup_status = "READY"
@@ -586,36 +607,51 @@ def analyze_ticker(
         # 1. Régime de marché — hard filter : BULL_TREND only
         engine_result = compute_regime_engine()
         engine_regime = engine_result.get("regime", "UNKNOWN")
+        if strategy_fit != engine_result.get("active_strategy"):
+            _audit_inc("strategy_fit_mismatch")
         if engine_regime != "BULL_TREND":
             tradable = False
+            _audit_inc("tradability_block_regime")
             rejection_reason = f"Régime {engine_result.get('regime_label', engine_regime)} — seulement BULL_TREND"
         # Pénalité scoring si mauvais régime (déjà appliquée côté scoring si volume faible)
         elif score < 90:
             tradable = False
+            _audit_inc("tradability_block_score")
             rejection_reason = f"Score {score}/100 insuffisant (min 90 requis)"
         elif not (55 <= rsi_val <= 70):
             tradable = False
+            _audit_inc("tradability_block_rsi")
             rejection_reason = f"RSI {rsi_val:.0f} hors zone optimale (55–70)"
         elif dist_entry > 2.0:
             tradable = False
+            _audit_inc("tradability_block_dist")
             rejection_reason = f"Prix {dist_entry:+.1f}% au-dessus de l'entrée (max +2%)"
         elif rr_ratio < 1.5:
             tradable = False
+            _audit_inc("tradability_block_rr")
             rejection_reason = f"R/R {rr_ratio:.1f} insuffisant (min 1.5)"
         elif avg_vol < 1_000_000:
             tradable = False
+            _audit_inc("tradability_block_vol")
             rejection_reason = f"Liquidité insuffisante ({avg_vol/1_000:.0f}k < 1M)"
         elif signal_type == "Breakout" and not breakout_valid:
             tradable = False
+            _audit_inc("tradability_block_breakout")
             main_issue = breakout_issues[0] if breakout_issues else "Breakout invalide"
             rejection_reason = f"Breakout non qualifié : {main_issue}"
         # Relative strength : outperformer S&P500 d'au moins 5% sur 3 mois
         elif p3m < _sp500_perf_3m + 5.0:
             tradable = False
+            _audit_inc("tradability_block_rs")
             rejection_reason = (
                 f"Force relative insuffisante : perf 3m {p3m:+.1f}% vs "
                 f"S&P500 {_sp500_perf_3m:+.1f}% (besoin de +5% d'avance)"
             )
+
+        if tradable:
+            _audit_inc("tradable_yes")
+        else:
+            _audit_inc("tradable_no")
 
         # ── 7. Strategy Edge (cache uniquement — non bloquant) ──────────────
         try:
@@ -641,6 +677,7 @@ def analyze_ticker(
             edge_train_p = 0.0; edge_test_p = 0.0; edge_trades_ = 0
             edge_wr = 0.0; edge_pf_ = 0.0; edge_exp = 0.0; edge_dd = 0.0
             overfit_warn = False; overfit_r = []
+        _audit_inc(f"edge_{te_status.lower()}")
 
         # ── 8. Final Score composite ─────────────────────────────────────────
         _regime_fit  = 1.0 if engine_regime == "BULL_TREND" else \
@@ -762,15 +799,11 @@ def screener(
     except Exception:
         pass
     results = []
-    ok_ohlcv = 0
-    hard_filtered = 0
-    earnings_filtered = 0
-    strategy_filtered = 0
-    edge_rejected = 0
-    errors = 0
-    with ThreadPoolExecutor(max_workers=32) as executor:
+    audit = Counter()
+    audit_lock = threading.Lock()
+    with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
-            executor.submit(analyze_ticker, t, strategy, exclude_earnings, False, False, False): t
+            executor.submit(analyze_ticker, t, strategy, exclude_earnings, False, False, False, audit, audit_lock): t
             for t in ALL_TICKERS
         }
         for future in as_completed(futures):
@@ -778,13 +811,10 @@ def screener(
             try:
                 res = future.result()
                 if res:
-                    ok_ohlcv += 1
                     results.append(res)
-                else:
-                    # Best-effort counters for debugging / observability
-                    pass
             except Exception as exc:
-                errors += 1
+                with audit_lock:
+                    audit["errors"] += 1
                 print(f"[screener] {ticker}: {type(exc).__name__}: {str(exc)[:200]}")
                 continue
 
@@ -796,10 +826,16 @@ def screener(
         results = [r for r in results if r.signal_type == signal]
 
     print(
-        f"[screener] total={len(ALL_TICKERS)} ohlcv_ok={ok_ohlcv} "
-        f"hard_filtered={hard_filtered} earnings_filtered={earnings_filtered} "
-        f"strategy_filtered={strategy_filtered} edge_rejected={edge_rejected} "
-        f"errors={errors} returned={len(results)}"
+        f"[screener] total={len(ALL_TICKERS)} "
+        f"ohlcv_ok={audit['ohlcv_ok']} ohlcv_none={audit['ohlcv_none']} "
+        f"post_hard={audit['post_hard']} hard_filter={audit['hard_filter']} earnings_block={audit['earnings_block']} "
+        f"strategy_fit_mismatch={audit['strategy_fit_mismatch']} "
+        f"edge_no_edge={audit['edge_no_edge']} edge_valid_edge={audit['edge_valid_edge']} edge_strong_edge={audit['edge_strong_edge']} "
+        f"tradable_yes={audit['tradable_yes']} tradable_no={audit['tradable_no']} "
+        f"tradability_block_regime={audit['tradability_block_regime']} tradability_block_score={audit['tradability_block_score']} "
+        f"tradability_block_rsi={audit['tradability_block_rsi']} tradability_block_dist={audit['tradability_block_dist']} "
+        f"grade_reject={audit['grade_reject']} grade_b={audit['grade_b']} grade_a={audit['grade_a']} grade_a_plus={audit['grade_a_plus']} "
+        f"errors={audit['errors']} returned={len(results)}"
     )
 
     results.sort(key=lambda x: (x.score, x.confidence), reverse=True)
