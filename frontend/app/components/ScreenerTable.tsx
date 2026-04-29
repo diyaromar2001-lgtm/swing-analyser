@@ -107,7 +107,17 @@ export function ScreenerTable({ data }: { data: TickerResult[] }) {
                     >
                       <td className="px-3 py-2.5"><span className="font-black text-white text-sm">{row.ticker}</span></td>
                       <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">{row.sector}</td>
-                      <td className="px-3 py-2.5 font-mono text-gray-200 tabular-nums text-xs">${row.price.toFixed(2)}</td>
+                      <td className="px-3 py-2.5 tabular-nums text-xs">
+                        <span className="font-mono text-gray-200">${row.price.toFixed(2)}</span>
+                        {row.change_pct !== undefined && (
+                          <span
+                            className="ml-1.5 font-semibold"
+                            style={{ color: row.change_pct > 0 ? "#10b981" : row.change_pct < 0 ? "#ef4444" : "#6b7280", fontSize: "10px" }}
+                          >
+                            {row.change_pct > 0 ? "+" : ""}{row.change_pct.toFixed(2)}%
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-2.5"><ScoreBar score={row.score} /></td>
                       <td className="px-3 py-2.5"><SetupGradeBadge grade={row.setup_grade} /></td>
                       <td className="px-3 py-2.5"><SignalBadge signal={row.signal_type} /></td>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { TickerResult, MarketRegime } from "../types";
 import { ScreenerTable } from "./ScreenerTable";
 import { Top5Cards } from "./Top5Cards";
@@ -177,6 +177,12 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     return (localStorage.getItem("swing_ui_mode") as "simple" | "pro") ?? "simple";
   });
 
+  // ── Real-time price polling ──────────────────────────────────────────────────
+  const [priceMap, setPriceMap] = useState<Record<string, { price: number; change_pct: number; change_abs: number }>>({});
+  const [lastPriceUpdate, setLastPriceUpdate] = useState<Date | null>(null);
+  const [secondsSincePrice, setSecondsSincePrice] = useState(0);
+  const priceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Strategy Lab
   const [activeLabKey, setActiveLabKey] = useState<string>("");
   const [backtestStatus, setBacktestStatus] = useState<TradableStatus>(() => {
@@ -210,6 +216,51 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     await fetch(`${API_URL}/api/clear-cache`, { method: "POST" }).catch(() => {});
     await fetchData(strat, excEarnings);
   }, [fetchData]);
+
+  // ── Polling prix léger toutes les 15 secondes ────────────────────────────────
+  const pollPrices = useCallback(async (rows: TickerResult[]) => {
+    if (rows.length === 0) return;
+    const tickers = rows.map(r => r.ticker).join(",");
+    try {
+      const res  = await fetch(`${API_URL}/api/prices?tickers=${tickers}`, { cache: "no-store" });
+      const list = await res.json() as { ticker: string; price: number; change_pct: number; change_abs: number }[];
+      setPriceMap(prev => {
+        const next = { ...prev };
+        for (const p of list) next[p.ticker] = { price: p.price, change_pct: p.change_pct, change_abs: p.change_abs };
+        return next;
+      });
+      setLastPriceUpdate(new Date());
+      setSecondsSincePrice(0);
+    } catch { /* silencieux */ }
+  }, []);
+
+  // Lance + relance le polling quand `data` change
+  useEffect(() => {
+    if (data.length === 0) return;
+    pollPrices(data);
+    if (priceTimerRef.current) clearInterval(priceTimerRef.current);
+    priceTimerRef.current = setInterval(() => pollPrices(data), 15_000);
+    return () => { if (priceTimerRef.current) clearInterval(priceTimerRef.current); };
+  }, [data, pollPrices]);
+
+  // Compteur "il y a X sec"
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSecondsSincePrice(prev => prev + 1);
+    }, 1_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Fusionne les prix temps réel dans les données screener
+  const dataWithLivePrices = useMemo<TickerResult[]>(() => {
+    if (Object.keys(priceMap).length === 0) return data;
+    return data.map(r => {
+      const p = priceMap[r.ticker];
+      if (!p) return r;
+      const dist_entry_pct = r.entry > 0 ? ((p.price - r.entry) / r.entry) * 100 : r.dist_entry_pct;
+      return { ...r, price: p.price, change_pct: p.change_pct, change_abs: p.change_abs, dist_entry_pct };
+    });
+  }, [data, priceMap]);
 
   // Chargement initial + auto-refresh toutes les 60 secondes
   useEffect(() => {
@@ -254,7 +305,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   }, [refresh]);
 
   const filtered = useMemo(() => {
-    return data.filter(r => {
+    return dataWithLivePrices.filter(r => {
       if (search   && !r.ticker.toLowerCase().includes(search.toLowerCase())) return false;
       if (sector   && r.sector !== sector)       return false;
       if (signal   && r.signal_type !== signal)  return false;
@@ -262,23 +313,18 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       if (minScore > 0 && r.score < minScore)    return false;
       return true;
     });
-  }, [data, search, sector, signal, grade, minScore]);
+  }, [dataWithLivePrices, search, sector, signal, grade, minScore]);
 
   const stats = useMemo(() => {
-    const aPlus   = data.filter(r => r.setup_grade === "A+").length;
-    const a       = data.filter(r => r.setup_grade === "A").length;
-    const b       = data.filter(r => r.setup_grade === "B").length;
-    const avgScore = data.length
-      ? Math.round(data.reduce((acc, r) => acc + r.score, 0) / data.length)
-      : 0;
-    const avgRR = data.length
-      ? Math.round(data.reduce((acc, r) => acc + r.rr_ratio, 0) / data.length * 10) / 10
-      : 0;
-    const avgConf = data.length
-      ? Math.round(data.reduce((acc, r) => acc + r.confidence, 0) / data.length)
-      : 0;
+    const d = dataWithLivePrices;
+    const aPlus   = d.filter(r => r.setup_grade === "A+").length;
+    const a       = d.filter(r => r.setup_grade === "A").length;
+    const b       = d.filter(r => r.setup_grade === "B").length;
+    const avgScore = d.length ? Math.round(d.reduce((acc, r) => acc + r.score, 0) / d.length) : 0;
+    const avgRR    = d.length ? Math.round(d.reduce((acc, r) => acc + r.rr_ratio, 0) / d.length * 10) / 10 : 0;
+    const avgConf  = d.length ? Math.round(d.reduce((acc, r) => acc + r.confidence, 0) / d.length) : 0;
     return { aPlus, a, b, avgScore, avgRR, avgConf };
-  }, [data]);
+  }, [dataWithLivePrices]);
 
   const FilterBtn = ({
     label, active, onClick, color,
@@ -340,7 +386,17 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             </h1>
           </div>
           <p className="text-gray-600 text-xs ml-5" suppressHydrationWarning>
-            {data.length} setups qualifiés · mis à jour {lastUpdate.toLocaleTimeString("fr-FR")}
+            {dataWithLivePrices.length} setups qualifiés · screener {lastUpdate.toLocaleTimeString("fr-FR")}
+            {lastPriceUpdate && (
+              <span className="ml-2 text-emerald-700">
+                · prix{" "}
+                <span style={{ color: secondsSincePrice < 20 ? "#10b981" : "#6b7280" }}>
+                  {secondsSincePrice < 60
+                    ? `il y a ${secondsSincePrice}s`
+                    : `il y a ${Math.floor(secondsSincePrice / 60)}m`}
+                </span>
+              </span>
+            )}
           </p>
         </div>
 
@@ -434,7 +490,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       {/* ── COMMAND CENTER ───────────────────────────────────────────────── */}
       {uiMode === "simple" && (
         <CommandCenter
-          data={data}
+          data={dataWithLivePrices}
           regime={regime}
           backtestStatus={backtestStatus}
           loading={loading}
@@ -516,7 +572,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       {/* CONTENU */}
       {view === "table" ? (
         <>
-          <Top5Cards data={data} />
+          <Top5Cards data={dataWithLivePrices} />
 
           {/* FILTRES */}
           <div className="rounded-xl p-4 mb-4" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>

@@ -146,29 +146,43 @@ def _get_ohlcv(ticker: str) -> Optional[object]:
         return None
 
 
-def _get_current_price(ticker: str) -> Optional[float]:
+def _fetch_price_info(ticker: str) -> Optional[dict]:
     """
-    Retourne le prix actuel avec un cache de 60 secondes.
-    Fetch ultra-léger : 5 jours de données seulement.
-    Utilisé pour mettre à jour le prix toutes les minutes sans re-télécharger
-    26 mois de données.
+    Retourne {price, prev_close, change_abs, change_pct} avec cache 60s.
+    Fetch ultra-léger : 5 jours seulement (vs 26 mois pour le screener).
+    Partagé par _get_current_price() et l'endpoint /api/prices.
     """
     now   = _time.time()
     entry = _price_cache.get(ticker)
     if entry and (now - entry["ts"]) < _PRICE_TTL:
-        return entry["price"]
+        return entry
     try:
         df = yf.download(ticker, period="5d", interval="1d",
                          progress=False, auto_adjust=True)
-        if df.empty:
+        if df.empty or len(df) < 1:
             return None
-        price = float(df["Close"].squeeze().iloc[-1])
-        if price > 0:
-            _price_cache[ticker] = {"price": price, "ts": now}
-            return price
+        close = df["Close"].squeeze()
+        price = float(close.iloc[-1])
+        prev  = float(close.iloc[-2]) if len(close) >= 2 else price
+        if price <= 0:
+            return None
+        info = {
+            "price":      round(price, 2),
+            "prev_close": round(prev,  2),
+            "change_abs": round(price - prev, 2),
+            "change_pct": round((price - prev) / prev * 100, 2) if prev > 0 else 0.0,
+            "ts":         now,
+        }
+        _price_cache[ticker] = info
+        return info
     except Exception:
-        pass
-    return None
+        return None
+
+
+def _get_current_price(ticker: str) -> Optional[float]:
+    """Prix seul (utilisé par analyze_ticker)."""
+    info = _fetch_price_info(ticker)
+    return info["price"] if info else None
 
 
 def _get_market_ctx() -> dict:
@@ -697,6 +711,39 @@ def clear_cache():
     _cache.clear()
     # NE PAS vider _ohlcv_cache : les indicateurs (SMA/RSI) sont stables 4h
     return {"cleared": True, "message": "Cache prix vidé — les prochains prix seront frais"}
+
+
+# ── Prix en temps réel ────────────────────────────────────────────────────────
+
+@app.get("/api/prices")
+def get_prices(tickers: str = Query(..., description="Tickers séparés par virgule, ex: AAPL,MSFT")):
+    """
+    Retourne le prix actuel + variation journalière pour une liste de tickers.
+    Cache 60s par ticker — fetch léger (5 jours) indépendant du screener lourd.
+    Conçu pour être appelé toutes les 15s depuis le frontend.
+    """
+    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()][:60]
+    if not ticker_list:
+        return []
+
+    results = []
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        futures = {ex.submit(_fetch_price_info, t): t for t in ticker_list}
+        for future in as_completed(futures):
+            ticker = futures[future]
+            try:
+                info = future.result()
+                if info:
+                    results.append({
+                        "ticker":     ticker,
+                        "price":      info["price"],
+                        "change_abs": info["change_abs"],
+                        "change_pct": info["change_pct"],
+                    })
+            except Exception:
+                pass
+
+    return results
 
 
 # ── Regime Engine (5 états + stratégie active) ────────────────────────────────

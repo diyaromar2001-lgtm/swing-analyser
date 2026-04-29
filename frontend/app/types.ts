@@ -75,6 +75,9 @@ export interface TickerResult {
   // Tradability (qualité > quantité)
   tradable?:            boolean;
   rejection_reason?:    string;
+  // Prix temps réel (injecté côté frontend par polling /api/prices)
+  change_pct?:          number;
+  change_abs?:          number;
   error?:            string;
 }
 
