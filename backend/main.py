@@ -116,6 +116,8 @@ _market_regime_cache: dict = {}
 _opt_data_cache: Dict[str, object] = {}
 _screener_cache: Dict[str, dict] = {}
 _SCREENER_TTL = 60
+_screener_warm_lock = threading.Lock()
+_screener_warming = False
 
 # ── Cache OHLCV historique (4h) — indicateurs stables sur la journée ─────────
 # SMA200, RSI, MACD, ATR… ne bougent pas significativement en intraday.
@@ -279,6 +281,34 @@ def fetch_sp500_perf():
             _sp500_perf_6m = perf_pct(close, 126)
     except Exception:
         pass
+
+
+def _default_screener_cache_key() -> str:
+    return "standard|False|||"
+
+
+def _warm_default_screener_cache_async():
+    global _screener_warming
+
+    with _screener_warm_lock:
+        if _screener_warming:
+            return
+        cached = _screener_cache.get(_default_screener_cache_key())
+        if cached and (_time.time() - cached.get("ts", 0)) < _SCREENER_TTL:
+            return
+        _screener_warming = True
+
+    def _runner():
+        global _screener_warming
+        try:
+            screener(sector=None, min_score=0, signal=None, strategy="standard", exclude_earnings=False)
+        except Exception as exc:
+            print(f"[screener-warm] {type(exc).__name__}: {str(exc)[:200]}")
+        finally:
+            with _screener_warm_lock:
+                _screener_warming = False
+
+    threading.Thread(target=_runner, daemon=True).start()
 
 
 # ── Market Regime ─────────────────────────────────────────────────────────────
@@ -769,6 +799,7 @@ def analyze_ticker(
 @app.on_event("startup")
 def startup_event():
     fetch_sp500_perf()
+    _warm_default_screener_cache_async()
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
