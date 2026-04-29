@@ -160,7 +160,7 @@ function GlobalStatusBar({
 
 export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [data, setData]             = useState(initialData);
-  const [loading, setLoading]       = useState(false);
+  const [loading, setLoading]       = useState(initialData.length === 0);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [strategy, setStrategy]     = useState<Strategy>("standard");
   const [regime, setRegime]         = useState<MarketRegime | null>(null);
@@ -199,15 +199,17 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     const s  = strat      ?? strategy;
     const ee = excEarnings ?? excludeEarnings;
     try {
-      const [screenerRes, regimeRes] = await Promise.all([
-        fetch(`${API_URL}/api/screener?strategy=${s}&exclude_earnings=${ee}`, { cache: "no-store" }),
-        fetch(`${API_URL}/api/market-regime`),
-      ]);
+      const screenerPromise = fetch(`${API_URL}/api/screener?strategy=${s}&exclude_earnings=${ee}`, { cache: "no-store" });
+      const regimePromise = fetch(`${API_URL}/api/market-regime`, { cache: "no-store" })
+        .then(r => r.json())
+        .then(setRegime)
+        .catch(() => null);
+
+      const screenerRes = await screenerPromise;
       const json = await screenerRes.json();
       setData(json);
       setLastUpdate(new Date());
-      const regimeJson = await regimeRes.json();
-      setRegime(regimeJson);
+      await regimePromise;
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, [strategy, excludeEarnings]);

@@ -113,6 +113,8 @@ _sp500_perf_3m: float = 0.0
 _sp500_perf_6m: float = 0.0
 _market_regime_cache: dict = {}
 _opt_data_cache: Dict[str, object] = {}
+_screener_cache: Dict[str, dict] = {}
+_SCREENER_TTL = 60
 
 # ── Cache OHLCV historique (4h) — indicateurs stables sur la journée ─────────
 # SMA200, RSI, MACD, ATR… ne bougent pas significativement en intraday.
@@ -742,6 +744,12 @@ def screener(
     strategy:         str           = Query("standard"),
     exclude_earnings: bool          = Query(False),
 ):
+    cache_key = f"{strategy}|{exclude_earnings}|{sector or ''}|{min_score}|{signal or ''}"
+    now = _time.time()
+    cached = _screener_cache.get(cache_key)
+    if cached and (now - cached.get("ts", 0)) < _SCREENER_TTL:
+        return cached["data"]
+
     fetch_sp500_perf()
     # Warm shared caches once to avoid N threads recomputing the same
     # expensive market context during the bulk screener scan.
@@ -829,6 +837,7 @@ def screener(
     except Exception:
         pass
 
+    _screener_cache[cache_key] = {"ts": _time.time(), "data": results}
     return results
 
 
@@ -877,6 +886,7 @@ def clear_cache():
     _price_cache.clear()   # prix actuels → prochaine lecture sera fraîche
     _mkt_ctx_cache.clear()
     _cache.clear()
+    _screener_cache.clear()
     # NE PAS vider _ohlcv_cache : les indicateurs (SMA/RSI) sont stables 4h
     return {"cleared": True, "message": "Cache prix vidé — les prochains prix seront frais"}
 
