@@ -186,25 +186,12 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   // API Status modal
   const [showApiStatus, setShowApiStatus] = useState(false);
 
-  // Chargement initial des données au montage (client-side)
-  useEffect(() => {
-    if (initialData.length === 0) {
-      refresh();
-    }
-    fetch(`${API_URL}/api/market-regime`)
-      .then(r => r.json())
-      .then(setRegime)
-      .catch(() => null);
-  }, []);
-
-  const refresh = useCallback(async (strat?: Strategy, excEarnings?: boolean) => {
+  // ── Fetch sans vider le cache (auto-refresh toutes les 60s) ─────────────────
+  const fetchData = useCallback(async (strat?: Strategy, excEarnings?: boolean) => {
     setLoading(true);
     const s  = strat      ?? strategy;
     const ee = excEarnings ?? excludeEarnings;
     try {
-      // Vider le cache backend pour obtenir les prix frais
-      await fetch(`${API_URL}/api/clear-cache`, { method: "POST" }).catch(() => {});
-
       const [screenerRes, regimeRes] = await Promise.all([
         fetch(`${API_URL}/api/screener?strategy=${s}&exclude_earnings=${ee}`, { cache: "no-store" }),
         fetch(`${API_URL}/api/market-regime`),
@@ -216,7 +203,28 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       setRegime(regimeJson);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, [strategy]);
+  }, [strategy, excludeEarnings]);
+
+  // ── Refresh manuel : vide le cache prix puis recharge ────────────────────────
+  const refresh = useCallback(async (strat?: Strategy, excEarnings?: boolean) => {
+    await fetch(`${API_URL}/api/clear-cache`, { method: "POST" }).catch(() => {});
+    await fetchData(strat, excEarnings);
+  }, [fetchData]);
+
+  // Chargement initial + auto-refresh toutes les 60 secondes
+  useEffect(() => {
+    if (initialData.length === 0) {
+      fetchData();
+    }
+    fetch(`${API_URL}/api/market-regime`)
+      .then(r => r.json())
+      .then(setRegime)
+      .catch(() => null);
+
+    // Auto-refresh toutes les 60 secondes (cache prix expire en 60s côté backend)
+    const id = setInterval(() => fetchData(), 60_000);
+    return () => clearInterval(id);
+  }, [fetchData]);
 
   const switchStrategy = useCallback((s: Strategy) => {
     setStrategy(s);
