@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { TickerResult } from "../types";
 import { SetupGradeBadge, SignalBadge, ConfidenceBadge } from "./CategoryBadge";
 import { SentimentPanel } from "./SentimentPanel";
 import { SetupStats } from "./SetupStats";
+import { TakeTradeModal } from "./TakeTradeModal";
+import { useJournal } from "../hooks/useJournal";
 
 // ── Quality Score ring ────────────────────────────────────────────────────────
 
@@ -130,6 +133,9 @@ function Row({ label, value, sub }: { label: string; value: React.ReactNode; sub
 export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => void }) {
   const reason     = buildReason(row);
   const scoreColor = row.score >= 80 ? "#10b981" : row.score >= 65 ? "#f59e0b" : "#ef4444";
+  const [showTakeModal, setShowTakeModal] = useState(false);
+  const { isTickerActive } = useJournal();
+  const alreadyTaken = isTickerActive(row.ticker);
 
   const gradeColors: Record<string, { bg: string; border: string }> = {
     "A+":    { bg: "#031a0d", border: "#16a34a" },
@@ -146,7 +152,7 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
       onClick={onClose}
     >
       <div
-        className="h-full overflow-y-auto w-full max-w-lg flex flex-col"
+        className="h-full w-full max-w-lg flex flex-col"
         style={{ background: "#0a0a14", borderLeft: "1px solid #1e1e2e" }}
         onClick={e => e.stopPropagation()}
       >
@@ -175,7 +181,7 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
           </div>
         </div>
 
-        <div className="px-6 py-5 space-y-6">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
 
           {/* ── Earnings Warning ── */}
           {row.earnings_warning && row.earnings_date && row.earnings_days !== null && row.earnings_days !== undefined && (
@@ -348,7 +354,29 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
             <SentimentPanel ticker={row.ticker} />
           </div>
 
+        </div>{/* end scrollable */}
+
+        {/* ── Sticky CTA ── */}
+        <div className="p-4 border-t shrink-0" style={{ borderColor: "#1e1e2e", background: "#0a0a14" }}>
+          {alreadyTaken ? (
+            <div className="w-full py-3 rounded-xl text-sm font-black text-center"
+              style={{ background: "#0c1a10", border: "1px solid #065f46", color: "#10b981" }}>
+              ✅ Déjà en portefeuille
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowTakeModal(true)}
+              className="w-full py-3 rounded-xl text-sm font-black transition-all hover:opacity-90 active:scale-95"
+              style={{ background: "linear-gradient(135deg, #10b981, #059669)", color: "#fff" }}
+            >
+              ✅ Prendre ce trade
+            </button>
+          )}
         </div>
+
+        {showTakeModal && (
+          <TakeTradeModal t={row} onClose={() => setShowTakeModal(false)} />
+        )}
       </div>
     </div>
   );

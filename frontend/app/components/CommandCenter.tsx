@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TickerResult, MarketRegime, MarketContext as MCType, RegimeEngine, JournalTrade } from "../types";
+import { TickerResult, MarketRegime, MarketContext as MCType, RegimeEngine } from "../types";
 import { useJournal } from "../hooks/useJournal";
+import { TakeTradeModal } from "./TakeTradeModal";
 
 type TradableStatus = "TRADABLE" | "À CONFIRMER" | "NON TRADABLE" | null;
 
@@ -264,177 +265,6 @@ function getBlockReasons(
   return reasons;
 }
 
-// ─── Take Trade Modal ─────────────────────────────────────────────────────────
-
-function TakeTradeModal({
-  t, engine, onClose, onSave,
-}: {
-  t:       TickerResult;
-  engine:  RegimeEngine | null;
-  onClose: () => void;
-  onSave:  (trade: JournalTrade) => void;
-}) {
-  const ps    = posSize(t);
-  const today = new Date().toISOString().split("T")[0];
-
-  const [form, setForm] = useState({
-    date_entry:  today,
-    price_entry: t.entry,
-    quantity:    ps.shares,
-    fees:        0,
-    broker:      "IBKR",
-    note_entry:  "",
-  });
-
-  const set = (k: string, v: string | number) => setForm(f => ({ ...f, [k]: v }));
-
-  const riskUsd = (form.price_entry - t.stop_loss) * form.quantity + form.fees;
-  const capitalUsd = form.price_entry * form.quantity;
-
-  const handleSave = () => {
-    const trade: JournalTrade = {
-      id:            `${t.ticker}_${Date.now()}`,
-      ticker:        t.ticker,
-      strategy:      engine?.active_strategy ?? "UNKNOWN",
-      signal_type:   t.signal_type ?? "",
-      setup_grade:   t.setup_grade,
-      score:         t.score,
-      regime:        engine?.regime ?? "UNKNOWN",
-      confidence:    t.confidence,
-      sector:        t.sector,
-      planned_entry: t.entry,
-      stop_loss:     t.stop_loss,
-      tp1:           t.tp1,
-      tp2:           t.tp2,
-      rr_ratio:      t.rr_ratio,
-      date_entry:    form.date_entry,
-      price_entry:   form.price_entry,
-      quantity:      form.quantity,
-      fees:          form.fees,
-      broker:        form.broker,
-      note_entry:    form.note_entry,
-      status:        "OPEN",
-    };
-    onSave(trade);
-    onClose();
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,.85)" }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        className="w-full max-w-sm rounded-2xl p-6 space-y-4 overflow-y-auto"
-        style={{ background: "#0e0e1c", border: "1px solid #2a2a4e", maxHeight: "90vh" }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[9px] text-gray-600 uppercase tracking-widest">Prendre ce trade</p>
-            <p className="text-xl font-black text-white">{t.ticker}
-              <span className="text-sm text-gray-500 ml-2">{t.signal_type}</span>
-            </p>
-          </div>
-          <button onClick={onClose} className="text-gray-600 hover:text-white text-lg">✕</button>
-        </div>
-
-        {/* Auto-filled summary */}
-        <div className="rounded-xl p-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[10px]"
-          style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
-          {[
-            { label: "Stratégie",  value: (engine?.active_strategy ?? "—").replace("_", " ") },
-            { label: "Grade",      value: t.setup_grade },
-            { label: "Régime",     value: engine?.regime_label ?? "—" },
-            { label: "R/R",        value: `1 : ${t.rr_ratio.toFixed(1)}` },
-            { label: "SL prévu",   value: `$${t.stop_loss.toFixed(2)}` },
-            { label: "TP1 / TP2",  value: `$${t.tp1.toFixed(2)} / $${t.tp2.toFixed(2)}` },
-          ].map(r => (
-            <div key={r.label} className="flex items-center gap-1.5">
-              <span className="text-gray-700">{r.label}:</span>
-              <span className="text-gray-300 font-black">{r.value}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* User fields */}
-        {[
-          { label: "Date d'entrée",    key: "date_entry",  type: "date",   value: form.date_entry  },
-          { label: "Prix réel ($)",    key: "price_entry", type: "number", value: form.price_entry },
-          { label: "Quantité (actions)", key: "quantity",  type: "number", value: form.quantity    },
-          { label: "Frais ($)",        key: "fees",        type: "number", value: form.fees        },
-        ].map(f => (
-          <div key={f.key}>
-            <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">{f.label}</p>
-            <input
-              type={f.type}
-              value={f.value}
-              step={f.type === "number" ? "0.01" : undefined}
-              onChange={e => set(f.key, f.type === "number" ? parseFloat(e.target.value) || 0 : e.target.value)}
-              className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none"
-              style={{ background: "#07070f", border: "1px solid #1a1a2e" }}
-            />
-          </div>
-        ))}
-
-        {/* Broker */}
-        <div>
-          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">Broker</p>
-          <div className="flex gap-1.5">
-            {["IBKR", "Degiro", "Saxo", "Autre"].map(b => (
-              <button key={b} onClick={() => set("broker", b)}
-                className="flex-1 py-1.5 rounded-lg text-xs font-black transition-all"
-                style={{
-                  background: form.broker === b ? "#07071e" : "#07070f",
-                  color:      form.broker === b ? "#818cf8" : "#4b5563",
-                  border:     `1px solid ${form.broker === b ? "#818cf8" : "#1a1a2e"}`,
-                }}>
-                {b}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Note */}
-        <div>
-          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">Note (optionnelle)</p>
-          <input
-            type="text"
-            value={form.note_entry}
-            onChange={e => set("note_entry", e.target.value)}
-            placeholder="Ex: achat à l'ouverture, gap up"
-            className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none"
-            style={{ background: "#07070f", border: "1px solid #1a1a2e" }}
-          />
-        </div>
-
-        {/* Risk preview */}
-        <div className="rounded-xl p-3 grid grid-cols-2 gap-2 text-center"
-          style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
-          {[
-            { label: "Capital investi", value: `$${Math.round(capitalUsd).toLocaleString()}` },
-            { label: "Risque max $",    value: `$${riskUsd.toFixed(2)}` },
-          ].map(s => (
-            <div key={s.label}>
-              <p className="text-[8px] text-gray-700 uppercase tracking-widest mb-0.5">{s.label}</p>
-              <p className="text-sm font-black text-white">{s.value}</p>
-            </div>
-          ))}
-        </div>
-
-        <button
-          onClick={handleSave}
-          className="w-full py-3 rounded-xl text-sm font-black transition-all"
-          style={{ background: "linear-gradient(135deg, #10b981, #059669)", color: "#fff" }}
-        >
-          ✅ Confirmer le trade
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ─── Trade Plan Panel ────────────────────────────────────────────────────────
 
 function TradePlanPanel({
@@ -490,9 +320,12 @@ function TradePlanPanel({
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        className="w-full max-w-md h-full overflow-y-auto p-6 space-y-4"
+        className="w-full max-w-md h-full flex flex-col"
         style={{ background: "#0a0a16", borderLeft: "1px solid #1a1a2e" }}
       >
+        {/* ── Scrollable body ── */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 pb-2">
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -657,8 +490,10 @@ function TradePlanPanel({
           </section>
         )}
 
-        {/* ✅ Prendre ce trade */}
-        <div className="pt-2">
+        </div>{/* end scrollable body */}
+
+        {/* ── Sticky CTA — always visible ── */}
+        <div className="p-4 border-t" style={{ borderColor: "#1a1a2e", background: "#0a0a16" }}>
           {isAlreadyTaken ? (
             <div className="w-full py-3 rounded-xl text-sm font-black text-center"
               style={{ background: "#0c1a10", border: "1px solid #065f46", color: "#10b981" }}>
@@ -667,16 +502,16 @@ function TradePlanPanel({
           ) : (
             <button
               onClick={onTakeTrade}
-              className="w-full py-3 rounded-xl text-sm font-black transition-all hover:opacity-90"
+              className="w-full py-3 rounded-xl text-sm font-black transition-all hover:opacity-90 active:scale-95"
               style={{
                 background: isBlocked
                   ? "linear-gradient(135deg, #374151, #1f2937)"
                   : "linear-gradient(135deg, #10b981, #059669)",
-                color: isBlocked ? "#6b7280" : "#fff",
-                border: isBlocked ? "1px solid #374151" : "none",
+                color: isBlocked ? "#9ca3af" : "#fff",
+                border: isBlocked ? "1px solid #4b5563" : "none",
               }}
             >
-              {isBlocked ? "⚠️ Prendre quand même (non recommandé)" : "✅ Prendre ce trade"}
+              {isBlocked ? "⚠️ Prendre quand même" : "✅ Prendre ce trade"}
             </button>
           )}
         </div>
@@ -866,7 +701,7 @@ export function CommandCenter({
   const [selected,    setSelected]    = useState<TickerResult | null>(null);
   const [takingTrade, setTakingTrade] = useState<TickerResult | null>(null);
 
-  const { activeTrades, addTrade, isTickerActive } = useJournal();
+  const { activeTrades, isTickerActive } = useJournal();
 
   useEffect(() => {
     const fetchMs = () =>
@@ -1026,12 +861,7 @@ export function CommandCenter({
         <TakeTradeModal
           t={takingTrade}
           engine={engine}
-          onClose={() => setTakingTrade(null)}
-          onSave={trade => {
-            addTrade(trade);
-            setTakingTrade(null);
-            setSelected(null);
-          }}
+          onClose={() => { setTakingTrade(null); setSelected(null); }}
         />
       )}
     </div>
