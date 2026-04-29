@@ -15,6 +15,7 @@ import numpy as np
 from typing import List, Optional, Dict
 from pydantic import BaseModel
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 
 from indicators import (
     sma, rsi, macd, atr, perf_pct,
@@ -116,6 +117,7 @@ _opt_data_cache: Dict[str, object] = {}
 # SMA200, RSI, MACD, ATR… ne bougent pas significativement en intraday.
 _ohlcv_cache: Dict[str, dict] = {}
 _OHLCV_TTL = 14_400   # 4h
+_OHLCV_FETCH_TIMEOUT = 15
 
 # ── Cache prix actuel (60 s) — fetch léger 5 jours ───────────────────────────
 # Seul le "last price" change minute par minute.
@@ -137,9 +139,24 @@ def _get_ohlcv(ticker: str) -> Optional[object]:
     if entry and (now - entry["ts"]) < _OHLCV_TTL:
         return entry["df"]
     try:
-        df = yf.download(ticker, period="26mo", interval="1d",
-                         progress=False, auto_adjust=True)
-        if df.empty or len(df) < 210:
+        def _download():
+            return yf.download(
+                ticker,
+                period="26mo",
+                interval="1d",
+                progress=False,
+                auto_adjust=True,
+                timeout=_OHLCV_FETCH_TIMEOUT,
+            )
+
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(_download)
+            try:
+                df = future.result(timeout=_OHLCV_FETCH_TIMEOUT)
+            except FuturesTimeoutError:
+                return None
+
+        if df is None or df.empty or len(df) < 210:
             return None
         _ohlcv_cache[ticker] = {"df": df, "ts": now}
         return df
@@ -707,15 +724,31 @@ def screener(
 ):
     fetch_sp500_perf()
     results = []
+    ok_ohlcv = 0
+    hard_filtered = 0
+    earnings_filtered = 0
+    strategy_filtered = 0
+    edge_rejected = 0
+    errors = 0
     with ThreadPoolExecutor(max_workers=16) as executor:
         futures = {
             executor.submit(analyze_ticker, t, strategy, exclude_earnings): t
             for t in ALL_TICKERS
         }
         for future in as_completed(futures):
-            res = future.result()
-            if res:
-                results.append(res)
+            ticker = futures[future]
+            try:
+                res = future.result()
+                if res:
+                    ok_ohlcv += 1
+                    results.append(res)
+                else:
+                    # Best-effort counters for debugging / observability
+                    pass
+            except Exception as exc:
+                errors += 1
+                print(f"[screener] {ticker}: {type(exc).__name__}: {str(exc)[:200]}")
+                continue
 
     if sector:
         results = [r for r in results if r.sector == sector]
@@ -723,6 +756,13 @@ def screener(
         results = [r for r in results if r.score >= min_score]
     if signal:
         results = [r for r in results if r.signal_type == signal]
+
+    print(
+        f"[screener] total={len(ALL_TICKERS)} ohlcv_ok={ok_ohlcv} "
+        f"hard_filtered={hard_filtered} earnings_filtered={earnings_filtered} "
+        f"strategy_filtered={strategy_filtered} edge_rejected={edge_rejected} "
+        f"errors={errors} returned={len(results)}"
+    )
 
     results.sort(key=lambda x: (x.score, x.confidence), reverse=True)
 
