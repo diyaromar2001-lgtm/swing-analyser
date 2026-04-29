@@ -1,5 +1,5 @@
 const LOCAL_API_URL = "http://localhost:8000";
-const PROD_API_URL = "/api";
+const PROD_API_URL = "https://swing-analyser-production.up.railway.app";
 
 export function getApiUrl() {
   if (typeof window !== "undefined") {
