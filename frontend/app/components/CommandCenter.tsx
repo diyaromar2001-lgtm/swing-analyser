@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TickerResult, MarketRegime, MarketContext as MCType, RegimeEngine } from "../types";
+import { TickerResult, MarketRegime, MarketContext as MCType, RegimeEngine, JournalTrade } from "../types";
+import { useJournal } from "../hooks/useJournal";
 
 type TradableStatus = "TRADABLE" | "À CONFIRMER" | "NON TRADABLE" | null;
 
@@ -243,19 +244,215 @@ function DailyDecisionBlock({ decision }: { decision: Decision }) {
   );
 }
 
-// ─── Trade Plan Panel ────────────────────────────────────────────────────────
+// ─── Block Reasons ────────────────────────────────────────────────────────────
 
-function TradePlanPanel({
-  t, engine, bt, onClose,
+function getBlockReasons(
+  t:             TickerResult,
+  engine:        RegimeEngine | null,
+  isAlreadyTaken: boolean,
+  activeCount:   number,
+): string[] {
+  const reasons: string[] = [];
+  if (isAlreadyTaken)        reasons.push("Déjà en portefeuille");
+  if (!engine?.can_trade)    reasons.push(`Stratégie inactive : ${engine?.active_strategy ?? "NO_TRADE"}`);
+  if (t.earnings_warning)    reasons.push(`Résultats dans ${t.earnings_days}j — risque élevé`);
+  if (t.dist_entry_pct > 2)  reasons.push(`Prix trop éloigné (+${t.dist_entry_pct.toFixed(1)}%) — max autorisé 2%`);
+  if (t.rr_ratio < 1.5)      reasons.push(`R/R insuffisant (${t.rr_ratio.toFixed(1)}) — min 1.5`);
+  if (activeCount >= 3)       reasons.push("Maximum 3 positions simultanées atteint");
+  if (t.risk_filters_status === "BLOCKED")
+    (t.risk_filter_reasons ?? []).forEach(r => reasons.push(r));
+  return reasons;
+}
+
+// ─── Take Trade Modal ─────────────────────────────────────────────────────────
+
+function TakeTradeModal({
+  t, engine, onClose, onSave,
 }: {
   t:       TickerResult;
   engine:  RegimeEngine | null;
-  bt:      TradableStatus;
   onClose: () => void;
+  onSave:  (trade: JournalTrade) => void;
+}) {
+  const ps    = posSize(t);
+  const today = new Date().toISOString().split("T")[0];
+
+  const [form, setForm] = useState({
+    date_entry:  today,
+    price_entry: t.entry,
+    quantity:    ps.shares,
+    fees:        0,
+    broker:      "IBKR",
+    note_entry:  "",
+  });
+
+  const set = (k: string, v: string | number) => setForm(f => ({ ...f, [k]: v }));
+
+  const riskUsd = (form.price_entry - t.stop_loss) * form.quantity + form.fees;
+  const capitalUsd = form.price_entry * form.quantity;
+
+  const handleSave = () => {
+    const trade: JournalTrade = {
+      id:            `${t.ticker}_${Date.now()}`,
+      ticker:        t.ticker,
+      strategy:      engine?.active_strategy ?? "UNKNOWN",
+      signal_type:   t.signal_type ?? "",
+      setup_grade:   t.setup_grade,
+      score:         t.score,
+      regime:        engine?.regime ?? "UNKNOWN",
+      confidence:    t.confidence,
+      sector:        t.sector,
+      planned_entry: t.entry,
+      stop_loss:     t.stop_loss,
+      tp1:           t.tp1,
+      tp2:           t.tp2,
+      rr_ratio:      t.rr_ratio,
+      date_entry:    form.date_entry,
+      price_entry:   form.price_entry,
+      quantity:      form.quantity,
+      fees:          form.fees,
+      broker:        form.broker,
+      note_entry:    form.note_entry,
+      status:        "OPEN",
+    };
+    onSave(trade);
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,.85)" }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl p-6 space-y-4 overflow-y-auto"
+        style={{ background: "#0e0e1c", border: "1px solid #2a2a4e", maxHeight: "90vh" }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[9px] text-gray-600 uppercase tracking-widest">Prendre ce trade</p>
+            <p className="text-xl font-black text-white">{t.ticker}
+              <span className="text-sm text-gray-500 ml-2">{t.signal_type}</span>
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-600 hover:text-white text-lg">✕</button>
+        </div>
+
+        {/* Auto-filled summary */}
+        <div className="rounded-xl p-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[10px]"
+          style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
+          {[
+            { label: "Stratégie",  value: (engine?.active_strategy ?? "—").replace("_", " ") },
+            { label: "Grade",      value: t.setup_grade },
+            { label: "Régime",     value: engine?.regime_label ?? "—" },
+            { label: "R/R",        value: `1 : ${t.rr_ratio.toFixed(1)}` },
+            { label: "SL prévu",   value: `$${t.stop_loss.toFixed(2)}` },
+            { label: "TP1 / TP2",  value: `$${t.tp1.toFixed(2)} / $${t.tp2.toFixed(2)}` },
+          ].map(r => (
+            <div key={r.label} className="flex items-center gap-1.5">
+              <span className="text-gray-700">{r.label}:</span>
+              <span className="text-gray-300 font-black">{r.value}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* User fields */}
+        {[
+          { label: "Date d'entrée",    key: "date_entry",  type: "date",   value: form.date_entry  },
+          { label: "Prix réel ($)",    key: "price_entry", type: "number", value: form.price_entry },
+          { label: "Quantité (actions)", key: "quantity",  type: "number", value: form.quantity    },
+          { label: "Frais ($)",        key: "fees",        type: "number", value: form.fees        },
+        ].map(f => (
+          <div key={f.key}>
+            <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">{f.label}</p>
+            <input
+              type={f.type}
+              value={f.value}
+              step={f.type === "number" ? "0.01" : undefined}
+              onChange={e => set(f.key, f.type === "number" ? parseFloat(e.target.value) || 0 : e.target.value)}
+              className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none"
+              style={{ background: "#07070f", border: "1px solid #1a1a2e" }}
+            />
+          </div>
+        ))}
+
+        {/* Broker */}
+        <div>
+          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">Broker</p>
+          <div className="flex gap-1.5">
+            {["IBKR", "Degiro", "Saxo", "Autre"].map(b => (
+              <button key={b} onClick={() => set("broker", b)}
+                className="flex-1 py-1.5 rounded-lg text-xs font-black transition-all"
+                style={{
+                  background: form.broker === b ? "#07071e" : "#07070f",
+                  color:      form.broker === b ? "#818cf8" : "#4b5563",
+                  border:     `1px solid ${form.broker === b ? "#818cf8" : "#1a1a2e"}`,
+                }}>
+                {b}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Note */}
+        <div>
+          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">Note (optionnelle)</p>
+          <input
+            type="text"
+            value={form.note_entry}
+            onChange={e => set("note_entry", e.target.value)}
+            placeholder="Ex: achat à l'ouverture, gap up"
+            className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none"
+            style={{ background: "#07070f", border: "1px solid #1a1a2e" }}
+          />
+        </div>
+
+        {/* Risk preview */}
+        <div className="rounded-xl p-3 grid grid-cols-2 gap-2 text-center"
+          style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
+          {[
+            { label: "Capital investi", value: `$${Math.round(capitalUsd).toLocaleString()}` },
+            { label: "Risque max $",    value: `$${riskUsd.toFixed(2)}` },
+          ].map(s => (
+            <div key={s.label}>
+              <p className="text-[8px] text-gray-700 uppercase tracking-widest mb-0.5">{s.label}</p>
+              <p className="text-sm font-black text-white">{s.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={handleSave}
+          className="w-full py-3 rounded-xl text-sm font-black transition-all"
+          style={{ background: "linear-gradient(135deg, #10b981, #059669)", color: "#fff" }}
+        >
+          ✅ Confirmer le trade
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Trade Plan Panel ────────────────────────────────────────────────────────
+
+function TradePlanPanel({
+  t, engine, bt, onClose, isAlreadyTaken, activeCount, onTakeTrade,
+}: {
+  t:              TickerResult;
+  engine:         RegimeEngine | null;
+  bt:             TradableStatus;
+  onClose:        () => void;
+  isAlreadyTaken: boolean;
+  activeCount:    number;
+  onTakeTrade:    () => void;
 }) {
   const ps   = posSize(t);
   const exec = execBadge(t);
   const fd   = t.final_decision ?? "WAIT";
+  const blockReasons = getBlockReasons(t, engine, isAlreadyTaken, activeCount);
+  const isBlocked    = blockReasons.length > 0;
 
   const verdict =
     fd === "SKIP" && t.risk_filters_status === "BLOCKED"
@@ -440,6 +637,49 @@ function TradePlanPanel({
             </p>
           </div>
         )}
+
+        {/* ⑥ Pourquoi ce trade est bloqué */}
+        {isBlocked && (
+          <section className="rounded-xl p-4" style={{ background: "#0d0400", border: "1px solid #92400e60" }}>
+            <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-3">
+              ⑥ Pourquoi ce trade est bloqué
+            </p>
+            <ul className="space-y-2 mb-3">
+              {blockReasons.map((r, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-orange-300">
+                  <span className="text-orange-500 mt-px flex-shrink-0">▸</span>{r}
+                </li>
+              ))}
+            </ul>
+            <p className="text-[9px] text-gray-600 italic border-t border-orange-900 pt-2">
+              Conditions pour débloquer : attendre que le prix revienne en zone, que le régime s'améliore ou que les résultats soient passés.
+            </p>
+          </section>
+        )}
+
+        {/* ✅ Prendre ce trade */}
+        <div className="pt-2">
+          {isAlreadyTaken ? (
+            <div className="w-full py-3 rounded-xl text-sm font-black text-center"
+              style={{ background: "#0c1a10", border: "1px solid #065f46", color: "#10b981" }}>
+              ✅ Déjà en portefeuille
+            </div>
+          ) : (
+            <button
+              onClick={onTakeTrade}
+              className="w-full py-3 rounded-xl text-sm font-black transition-all hover:opacity-90"
+              style={{
+                background: isBlocked
+                  ? "linear-gradient(135deg, #374151, #1f2937)"
+                  : "linear-gradient(135deg, #10b981, #059669)",
+                color: isBlocked ? "#6b7280" : "#fff",
+                border: isBlocked ? "1px solid #374151" : "none",
+              }}
+            >
+              {isBlocked ? "⚠️ Prendre quand même (non recommandé)" : "✅ Prendre ce trade"}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -448,28 +688,34 @@ function TradePlanPanel({
 // ─── D. Opportunity Card ─────────────────────────────────────────────────────
 
 function OpportunityCard({
-  t, rank, engine, bt, ms, score, onClick,
+  t, rank, engine, bt, ms, score, onClick, isAlreadyTaken, activeCount,
 }: {
-  t:       TickerResult;
-  rank:    number;
-  engine:  RegimeEngine | null;
-  bt:      TradableStatus;
-  ms:      MarketStatus | null;
-  score:   number;
-  onClick: () => void;
+  t:              TickerResult;
+  rank:           number;
+  engine:         RegimeEngine | null;
+  bt:             TradableStatus;
+  ms:             MarketStatus | null;
+  score:          number;
+  onClick:        () => void;
+  isAlreadyTaken: boolean;
+  activeCount:    number;
 }) {
   const tech = techBadge(t);
   const bval = btBadge(t, bt);
   const exec = execBadge(t);
   const ps   = posSize(t);
+  const blockReasons = getBlockReasons(t, engine, isAlreadyTaken, activeCount);
+  const isBlocked    = blockReasons.length > 0;
 
   const fd = t.final_decision ?? (
     !engine?.can_trade ? "SKIP" :
     t.dist_entry_pct > 3 ? "WAIT" :
     exec.label === "READY" ? "BUY" : "WAIT"
   );
-  const action = fd === "BUY" ? "BUY NEAR" : fd === "SKIP" ? "SKIP" : "WAIT";
+  const action = isAlreadyTaken ? "PRIS ✓"
+    : fd === "BUY" ? "BUY NEAR" : fd === "SKIP" ? "SKIP" : "WAIT";
   const aColor =
+    isAlreadyTaken      ? "#10b981" :
     action === "BUY NEAR" ? "#10b981" :
     action === "WAIT"     ? "#f59e0b" : "#ef4444";
 
@@ -493,10 +739,16 @@ function OpportunityCard({
           <span className="text-[10px] font-bold text-gray-700">#{rank}</span>
           <span className="text-xl font-black text-white">{t.ticker}</span>
           <span className="text-[11px] text-gray-500">{t.signal_type}</span>
-          {isNearEntry && (
+          {isNearEntry && !isAlreadyTaken && (
             <span className="px-2 py-0.5 rounded text-[9px] font-black animate-pulse"
               style={{ background: "#041310", color: "#10b981", border: "1px solid #065f46" }}>
               ⚡ NEAR ENTRY
+            </span>
+          )}
+          {isAlreadyTaken && (
+            <span className="px-2 py-0.5 rounded text-[9px] font-black"
+              style={{ background: "#041310", color: "#10b981", border: "1px solid #065f46" }}>
+              ✅ DÉJÀ PRIS
             </span>
           )}
         </div>
@@ -534,10 +786,12 @@ function OpportunityCard({
         <span>R/R <strong className="text-gray-500">1:{t.rr_ratio.toFixed(1)}</strong></span>
         <span>Size <strong className="text-gray-500">{ps.pct}% cap.</strong></span>
         <span>Conf <strong style={{ color: confColor }}>{conf}</strong></span>
-        {t.risk_filters_status === "BLOCKED" && (
-          <span className="px-1.5 py-0.5 rounded text-[9px] font-black" style={{ background: "#130404", color: "#ef4444" }}>🚫 BLOCKED</span>
+        {isBlocked && !isAlreadyTaken && (
+          <span className="px-1.5 py-0.5 rounded text-[9px] font-black" style={{ background: "#130a00", color: "#f97316" }}>
+            🚫 BLOQUÉ: {blockReasons[0]}
+          </span>
         )}
-        {t.risk_filters_status === "CAUTION" && (
+        {!isBlocked && t.risk_filters_status === "CAUTION" && (
           <span className="px-1.5 py-0.5 rounded text-[9px] font-black" style={{ background: "#120d00", color: "#f59e0b" }}>⚠ CAUTION</span>
         )}
         <span className="ml-auto text-[9px] text-gray-700">Voir le plan →</span>
@@ -607,9 +861,12 @@ export function CommandCenter({
   onAdvancedView: () => void;
   onGoToLab:      () => void;
 }) {
-  const [ms,       setMs]       = useState<MarketStatus | null>(null);
-  const [engine,   setEngine]   = useState<RegimeEngine | null>(null);
-  const [selected, setSelected] = useState<TickerResult | null>(null);
+  const [ms,          setMs]          = useState<MarketStatus | null>(null);
+  const [engine,      setEngine]      = useState<RegimeEngine | null>(null);
+  const [selected,    setSelected]    = useState<TickerResult | null>(null);
+  const [takingTrade, setTakingTrade] = useState<TickerResult | null>(null);
+
+  const { activeTrades, addTrade, isTickerActive } = useJournal();
 
   useEffect(() => {
     const fetchMs = () =>
@@ -698,6 +955,8 @@ export function CommandCenter({
                 ms={ms}
                 score={(t as any)._score}
                 onClick={() => setSelected(t)}
+                isAlreadyTaken={isTickerActive(t.ticker)}
+                activeCount={activeTrades.length}
               />
             ))}
           </div>
@@ -757,6 +1016,22 @@ export function CommandCenter({
           engine={engine}
           bt={backtestStatus}
           onClose={() => setSelected(null)}
+          isAlreadyTaken={isTickerActive(selected.ticker)}
+          activeCount={activeTrades.length}
+          onTakeTrade={() => { setTakingTrade(selected); }}
+        />
+      )}
+
+      {takingTrade && (
+        <TakeTradeModal
+          t={takingTrade}
+          engine={engine}
+          onClose={() => setTakingTrade(null)}
+          onSave={trade => {
+            addTrade(trade);
+            setTakingTrade(null);
+            setSelected(null);
+          }}
         />
       )}
     </div>

@@ -11,6 +11,7 @@ import { ApiStatusDot, ApiStatusPanel } from "./ApiStatus";
 import { MarketContext } from "./MarketContext";
 import { SignalTracker } from "./SignalTracker";
 import { CommandCenter } from "./CommandCenter";
+import { TradeJournal } from "./TradeJournal";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -170,7 +171,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [grade, setGrade]           = useState("");
   const [minScore, setMinScore]     = useState(0);
   const [excludeEarnings, setExcludeEarnings] = useState(false);
-  const [view, setView]             = useState<"table" | "dynamic" | "backtest" | "lab" | "signals">("table");
+  const [view, setView]             = useState<"table" | "dynamic" | "backtest" | "lab" | "signals" | "trades">("table");
   const [uiMode, setUiMode]         = useState<"simple" | "pro">(() => {
     if (typeof window === "undefined") return "simple";
     return (localStorage.getItem("swing_ui_mode") as "simple" | "pro") ?? "simple";
@@ -353,7 +354,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           </div>
 
           {/* Toggle Stratégie screener */}
-          {uiMode === "pro" && view !== "lab" && view !== "signals" && (
+          {uiMode === "pro" && view !== "lab" && view !== "signals" && view !== "trades" && (
             <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
               {([["standard", "📊 Standard"], ["conservative", "🛡 Conservative"]] as [Strategy, string][]).map(([s, label]) => (
                 <button key={s} onClick={() => switchStrategy(s)}
@@ -377,6 +378,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
               ["signals",  "📈 Tracking"],
               ["backtest", "🧪 Backtest"],
               ["lab",      "🧬 Strategy Lab"],
+              ["trades",   "📌 Trades"],
             ] as [typeof view, string][]).map(([v, label]) => (
               <button
                 key={v}
@@ -385,7 +387,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
                 style={{
                   background: view === v ? "#1e1e3a" : "#0d0d18",
                   color:      view === v ? "#818cf8" : "#4b5563",
-                  borderRight: v !== "lab" ? "1px solid #1e1e2a" : undefined,
+                  borderRight: v !== "trades" ? "1px solid #1e1e2a" : undefined,
 
                 }}
               >
@@ -396,7 +398,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
           <ApiStatusDot onClick={() => setShowApiStatus(true)} />
 
-          {uiMode === "pro" && view !== "lab" && view !== "signals" && (
+          {uiMode === "pro" && view !== "lab" && view !== "signals" && view !== "trades" && (
             <button
               onClick={() => refresh()}
               disabled={loading}
@@ -442,12 +444,12 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       {uiMode === "pro" && <>
 
       {/* GLOBAL STATUS BAR */}
-      {view !== "lab" && view !== "signals" && (
+      {view !== "lab" && view !== "signals" && view !== "trades" && (
         <GlobalStatusBar regime={regime} backtestStatus={backtestStatus} />
       )}
 
       {/* NON TRADABLE gating banner */}
-      {view !== "lab" && view !== "signals" && backtestStatus === "NON TRADABLE" && (
+      {view !== "lab" && view !== "signals" && view !== "trades" && backtestStatus === "NON TRADABLE" && (
         <div className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap"
           style={{ background: "#1a0a0a", border: "1px solid #7f1d1d66" }}>
           <span>🚫</span>
@@ -468,13 +470,13 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       )}
 
       {/* MARKET REGIME BANNER */}
-      {view !== "lab" && view !== "signals" && <MarketRegimeBanner regime={regime} />}
+      {view !== "lab" && view !== "signals" && view !== "trades" && <MarketRegimeBanner regime={regime} />}
 
       {/* MARKET CONTEXT (VIX + Breadth + Sectors) */}
       {view === "table" && <MarketContext />}
 
       {/* STATS ROW */}
-      {view !== "lab" && view !== "signals" && (
+      {view !== "lab" && view !== "signals" && view !== "trades" && (
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-6">
           {[
             {
@@ -619,6 +621,8 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
         <SignalTracker />
       ) : view === "backtest" ? (
         <BacktestView strategy={strategy} />
+      ) : view === "trades" ? (
+        <TradeJournal />
       ) : (
         <StrategyLab
           activeStrategyKey={activeLabKey}

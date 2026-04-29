@@ -363,6 +363,46 @@ export interface OptimizerResult {
   };
 }
 
+// ── Trade Journal ─────────────────────────────────────────────────────────────
+
+export interface JournalTrade {
+  id:            string;
+  // Auto-filled from screener
+  ticker:        string;
+  strategy:      string;
+  signal_type:   string;
+  setup_grade:   string;
+  score:         number;
+  regime:        string;
+  confidence:    number;
+  sector:        string;
+  // Planned levels
+  planned_entry: number;
+  stop_loss:     number;
+  tp1:           number;
+  tp2:           number;
+  rr_ratio:      number;
+  // User input at entry
+  date_entry:    string;
+  price_entry:   number;
+  quantity:      number;
+  fees:          number;
+  broker:        string;
+  note_entry:    string;
+  // Status
+  status:        "OPEN" | "TP1" | "TP2" | "SL" | "MANUAL";
+  // Closure (filled when closed)
+  date_exit?:    string;
+  price_exit?:   number;
+  reason_exit?:  "TP1" | "TP2" | "SL" | "MANUAL";
+  note_exit?:    string;
+  // Computed after close
+  pnl_usd?:       number;
+  pnl_pct?:       number;
+  r_multiple?:    number;
+  duration_days?: number;
+}
+
 // ── Market Regime ─────────────────────────────────────────────────────────────
 
 export interface MarketRegime {
