@@ -413,6 +413,8 @@ def analyze_ticker(
     strategy: str = "standard",
     exclude_earnings: bool = False,
     fetch_news: bool = True,
+    use_live_price: bool = True,
+    fetch_earnings: bool = True,
 ) -> Optional[TickerResult]:
     try:
         # Utiliser le cache OHLCV (évite re-téléchargement à chaque scan)
@@ -426,7 +428,7 @@ def analyze_ticker(
         volume = df["Volume"].squeeze()
 
         # Prix frais (cache 60s) — override le dernier close historique
-        fresh_price = _get_current_price(ticker)
+        fresh_price = _get_current_price(ticker) if use_live_price else None
         price       = fresh_price if fresh_price and fresh_price > 0 else float(close.iloc[-1])
         sma200_val  = float(sma(close, 200).iloc[-1])
         sma50_val   = float(sma(close, 50).iloc[-1])
@@ -450,16 +452,17 @@ def analyze_ticker(
         earnings_date    = None
         earnings_days    = None
         earnings_warning = False
-        try:
-            earn = get_earnings_date(ticker)
-            earnings_date    = earn.get("date")
-            earnings_days    = earn.get("days_until")
-            earnings_warning = earn.get("warning", False)
-            # Si filtre actif : exclure si earnings dans ≤ 5 jours
-            if exclude_earnings and earnings_days is not None and 0 <= earnings_days <= 5:
-                return None
-        except Exception:
-            pass
+        if fetch_earnings or exclude_earnings:
+            try:
+                earn = get_earnings_date(ticker)
+                earnings_date    = earn.get("date")
+                earnings_days    = earn.get("days_until")
+                earnings_warning = earn.get("warning", False)
+                # Si filtre actif : exclure si earnings dans ≤ 5 jours
+                if exclude_earnings and earnings_days is not None and 0 <= earnings_days <= 5:
+                    return None
+            except Exception:
+                pass
 
         # ── 2. Niveaux dynamiques ─────────────────────────────────────────
         levels        = compute_dynamic_levels(price, high, low, sma50_val, atr_val)
@@ -750,7 +753,7 @@ def screener(
     errors = 0
     with ThreadPoolExecutor(max_workers=16) as executor:
         futures = {
-            executor.submit(analyze_ticker, t, strategy, exclude_earnings, False): t
+            executor.submit(analyze_ticker, t, strategy, exclude_earnings, False, False, False): t
             for t in ALL_TICKERS
         }
         for future in as_completed(futures):
