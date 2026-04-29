@@ -111,24 +111,44 @@ _sp500_perf_6m: float = 0.0
 _market_regime_cache: dict = {}
 _opt_data_cache: Dict[str, object] = {}
 
-# ── Cache OHLCV (TTL 24h) — données daily valides toute la journée ───────────
-# Les setups swing sont basés sur OHLC daily → valides 24/7 même marché fermé
+# ── Cache OHLCV — TTL adaptatif selon l'heure de marché ──────────────────────
+# Marché ouvert  → 15 min  (prix intraday qui bougent)
+# Marché fermé   → 4h      (prix de clôture stables, mais on recharge quand même)
 _ohlcv_cache: Dict[str, dict] = {}   # {ticker: {"df": DataFrame, "ts": float}}
-_OHLCV_TTL = 86_400   # 24h — données daily stables toute la journée
+_OHLCV_TTL_OPEN   =   900   # 15 min pendant les heures de marché
+_OHLCV_TTL_CLOSED = 14_400  # 4h  en dehors des heures de marché
 
 # ── Market context cache (VIX + sector strength pour les filtres fondamentaux) ─
 _mkt_ctx_cache: dict = {}          # {"vix": float, "sector_strength": dict, "ts": float}
-_MKT_CTX_TTL = 3600               # 1h — contexte marché stable sur la journée
+_MKT_CTX_TTL = 900                # 15 min (synchronisé avec OHLCV)
+
+
+def _market_is_open() -> bool:
+    """Retourne True si le marché US est actuellement ouvert (lun-ven 9h30-16h ET)."""
+    try:
+        import pytz
+        from datetime import datetime
+        et      = pytz.timezone("America/New_York")
+        now_et  = datetime.now(et)
+        wd, h, m = now_et.weekday(), now_et.hour, now_et.minute
+        return wd < 5 and (h > 9 or (h == 9 and m >= 30)) and h < 16
+    except Exception:
+        return False
+
+
+def _ohlcv_ttl() -> int:
+    """TTL adaptatif : 15 min si marché ouvert, 4h sinon."""
+    return _OHLCV_TTL_OPEN if _market_is_open() else _OHLCV_TTL_CLOSED
 
 
 def _get_ohlcv(ticker: str) -> Optional[object]:
     """
-    Retourne le DataFrame OHLCV du ticker depuis le cache si < 2h,
-    sinon télécharge et met à jour le cache.
+    Retourne le DataFrame OHLCV du ticker.
+    TTL : 15 min si marché ouvert (prix bouge), 4h si fermé.
     """
-    now = _time.time()
+    now   = _time.time()
     entry = _ohlcv_cache.get(ticker)
-    if entry and (now - entry["ts"]) < _OHLCV_TTL:
+    if entry and (now - entry["ts"]) < _ohlcv_ttl():
         return entry["df"]
     try:
         df = yf.download(ticker, period="26mo", interval="1d",
@@ -650,6 +670,20 @@ def market_regime():
     _market_regime_cache = {"ts": now, "data": data}
     return data
 
+
+
+# ── Clear cache (force refresh immédiat de tous les prix) ────────────────────
+
+@app.post("/api/clear-cache")
+def clear_cache():
+    """
+    Vide le cache OHLCV + contexte marché.
+    Le prochain appel au screener récupère les prix frais depuis yfinance.
+    """
+    _ohlcv_cache.clear()
+    _mkt_ctx_cache.clear()
+    _cache.clear()
+    return {"cleared": True, "message": "Cache vidé — les prochains prix seront frais"}
 
 
 # ── Regime Engine (5 états + stratégie active) ────────────────────────────────

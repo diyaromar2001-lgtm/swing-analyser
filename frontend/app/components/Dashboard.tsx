@@ -202,6 +202,9 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     const s  = strat      ?? strategy;
     const ee = excEarnings ?? excludeEarnings;
     try {
+      // Vider le cache backend pour obtenir les prix frais
+      await fetch(`${API_URL}/api/clear-cache`, { method: "POST" }).catch(() => {});
+
       const [screenerRes, regimeRes] = await Promise.all([
         fetch(`${API_URL}/api/screener?strategy=${s}&exclude_earnings=${ee}`, { cache: "no-store" }),
         fetch(`${API_URL}/api/market-regime`),
