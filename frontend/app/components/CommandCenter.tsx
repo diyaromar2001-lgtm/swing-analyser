@@ -102,12 +102,12 @@ function RegimeBar({
   const vColor = vix > 28 ? "#ef4444" : vix > 22 ? "#f59e0b" : "#10b981";
 
   const cells = [
-    { label: "Market",   value: ms?.is_open ? "OPEN" : "CLOSED",          color: ms?.is_open ? "#10b981" : "#9ca3af" },
-    { label: "Mode",     value: ms?.is_open ? "EXECUTION" : "PREPARATION", color: ms?.is_open ? "#10b981" : "#6366f1" },
-    { label: "Regime",   value: engine?.regime_label ?? "—",               color: rColor },
+    { label: "Marché",   value: ms?.is_open ? "OUVERT" : "FERMÉ",           color: ms?.is_open ? "#10b981" : "#9ca3af" },
+    { label: "Mode",     value: ms?.is_open ? "EXÉCUTION" : "PRÉPARATION",  color: ms?.is_open ? "#10b981" : "#6366f1" },
+    { label: "Régime",   value: engine?.regime_label ?? "—",                color: rColor },
     { label: "SPY",      value: engine ? `$${engine.spy_price.toFixed(0)}` : "—",  color: "#e2e8f0" },
-    { label: "VIX",      value: engine ? `${engine.vix.toFixed(1)}` : "—", color: vColor },
-    { label: "RSI(SPY)", value: engine ? `${engine.spy_rsi.toFixed(0)}` : "—",    color: engine && engine.spy_rsi > 70 ? "#ef4444" : engine && engine.spy_rsi > 55 ? "#10b981" : "#f59e0b" },
+    { label: "VIX",      value: engine ? `${engine.vix.toFixed(1)}` : "—",  color: vColor },
+    { label: "RSI(SPY)", value: engine ? `${engine.spy_rsi.toFixed(0)}` : "—",     color: engine && engine.spy_rsi > 70 ? "#ef4444" : engine && engine.spy_rsi > 55 ? "#10b981" : "#f59e0b" },
   ];
 
   return (
@@ -151,7 +151,7 @@ function ActiveStrategyBlock({ engine }: { engine: RegimeEngine | null }) {
 
   return (
     <div className="rounded-2xl p-5 flex flex-col gap-3" style={{ background: bg, border: `1px solid ${color}40` }}>
-      <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Active Strategy</p>
+      <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Stratégie Active</p>
 
       {/* Header */}
       <div className="flex items-center gap-3">
@@ -164,7 +164,7 @@ function ActiveStrategyBlock({ engine }: { engine: RegimeEngine | null }) {
         </div>
         <div className="text-right flex-shrink-0">
           <p className="text-3xl font-black text-white leading-none">{conf}<span className="text-lg text-gray-600">%</span></p>
-          <p className="text-[9px] text-gray-700 uppercase tracking-widest">confidence</p>
+          <p className="text-[9px] text-gray-700 uppercase tracking-widest">confiance</p>
         </div>
       </div>
 
@@ -211,26 +211,26 @@ function getDecision(
   if (!engine || engine.active_strategy === "NO_TRADE") {
     const isHighVol = engine?.regime === "HIGH_VOLATILITY";
     return {
-      title: "NO TRADE",
+      title: "PAS DE TRADE",
       sub:   isHighVol
-        ? `VIX ${engine?.vix.toFixed(1)} — volatility too high, preserve capital`
-        : "Bear market — SPY below SMA200, no long positions",
+        ? `VIX ${engine?.vix.toFixed(1)} — volatilité excessive, préserver le capital`
+        : "Marché baissier — SPY sous la SMA200, aucune position longue",
       emoji: isHighVol ? "⚡" : "🐻",
       color: "#ef4444", bg: "#130404", border: "#7f1d1d",
     };
   }
   if (bt === "NON TRADABLE")
-    return { title: "NO TRADE", sub: "Strategy not validated — open Strategy Lab first", emoji: "🚫", color: "#ef4444", bg: "#130404", border: "#7f1d1d" };
+    return { title: "PAS DE TRADE", sub: "Stratégie non validée — ouvrir le Strategy Lab d'abord", emoji: "🚫", color: "#ef4444", bg: "#130404", border: "#7f1d1d" };
   if (tops.length === 0)
-    return { title: "WAIT",    sub: `No ${engine.active_strategy.replace("_", " ")} setups qualified today`, emoji: "👁", color: "#6b7280", bg: "#0c0c18", border: "#1e1e2a" };
+    return { title: "ATTENDRE", sub: `Aucun setup ${engine.strategy_name} qualifié aujourd'hui`, emoji: "👁", color: "#6b7280", bg: "#0c0c18", border: "#1e1e2a" };
 
   const ready = tops.filter(t => t.setup_status === "READY");
   if (ms?.is_open && ready.length > 0)
-    return { title: "TRADE TODAY",    sub: `${ready.length} ${engine.strategy_name} setup${ready.length > 1 ? "s" : ""} at entry — execution mode active`, emoji: "⚡", color: "#10b981", bg: "#041310", border: "#065f46" };
+    return { title: "TRADER AUJOURD'HUI", sub: `${ready.length} setup${ready.length > 1 ? "s" : ""} ${engine.strategy_name} en zone d'entrée — mode exécution actif`, emoji: "⚡", color: "#10b981", bg: "#041310", border: "#065f46" };
   if (!ms?.is_open && tops.length > 0)
-    return { title: "PREPARE ORDERS", sub: `${tops.length} setup${tops.length > 1 ? "s" : ""} ready · Set limit orders before market open`, emoji: "📋", color: "#6366f1", bg: "#09091e", border: "#3730a3" };
+    return { title: "PRÉPARER LES ORDRES", sub: `${tops.length} setup${tops.length > 1 ? "s" : ""} validé${tops.length > 1 ? "s" : ""} · Placer les ordres limite avant l'ouverture`, emoji: "📋", color: "#6366f1", bg: "#09091e", border: "#3730a3" };
 
-  return { title: "WATCH & WAIT", sub: "Setups valid but price not yet at entry zone", emoji: "⏳", color: "#f59e0b", bg: "#120d00", border: "#92400e" };
+  return { title: "SURVEILLER", sub: "Setups valides mais prix pas encore en zone d'entrée", emoji: "⏳", color: "#f59e0b", bg: "#120d00", border: "#92400e" };
 }
 
 function DailyDecisionBlock({ decision }: { decision: Decision }) {
@@ -259,31 +259,31 @@ function TradePlanPanel({
 
   const verdict =
     fd === "SKIP" && t.risk_filters_status === "BLOCKED"
-      ? `Skip — risk filter BLOCKED (${(t.risk_filter_reasons ?? [])[0] ?? "fundamental risk"})` :
+      ? `Ignorer — filtre risque BLOQUÉ (${(t.risk_filter_reasons ?? [])[0] ?? "risque fondamental"})` :
     fd === "SKIP" && bt === "NON TRADABLE"
-      ? "Skip — strategy not validated (open Strategy Lab)" :
+      ? "Ignorer — stratégie non validée (ouvrir le Strategy Lab)" :
     fd === "SKIP" && !engine?.can_trade
-      ? `Skip — market regime is ${engine?.regime_label ?? "unfavourable"}` :
+      ? `Ignorer — régime de marché défavorable (${engine?.regime_label ?? "inconnu"})` :
     fd === "SKIP"
-      ? "Skip — setup invalid or R/R insufficient" :
+      ? "Ignorer — setup invalide ou R/R insuffisant" :
     fd === "BUY"
-      ? `Buy near $${t.entry.toFixed(2)} (limit order)` :
+      ? `Acheter près de $${t.entry.toFixed(2)} (ordre limite)` :
     t.dist_entry_pct > 5
-      ? `Wait for pullback to $${t.entry.toFixed(2)}` :
-    "Wait — conditions not yet fully aligned";
+      ? `Attendre un repli vers $${t.entry.toFixed(2)}` :
+    "Attendre — conditions pas encore totalement alignées";
 
   const invalidations = [
-    `Price closes below stop loss $${t.stop_loss.toFixed(2)}`,
-    t.sma50 ? `Price drops below SMA50 ($${t.sma50.toFixed(2)})` : null,
-    `Market regime shifts to Bearish or High Volatility`,
-    t.earnings_warning ? `⚠️ Earnings in ${t.earnings_days} days — reduce size or avoid` : null,
+    `Le prix clôture sous le stop loss à $${t.stop_loss.toFixed(2)}`,
+    t.sma50 ? `Le prix passe sous la SMA50 ($${t.sma50.toFixed(2)})` : null,
+    `Le régime de marché bascule en Baissier ou Haute Volatilité`,
+    t.earnings_warning ? `⚠️ Résultats dans ${t.earnings_days} jours — réduire la taille ou éviter` : null,
   ].filter(Boolean) as string[];
 
   const mgmt = [
-    `Take 50% off at TP1 ($${t.tp1.toFixed(2)})`,
-    "Move stop to breakeven after TP1",
-    `Let runner run to TP2 ($${t.tp2.toFixed(2)})`,
-    t.trailing_stop ? `Trailing stop at $${t.trailing_stop.toFixed(2)}` : null,
+    `Prendre 50% des profits au TP1 ($${t.tp1.toFixed(2)})`,
+    "Déplacer le stop au point mort après TP1",
+    `Laisser courir le solde jusqu'au TP2 ($${t.tp2.toFixed(2)})`,
+    t.trailing_stop ? `Trailing stop activé à $${t.trailing_stop.toFixed(2)}` : null,
   ].filter(Boolean) as string[];
 
   return (
@@ -299,7 +299,7 @@ function TradePlanPanel({
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[9px] text-gray-600 uppercase tracking-widest">Trade Plan</p>
+            <p className="text-[9px] text-gray-600 uppercase tracking-widest">Plan de Trade</p>
             <div className="flex items-center gap-2 mt-0.5">
               <p className="text-2xl font-black text-white">{t.ticker}</p>
               <span className="text-xs text-gray-500">{t.signal_type}</span>
@@ -334,22 +334,22 @@ function TradePlanPanel({
           <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-2">① Verdict</p>
           <p className="text-sm font-black text-white leading-snug">{verdict}</p>
           <p className="text-[10px] text-gray-600 mt-1.5">
-            {t.dist_entry_pct > 0 ? "+" : ""}{t.dist_entry_pct.toFixed(1)}% from entry · Sector: {t.sector}
+            {t.dist_entry_pct > 0 ? "+" : ""}{t.dist_entry_pct.toFixed(1)}% depuis l'entrée · Secteur : {t.sector}
           </p>
         </section>
 
         {/* ② Orders */}
         <section className="rounded-xl p-4" style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
-          <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-3">② Orders to Place</p>
+          <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-3">② Ordres à Passer</p>
           <div className="space-y-2.5">
             {[
-              { label: "Buy Limit",     value: `$${t.entry.toFixed(2)}`,     color: "#6366f1" },
-              { label: "Stop Loss",     value: `$${t.stop_loss.toFixed(2)}`, color: "#ef4444" },
-              { label: "Take Profit 1", value: `$${t.tp1.toFixed(2)}`,       color: "#10b981" },
-              { label: "Take Profit 2", value: `$${t.tp2.toFixed(2)}`,       color: "#34d399" },
-              { label: "Position Size", value: `${ps.shares} shares (~$${ps.value})`, color: "#f59e0b" },
-              { label: "Risk $",        value: `$${ps.riskAmt} — 1% of capital`,      color: "#ef4444" },
-              { label: "R / R",         value: `1 : ${t.rr_ratio.toFixed(1)}`,        color: "#10b981" },
+              { label: "Achat Limite",    value: `$${t.entry.toFixed(2)}`,     color: "#6366f1" },
+              { label: "Stop Loss",       value: `$${t.stop_loss.toFixed(2)}`, color: "#ef4444" },
+              { label: "Objectif 1 (TP1)",value: `$${t.tp1.toFixed(2)}`,       color: "#10b981" },
+              { label: "Objectif 2 (TP2)",value: `$${t.tp2.toFixed(2)}`,       color: "#34d399" },
+              { label: "Taille Position", value: `${ps.shares} actions (~$${ps.value})`, color: "#f59e0b" },
+              { label: "Risque $",        value: `$${ps.riskAmt} — 1% du capital`,       color: "#ef4444" },
+              { label: "R / R",           value: `1 : ${t.rr_ratio.toFixed(1)}`,         color: "#10b981" },
             ].map(row => (
               <div key={row.label} className="flex items-center justify-between">
                 <span className="text-xs text-gray-600">{row.label}</span>
@@ -361,7 +361,7 @@ function TradePlanPanel({
 
         {/* ③ Invalidations */}
         <section className="rounded-xl p-4" style={{ background: "#07070f", border: "1px solid #ef444430" }}>
-          <p className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-3">③ Invalidations</p>
+          <p className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-3">③ Invalidations du Setup</p>
           <ul className="space-y-2">
             {invalidations.map((inv, i) => (
               <li key={i} className="flex items-start gap-2 text-xs text-gray-400">
@@ -373,7 +373,7 @@ function TradePlanPanel({
 
         {/* ④ Trade Management */}
         <section className="rounded-xl p-4" style={{ background: "#07070f", border: "1px solid #10b98130" }}>
-          <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-3">④ Trade Management</p>
+          <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-3">④ Gestion du Trade</p>
           <ul className="space-y-2">
             {mgmt.map((step, i) => (
               <li key={i} className="flex items-start gap-2 text-xs text-gray-400">
@@ -392,7 +392,7 @@ function TradePlanPanel({
             <div className="flex items-center justify-between mb-2">
               <p className="text-[9px] font-black uppercase tracking-widest"
                 style={{ color: t.risk_filters_status === "BLOCKED" ? "#ef4444" : t.risk_filters_status === "CAUTION" ? "#f59e0b" : "#10b981" }}>
-                ⑤ Risk Filters
+                ⑤ Filtres de Risque
               </p>
               <span className="text-[10px] font-black px-2 py-0.5 rounded"
                 style={{
@@ -436,7 +436,7 @@ function TradePlanPanel({
             style={{ background: "#120d00", border: "1px solid #92400e" }}>
             <span>⚠️</span>
             <p className="text-xs text-yellow-500">
-              Earnings in {t.earnings_days} days — reduce position size or skip
+              Résultats dans {t.earnings_days} jours — réduire la taille ou ignorer
             </p>
           </div>
         )}
@@ -540,7 +540,7 @@ function OpportunityCard({
         {t.risk_filters_status === "CAUTION" && (
           <span className="px-1.5 py-0.5 rounded text-[9px] font-black" style={{ background: "#120d00", color: "#f59e0b" }}>⚠ CAUTION</span>
         )}
-        <span className="ml-auto text-[9px] text-gray-700">Tap for plan →</span>
+        <span className="ml-auto text-[9px] text-gray-700">Voir le plan →</span>
       </div>
     </div>
   );
@@ -559,22 +559,22 @@ function RiskControlBlock({ tops, engine }: { tops: TickerResult[]; engine: Regi
   return (
     <div className="rounded-2xl p-5" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
       <div className="flex items-center justify-between mb-4">
-        <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest">⚖️ Risk Control</p>
+        <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest">⚖️ Contrôle du Risque</p>
         <span className="px-2.5 py-1 rounded-lg text-[10px] font-black"
           style={{
             background: riskOk ? "#041310" : "#130404",
             color:      riskOk ? "#10b981" : "#ef4444",
             border:     `1px solid ${riskOk ? "#065f46" : "#7f1d1d"}`,
           }}>
-          {riskOk ? "RISK OK ✓" : "RISK HIGH ⚠"}
+          {riskOk ? "RISQUE OK ✓" : "RISQUE ÉLEVÉ ⚠"}
         </span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Capital",       value: `$${SIM_CAPITAL.toLocaleString()}`,        color: "#6b7280", sub: "Simulated" },
-          { label: "Risk / Trade",  value: `$${(SIM_CAPITAL * RISK_PCT).toFixed(0)}`, color: "#f59e0b", sub: "1% max loss" },
-          { label: "Active Setups", value: active.length,                              color: "#6366f1", sub: "Positions" },
-          { label: "Max Exposure",  value: `${maxExp}%`,                               color: riskOk ? "#10b981" : "#ef4444", sub: "5% per trade" },
+          { label: "Capital",        value: `$${SIM_CAPITAL.toLocaleString()}`,        color: "#6b7280", sub: "Simulé" },
+          { label: "Risque / Trade", value: `$${(SIM_CAPITAL * RISK_PCT).toFixed(0)}`, color: "#f59e0b", sub: "1% perte max" },
+          { label: "Setups Actifs", value: active.length,                              color: "#6366f1", sub: "Positions" },
+          { label: "Exposition Max", value: `${maxExp}%`,                              color: riskOk ? "#10b981" : "#ef4444", sub: "5% par trade" },
         ].map(s => (
           <div key={s.label} className="rounded-xl p-3 text-center"
             style={{ background: "#07070f", border: `1px solid ${s.color}20` }}>
@@ -646,7 +646,7 @@ export function CommandCenter({
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-bold text-gray-700 uppercase tracking-widest">
-          {data.length} setups scanned · {topOpps.length} match{topOpps.length !== 1 ? "es" : ""} active strategy
+          {data.length} setups analysés · {topOpps.length} correspond{topOpps.length > 1 ? "ent" : ""} à la stratégie active
         </p>
         <div className="flex items-center gap-2">
           <button
@@ -685,7 +685,7 @@ export function CommandCenter({
       {topOpps.length > 0 && (
         <div>
           <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-2 px-1">
-            🎯 Top Opportunities — {engine?.strategy_name ?? "Active Strategy"} only
+            🎯 Meilleures Opportunités — {engine?.strategy_name ?? "Stratégie Active"} uniquement
           </p>
           <div className="space-y-3">
             {topOpps.map((t, i) => (
@@ -708,7 +708,7 @@ export function CommandCenter({
       {cannotTrade && data.length > 0 && (
         <div className="rounded-xl px-5 py-4" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
           <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-2">
-            👁 Watchlist — No active trades
+            👁 Watchlist — Aucun trade actif
           </p>
           <div className="flex flex-wrap gap-2">
             {data.slice(0, 8).map(t => (
@@ -724,7 +724,7 @@ export function CommandCenter({
               </span>
             ))}
           </div>
-          <p className="text-[9px] text-gray-700 mt-2">Monitor these setups — activate when regime improves</p>
+          <p className="text-[9px] text-gray-700 mt-2">Surveiller ces setups — activer quand le régime s'améliore</p>
         </div>
       )}
 
@@ -735,18 +735,18 @@ export function CommandCenter({
       <div className="flex items-center justify-between px-4 py-3 rounded-xl"
         style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
         <div>
-          <p className="text-[9px] text-gray-700 uppercase tracking-widest">Strategy Validation</p>
+          <p className="text-[9px] text-gray-700 uppercase tracking-widest">Validation Stratégie</p>
           <p className="text-xs font-black" style={{
             color: backtestStatus === "TRADABLE" ? "#10b981" : backtestStatus === "À CONFIRMER" ? "#f59e0b" : "#ef4444"
           }}>
-            {backtestStatus ?? "Not tested"} · Run Strategy Lab to validate
+            {backtestStatus ?? "Non testé"} · Lancer le Strategy Lab pour valider
           </p>
         </div>
         <button
           onClick={onGoToLab}
           className="text-[10px] font-bold text-gray-600 hover:text-gray-400 transition-colors"
         >
-          Open Lab →
+          Ouvrir le Lab →
         </button>
       </div>
 
