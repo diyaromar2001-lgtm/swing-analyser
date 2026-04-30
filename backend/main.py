@@ -49,6 +49,9 @@ from earnings import get_earnings_date
 from setup_validator import validate_setup
 from market_regime_engine import compute_regime_engine
 from ticker_edge import compute_ticker_edge, get_cached_edge, invalidate_cache as _invalidate_edge_cache
+import market_regime_engine as _regime_engine_module
+import market_context as _market_context_module
+import ticker_edge as _ticker_edge_module
 
 app = FastAPI(title="Swing Trading Screener Pro")
 
@@ -134,6 +137,16 @@ _PRICE_TTL = 60   # 1 minute
 _mkt_ctx_cache: dict = {}
 _MKT_CTX_TTL = 300   # 5 min
 _mkt_ctx_lock = threading.Lock()
+
+
+def _ts_to_iso(ts: float | int | None) -> Optional[str]:
+    if not ts:
+        return None
+    try:
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
+    except Exception:
+        return None
 
 
 def _get_ohlcv(ticker: str) -> Optional[object]:
@@ -952,6 +965,33 @@ def market_regime():
     return data
 
 
+@app.get("/api/data-freshness")
+def data_freshness():
+    screener_ts = max((v.get("ts", 0) for v in _screener_cache.values()), default=0)
+    price_ts = max((v.get("ts", 0) for v in _price_cache.values()), default=0)
+    edge_ts = max((v.get("ts", 0) for v in _ticker_edge_module._edge_cache.values()), default=0)
+    regime_ts = _regime_engine_module._cache.get("ts", 0) or _market_regime_cache.get("ts", 0)
+    market_context_ts = _mkt_ctx_cache.get("ts", 0) or _market_context_module._context_cache.get("ts", 0)
+
+    return {
+        "price_label": "Prix live approximatif / différé (rafraîchi 30–60s)",
+        "screener_label": "Analyse daily (cache 4h ou recalcul manuel)",
+        "regime_label": "Market regime (cache 1h)",
+        "market_context_label": "Market context (cache 5min)",
+        "edge_label": "Strategy Edge (cache 24h)",
+        "price_ttl_seconds": _PRICE_TTL,
+        "screener_ttl_seconds": _OHLCV_TTL,
+        "regime_ttl_seconds": 3600,
+        "market_context_ttl_seconds": _MKT_CTX_TTL,
+        "edge_ttl_seconds": getattr(_ticker_edge_module, "_EDGE_TTL", 86_400),
+        "last_price_update": _ts_to_iso(price_ts),
+        "last_screener_update": _ts_to_iso(screener_ts),
+        "last_regime_update": _ts_to_iso(regime_ts),
+        "last_market_context_update": _ts_to_iso(market_context_ts),
+        "last_edge_update": _ts_to_iso(edge_ts),
+    }
+
+
 
 # ── Clear cache (force refresh immédiat de tous les prix) ────────────────────
 
@@ -965,6 +1005,9 @@ def clear_cache():
     _mkt_ctx_cache.clear()
     _cache.clear()
     _screener_cache.clear()
+    _market_regime_cache.clear()
+    _regime_engine_module._cache.clear()
+    _market_context_module._context_cache.clear()
     # NE PAS vider _ohlcv_cache : les indicateurs (SMA/RSI) sont stables 4h
     return {"cleared": True, "message": "Cache prix vidé — les prochains prix seront frais"}
 

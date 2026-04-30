@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { TickerResult, MarketRegime } from "../types";
+import { TickerResult, MarketRegime, DataFreshness } from "../types";
 import { ScreenerTable } from "./ScreenerTable";
 import { Top5Cards } from "./Top5Cards";
 import { DynamicCategories } from "./DynamicCategories";
@@ -12,6 +12,7 @@ import { MarketContext } from "./MarketContext";
 import { SignalTracker } from "./SignalTracker";
 import { CommandCenter } from "./CommandCenter";
 import { TradeJournal } from "./TradeJournal";
+import { DataFreshnessPanel } from "./DataFreshnessPanel";
 import { getApiUrl } from "../lib/api";
 
 const API_URL = getApiUrl();
@@ -164,6 +165,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [strategy, setStrategy]     = useState<Strategy>("standard");
   const [regime, setRegime]         = useState<MarketRegime | null>(null);
+  const [freshness, setFreshness]   = useState<DataFreshness | null>(null);
 
   // Filtres
   const [search, setSearch]         = useState("");
@@ -182,6 +184,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [priceMap, setPriceMap] = useState<Record<string, { price: number; change_pct: number; change_abs: number }>>({});
   const [lastPriceUpdate, setLastPriceUpdate] = useState<Date | null>(null);
   const [secondsSincePrice, setSecondsSincePrice] = useState(0);
+  const [priceRefreshing, setPriceRefreshing] = useState(false);
   const priceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Strategy Lab
@@ -192,6 +195,16 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   });
   // API Status modal
   const [showApiStatus, setShowApiStatus] = useState(false);
+
+  const fetchFreshness = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/data-freshness`, { cache: "no-store" });
+      const json = await res.json();
+      setFreshness(json);
+    } catch {
+      // silencieux
+    }
+  }, []);
 
   // ── Fetch sans vider le cache (auto-refresh toutes les 60s) ─────────────────
   const fetchData = useCallback(async (strat?: Strategy, excEarnings?: boolean) => {
@@ -210,9 +223,10 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       setData(json);
       setLastUpdate(new Date());
       await regimePromise;
+      await fetchFreshness();
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, [strategy, excludeEarnings]);
+  }, [strategy, excludeEarnings, fetchFreshness]);
 
   // ── Strategy Edge — recalcul à la demande (après fetchData) ────────────────
   const [edgeCoverage, setEdgeCoverage] = useState<number>(0);
@@ -260,6 +274,17 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     } catch { /* silencieux */ }
   }, []);
 
+  const refreshPricesOnly = useCallback(async () => {
+    setPriceRefreshing(true);
+    try {
+      setPriceMap({});
+      await pollPrices(data);
+      await fetchFreshness();
+    } finally {
+      setPriceRefreshing(false);
+    }
+  }, [data, pollPrices, fetchFreshness]);
+
   // Lance + relance le polling quand `data` change
   useEffect(() => {
     if (data.length === 0) return;
@@ -297,11 +322,12 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       .then(r => r.json())
       .then(setRegime)
       .catch(() => null);
+    fetchFreshness();
 
     // Auto-refresh toutes les 60 secondes (cache prix expire en 60s côté backend)
     const id = setInterval(() => fetchData(), 60_000);
     return () => clearInterval(id);
-  }, [fetchData]);
+  }, [fetchData, fetchFreshness]);
 
   const switchStrategy = useCallback((s: Strategy) => {
     setStrategy(s);
@@ -534,6 +560,14 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       </div>
 
       {/* ── COMMAND CENTER ───────────────────────────────────────────────── */}
+      <DataFreshnessPanel
+        freshness={freshness}
+        onFullRefresh={() => refresh()}
+        onPriceRefresh={refreshPricesOnly}
+        loading={loading}
+        priceRefreshing={priceRefreshing}
+      />
+
       {uiMode === "simple" && (
         <CommandCenter
           data={dataWithLivePrices}
@@ -541,6 +575,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           backtestStatus={backtestStatus}
           loading={loading}
           onRefresh={() => refresh()}
+          onRefreshPrices={refreshPricesOnly}
           onAdvancedView={() => {
             setUiMode("pro");
             localStorage.setItem("swing_ui_mode", "pro");

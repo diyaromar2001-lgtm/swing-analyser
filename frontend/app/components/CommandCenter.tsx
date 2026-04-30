@@ -834,6 +834,7 @@ export function CommandCenter({
   backtestStatus,
   loading,
   onRefresh,
+  onRefreshPrices,
   onAdvancedView,
   onGoToLab,
 }: {
@@ -842,6 +843,7 @@ export function CommandCenter({
   backtestStatus: TradableStatus;
   loading:        boolean;
   onRefresh:      () => void;
+  onRefreshPrices: () => void;
   onAdvancedView: () => void;
   onGoToLab:      () => void;
 }) {
@@ -895,6 +897,13 @@ export function CommandCenter({
           {data.length} setups analysés · {topOpps.length} setup{topOpps.length > 1 ? "s" : ""} avec edge validé
         </p>
         <div className="flex items-center gap-2">
+          <button
+            onClick={onRefreshPrices}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            style={{ background: "#0c0c18", border: "1px solid #1a1a2e", color: "#10b981" }}
+          >
+            Prix seulement
+          </button>
           <button
             onClick={onRefresh}
             disabled={loading}

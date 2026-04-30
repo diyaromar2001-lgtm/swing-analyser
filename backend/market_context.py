@@ -1,7 +1,7 @@
 """
 Market Context — VIX, Market Breadth, Sector Strength.
 Fournit le contexte de marché avancé pour filtrer les mauvaises conditions.
-Cache : 1h.
+Cache : 5 min.
 """
 
 import time
@@ -12,7 +12,7 @@ from indicators import sma, rsi, perf_pct
 
 # ── Cache ─────────────────────────────────────────────────────────────────────
 _context_cache: dict = {}
-_CACHE_TTL = 3_600   # 1h
+_CACHE_TTL = 300   # 5 min
 
 # ── ETFs sectoriels ───────────────────────────────────────────────────────────
 SECTOR_ETFS: dict[str, str] = {

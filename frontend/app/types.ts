@@ -102,6 +102,24 @@ export interface TickerResult {
 
 // ── Setup Stats (validation historique) ──────────────────────────────────────
 
+export interface DataFreshness {
+  price_label: string;
+  screener_label: string;
+  regime_label: string;
+  market_context_label: string;
+  edge_label: string;
+  price_ttl_seconds: number;
+  screener_ttl_seconds: number;
+  regime_ttl_seconds: number;
+  market_context_ttl_seconds: number;
+  edge_ttl_seconds: number;
+  last_price_update?: string | null;
+  last_screener_update?: string | null;
+  last_regime_update?: string | null;
+  last_market_context_update?: string | null;
+  last_edge_update?: string | null;
+}
+
 export interface SetupStats {
   n_trades:          number;
   win_rate?:         number;
