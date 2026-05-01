@@ -52,7 +52,7 @@ from ticker_edge import compute_ticker_edge, get_cached_edge, invalidate_cache a
 import market_regime_engine as _regime_engine_module
 import market_context as _market_context_module
 import ticker_edge as _ticker_edge_module
-from crypto_data import clear_crypto_caches, crypto_sector
+from crypto_data import clear_crypto_caches, crypto_sector, debug_crypto_sources
 from crypto_edge import _edge_cache as _crypto_edge_cache
 from crypto_edge import clear_crypto_edge_cache, compute_crypto_edge, get_cached_crypto_edge
 from crypto_regime_engine import _cache as _crypto_regime_cache
@@ -1098,6 +1098,12 @@ def regime_engine():
 @app.get("/api/crypto/universe")
 def crypto_universe():
     return {"symbols": CRYPTO_SYMBOLS, "sectors": CRYPTO_SECTORS}
+
+
+# Scope: CRYPTO
+@app.get("/api/crypto/debug-data")
+def crypto_debug_data():
+    return debug_crypto_sources()
 
 
 # Scope: CRYPTO
