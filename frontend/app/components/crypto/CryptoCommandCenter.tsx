@@ -28,6 +28,7 @@ function edgeLabel(status?: string | null) {
 export function CryptoCommandCenter({
   data,
   loading,
+  screenerNotice,
   onRefresh,
   onRefreshPrices,
   onAdvancedView,
@@ -35,6 +36,7 @@ export function CryptoCommandCenter({
 }: {
   data: TickerResult[];
   loading: boolean;
+  screenerNotice?: { kind: "timeout" | "refresh-failed" | "empty-cache"; message: string } | null;
   onRefresh: () => void;
   onRefreshPrices: () => void;
   onAdvancedView: () => void;
@@ -85,6 +87,53 @@ export function CryptoCommandCenter({
   const primaryCards = defensiveRegime ? technicalWatchlist : tradeable;
   const btcDisplay = regime && regime.btc_price > 0 ? regime.btc_price : marketPrices.BTC;
   const ethDisplay = regime && regime.eth_price > 0 ? regime.eth_price : marketPrices.ETH;
+  const hasPreviousData = screenerNotice?.kind === "refresh-failed" || screenerNotice?.kind === "timeout";
+  const emptyCacheMessage = screenerNotice?.kind === "empty-cache"
+    ? screenerNotice.message
+    : "Aucune donnée crypto en cache. Lancez une analyse complète.";
+
+  if (!loading && data.length === 0) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] font-bold text-gray-700 uppercase tracking-widest">
+            0 cryptos analysées · aucun cache exploitable
+          </p>
+          <div className="flex items-center gap-2">
+            <button onClick={onRefreshPrices} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: "#0c0c18", border: "1px solid #1a1a2e", color: "#10b981" }}>
+              Prix seulement
+            </button>
+            <button onClick={onRefresh} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-40" style={{ background: "#1a1a2e", border: "1px solid #2a2a4e", color: "#818cf8" }}>
+              {loading ? "Loading…" : "⟳ Analyse complète"}
+            </button>
+            <button onClick={onAdvancedView} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "#0c0c18", border: "1px solid #1a1a2e", color: "#4b5563" }}>
+              Advanced →
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl p-6" style={{ background: "#120a0a", border: "1px solid #7f1d1d66" }}>
+          <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-2">
+            {emptyCacheMessage}
+          </p>
+          <p className="text-sm text-red-200">
+            Le fast screener Crypto n&apos;a pas renvoyé de liste exploitable. Vous pouvez lancer une analyse complète pour récupérer les dernières données disponibles.
+          </p>
+          <div className="mt-4 flex items-center gap-2 flex-wrap">
+            <button onClick={onRefresh} className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: "#2a1220", border: "1px solid #ef444455", color: "#fca5a5" }}>
+              Analyse complète
+            </button>
+            <button onClick={onRefreshPrices} className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: "#0c0c18", border: "1px solid #1a1a2e", color: "#10b981" }}>
+              Rafraîchir prix seulement
+            </button>
+            <button onClick={onGoToLab} className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: "#0c0c18", border: "1px solid #1a1a2e", color: "#4b5563" }}>
+              Ouvrir le Lab
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -107,7 +156,7 @@ export function CryptoCommandCenter({
         </div>
       </div>
 
-      <div className="rounded-xl px-5 py-3 flex items-center gap-5 flex-wrap" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
+        <div className="rounded-xl px-5 py-3 flex items-center gap-5 flex-wrap" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
         <div>
           <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">Marché</p>
           <p className="text-xs font-black" style={{ color: noTrade ? "#ef4444" : "#10b981" }}>24/7 Crypto</p>
@@ -159,7 +208,7 @@ export function CryptoCommandCenter({
         <div>
           <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-2 px-1">
             {defensiveRegime
-              ? "👁 Watchlist technique crypto — surveillance uniquement"
+              ? "👁 Watchlist technique crypto — surveillance uniquement, aucun achat autorisé"
               : "🎯 Meilleures cryptos à trader aujourd&apos;hui — edge validé uniquement"}
           </p>
           {defensiveRegime && (
@@ -172,6 +221,12 @@ export function CryptoCommandCenter({
             <p className="mb-3 text-xs text-red-300">
               Le régime crypto actuel bloque les achats. Ces setups sont affichés pour suivi, pas pour exécution.
             </p>
+          )}
+          {hasPreviousData && (
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest"
+              style={{ background: "#111118", border: "1px solid #f59e0b55", color: "#fcd34d" }}>
+              Données précédentes
+            </div>
           )}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {primaryCards.map((row) => (

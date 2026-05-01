@@ -233,7 +233,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [cryptoRegime, setCryptoRegime] = useState<CryptoRegimeEngine | null>(null);
   const [freshness, setFreshness]   = useState<DataFreshness | null>(null);
   const [screenerRefreshing, setScreenerRefreshing] = useState(false);
-  const [screenerNotice, setScreenerNotice] = useState<{ kind: "timeout" | "refresh-failed"; message: string } | null>(null);
+  const [screenerNotice, setScreenerNotice] = useState<{ kind: "timeout" | "refresh-failed" | "empty-cache"; message: string } | null>(null);
 
   // Filtres
   const [search, setSearch]         = useState("");
@@ -327,10 +327,33 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       if (!Array.isArray(json)) {
         throw new Error("Format screener inattendu");
       }
-      setData(json);
-      dataLengthRef.current = json.length;
-      setLastUpdate(new Date());
-      saveScreenerCache(screenerScope, json);
+      if (json.length > 0) {
+        setData(json);
+        dataLengthRef.current = json.length;
+        setLastUpdate(new Date());
+        saveScreenerCache(screenerScope, json);
+        setScreenerNotice(null);
+      } else if (isCrypto) {
+        const cached = loadScreenerCache(screenerScope);
+        if (cached?.data?.length || hadVisibleData) {
+          setScreenerNotice({
+            kind: "refresh-failed",
+            message: "Données précédentes — refresh échoué",
+          });
+        } else {
+          setData([]);
+          dataLengthRef.current = 0;
+          setScreenerNotice({
+            kind: "empty-cache",
+            message: "Aucune donnée crypto en cache. Lancez une analyse complète.",
+          });
+        }
+      } else {
+        setData(json);
+        dataLengthRef.current = json.length;
+        setLastUpdate(new Date());
+        saveScreenerCache(screenerScope, json);
+      }
       await regimePromise;
       await fetchFreshness();
     } catch (e) {
@@ -742,9 +765,9 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       </div>
 
       {/* ── COMMAND CENTER ───────────────────────────────────────────────── */}
-        {screenerNotice && (
-          <div className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap"
-            style={{ background: screenerNotice.kind === "timeout" ? "#1a1010" : "#1a0f06", border: `1px solid ${screenerNotice.kind === "timeout" ? "#ef444455" : "#f59e0b55"}` }}>
+      {screenerNotice && (
+        <div className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap"
+          style={{ background: screenerNotice.kind === "timeout" ? "#1a1010" : "#1a0f06", border: `1px solid ${screenerNotice.kind === "timeout" ? "#ef444455" : "#f59e0b55"}` }}>
             <span className="text-sm">{screenerNotice.kind === "timeout" ? "⏳" : "⚠️"}</span>
             <div>
               <p className="text-xs font-black uppercase tracking-widest" style={{ color: screenerNotice.kind === "timeout" ? "#f87171" : "#f59e0b" }}>
@@ -788,6 +811,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           <CryptoCommandCenter
             data={dataWithLivePrices}
             loading={loading}
+            screenerNotice={screenerNotice}
             onRefresh={() => void refreshAnalysis()}
             onRefreshPrices={refreshPricesOnly}
             onAdvancedView={() => {
