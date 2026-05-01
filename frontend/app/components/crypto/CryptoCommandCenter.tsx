@@ -42,11 +42,23 @@ export function CryptoCommandCenter({
 }) {
   const [regime, setRegime] = useState<CryptoRegimeEngine | null>(null);
   const [selected, setSelected] = useState<TickerResult | null>(null);
+  const [marketPrices, setMarketPrices] = useState<Record<string, number>>({});
 
   useEffect(() => {
     fetch(`${API_URL}/api/crypto/regime`, { cache: "no-store" })
       .then((r) => r.json())
       .then(setRegime)
+      .catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/crypto/prices?symbols=BTC,ETH`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((list: Array<{ ticker: string; price: number }>) => {
+        const next: Record<string, number> = {};
+        for (const item of list ?? []) next[item.ticker] = item.price;
+        setMarketPrices(next);
+      })
       .catch(() => null);
   }, []);
 
@@ -71,6 +83,8 @@ export function CryptoCommandCenter({
   const defensiveRegime = isCryptoDefensiveRegime(regime?.crypto_regime);
   const activeLabel = regime?.active_strategy === "NO_TRADE" ? "NO TRADE" : regime?.active_crypto_strategies?.[0]?.replaceAll("_", " ") ?? "—";
   const primaryCards = defensiveRegime ? technicalWatchlist : tradeable;
+  const btcDisplay = regime && regime.btc_price > 0 ? regime.btc_price : marketPrices.BTC;
+  const ethDisplay = regime && regime.eth_price > 0 ? regime.eth_price : marketPrices.ETH;
 
   return (
     <div className="space-y-3">
@@ -106,11 +120,11 @@ export function CryptoCommandCenter({
         <div className="w-px h-5 hidden sm:block" style={{ background: "#1a1a2e" }} />
         <div>
           <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">BTC</p>
-          <p className="text-xs font-black text-white">{regime ? `$${formatCryptoPrice("BTC", regime.btc_price)}` : "—"}</p>
+          <p className="text-xs font-black text-white">{btcDisplay ? `$${formatCryptoPrice("BTC", btcDisplay)}` : "—"}</p>
         </div>
         <div>
           <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">ETH</p>
-          <p className="text-xs font-black text-white">{regime ? `$${formatCryptoPrice("ETH", regime.eth_price)}` : "—"}</p>
+          <p className="text-xs font-black text-white">{ethDisplay ? `$${formatCryptoPrice("ETH", ethDisplay)}` : "—"}</p>
         </div>
         <div>
           <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">Breadth</p>
@@ -145,7 +159,7 @@ export function CryptoCommandCenter({
         <div>
           <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-2 px-1">
             {defensiveRegime
-              ? "👁 Watchlist technique — aucun trade autorisé"
+              ? "👁 Watchlist technique crypto — surveillance uniquement"
               : "🎯 Meilleures cryptos à trader aujourd&apos;hui — edge validé uniquement"}
           </p>
           {defensiveRegime && (
@@ -153,6 +167,11 @@ export function CryptoCommandCenter({
               style={{ background: "#2b0f0f", border: "1px solid #ef444455", color: "#fca5a5" }}>
               Régime crypto défensif — surveillance seulement
             </div>
+          )}
+          {defensiveRegime && (
+            <p className="mb-3 text-xs text-red-300">
+              Le régime crypto actuel bloque les achats. Ces setups sont affichés pour suivi, pas pour exécution.
+            </p>
           )}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {primaryCards.map((row) => (
@@ -164,9 +183,15 @@ export function CryptoCommandCenter({
               >
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <span className="text-xl font-black text-white">{row.ticker}</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded font-black" style={{ background: "#052e16", color: "#4ade80" }}>
-                    {row.ticker_edge_status}
-                  </span>
+                  {defensiveRegime ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded font-black" style={{ background: "#3b1d07", color: "#fdba74" }}>
+                      Achat interdit par régime
+                    </span>
+                  ) : (
+                    <span className="text-[10px] px-2 py-0.5 rounded font-black" style={{ background: "#052e16", color: "#4ade80" }}>
+                      {row.ticker_edge_status}
+                    </span>
+                  )}
                 </div>
                 <p className="text-[11px] text-gray-500">{row.signal_type} · {row.best_strategy_name ?? "Best strategy"}</p>
                 <div className="grid grid-cols-3 gap-1.5 mt-3 text-center">

@@ -52,7 +52,7 @@ export function Top5Cards({
         <p className="text-lg font-black text-white mb-4">
           {scope === "crypto"
             ? defensiveRegime
-              ? "👁 Watchlist technique — aucun trade autorisé"
+              ? "👁 Watchlist technique crypto — surveillance uniquement"
               : "🎯 Quelles sont les meilleures cryptos à surveiller aujourd’hui ?"
             : "🎯 Quelles sont les meilleures actions à trader aujourd&apos;hui ?"}
         </p>
@@ -61,6 +61,11 @@ export function Top5Cards({
             style={{ background: "#2b0f0f", border: "1px solid #ef444455", color: "#fca5a5" }}>
             Régime crypto défensif — surveillance seulement
           </div>
+        )}
+        {defensiveRegime && (
+          <p className="mb-3 text-xs text-red-300">
+            Le régime crypto actuel bloque les achats. Ces setups sont affichés pour suivi, pas pour exécution.
+          </p>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {top3.map((row, i) => {
@@ -86,7 +91,14 @@ export function Top5Cards({
                     <span className="text-xl font-black text-white">{row.ticker}</span>
                     <p className="text-[11px] text-gray-500 mt-0.5">{row.sector}</p>
                   </div>
-                  <SetupGradeBadge grade={row.setup_grade} />
+                  <div className="flex flex-col items-end gap-1">
+                    <SetupGradeBadge grade={row.setup_grade} />
+                    {defensiveRegime && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded font-black" style={{ background: "#3b1d07", color: "#fdba74" }}>
+                        Achat interdit par régime
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <ScoreBar score={row.score} />
                 <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
