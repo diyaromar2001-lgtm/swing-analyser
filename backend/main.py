@@ -1579,7 +1579,10 @@ def optimizer_endpoint(period: int = Query(12)):
 # ── Strategy Edge per Ticker ──────────────────────────────────────────────────
 
 @app.get("/api/ticker-edge/{ticker}")
-def ticker_edge_endpoint(ticker: str):
+def ticker_edge_endpoint(
+    ticker: str,
+    period: int = Query(24, ge=12, le=60, description="Horizon backtest en mois"),
+):
     """
     Calcule (ou retourne depuis le cache 24h) l'edge historique par stratégie pour un ticker.
     Teste les 5 stratégies du Strategy Lab sur 24 mois, split train/test.
@@ -1589,12 +1592,13 @@ def ticker_edge_endpoint(ticker: str):
     if df is None:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"{t} : données insuffisantes")
-    return compute_ticker_edge(t, df)
+    return compute_ticker_edge(t, df, period_months=period)
 
 
 @app.post("/api/strategy-edge/compute")
 def compute_strategy_edge(
-    tickers: Optional[str] = Query(None, description="Sous-ensemble tickers séparés par virgule (défaut : tous)")
+    tickers: Optional[str] = Query(None, description="Sous-ensemble tickers séparés par virgule (défaut : tous)"),
+    period: int = Query(24, ge=12, le=60, description="Horizon backtest en mois"),
 ):
     """
     Calcule l'edge pour une liste de tickers (ou tous) en parallèle.
@@ -1616,7 +1620,7 @@ def compute_strategy_edge(
             errors += 1
             return
         try:
-            compute_ticker_edge(t, df)
+            compute_ticker_edge(t, df, period_months=period)
             computed += 1
         except Exception:
             errors += 1
@@ -1629,7 +1633,8 @@ def compute_strategy_edge(
         "computed": computed,
         "errors":   errors,
         "total":    len(ticker_list),
-        "message":  f"Edge calculé pour {computed}/{len(ticker_list)} tickers (cache 24h)",
+        "period_months": period,
+        "message":  f"Edge calculé pour {computed}/{len(ticker_list)} tickers sur {period} mois (cache 24h)",
     }
 
 
@@ -1638,14 +1643,19 @@ def strategy_edge_status():
     """Retourne l'état du cache edge (combien de tickers ont un edge calculé)."""
     from ticker_edge import _edge_cache, _EDGE_TTL
     now   = _time.time()
-    valid = sum(1 for v in _edge_cache.values() if (now - v.get("ts", 0)) < _EDGE_TTL)
+    default_cache = {
+        k: v for k, v in _edge_cache.items()
+        if ":" not in str(k)
+    }
+    valid = sum(1 for v in default_cache.values() if (now - v.get("ts", 0)) < _EDGE_TTL)
     by_status: Dict[str, int] = {}
-    for v in _edge_cache.values():
+    for v in default_cache.values():
         s = v.get("data", {}).get("ticker_edge_status", "NO_EDGE")
         by_status[s] = by_status.get(s, 0) + 1
     return {
-        "cached_tickers": len(_edge_cache),
+        "cached_tickers": len(default_cache),
         "valid_tickers":  valid,
+        "cached_period_variants": len(_edge_cache) - len(default_cache),
         "total_tickers":  len(ALL_TICKERS),
         "coverage_pct":   round(valid / max(len(ALL_TICKERS), 1) * 100, 1),
         "by_status":      by_status,

@@ -69,6 +69,72 @@ def _sig_pullback_trend(close, high, low, volume, s50, s200, rsi_s, mh_s, atr_s,
     )
 
 
+def _sig_pullback_confirmed(close, high, low, volume, s50, s200, rsi_s, mh_s, atr_s, e20_s, i):
+    """
+    Pullback Confirmed - pullback vers EMA20/SMA50 avec rebond confirme.
+
+    Conditions :
+      - prix > SMA200, SMA50 > SMA200
+      - SMA50 en pente positive
+      - pullback recent vers EMA20 ou SMA50
+      - RSI 42-62
+      - MACD histogram pas fortement negatif
+      - rebond confirme par close > close veille ou close > high veille
+
+    Le volume n'est pas obligatoire ici : il reste un facteur qualitatif dans
+    l'analyse globale, mais ne bloque pas le signal de base.
+    """
+    if i < 10:
+        return False
+
+    p = float(close.iloc[i])
+    prev_close = float(close.iloc[i - 1])
+    prev_high = float(high.iloc[i - 1])
+    s50v = float(s50.iloc[i])
+    s200v = float(s200.iloc[i])
+    e20v = float(e20_s.iloc[i])
+    rv = float(rsi_s.iloc[i])
+    mhv = float(mh_s.iloc[i])
+
+    if any(np.isnan(x) for x in [p, prev_close, prev_high, s50v, s200v, e20v, rv, mhv]):
+        return False
+    if s50v <= 0 or s200v <= 0 or e20v <= 0:
+        return False
+
+    s50_prev = float(s50.iloc[i - 10])
+    sma50_rising = s50v > s50_prev if not np.isnan(s50_prev) else False
+
+    dist_e20 = (p - e20v) / e20v * 100.0
+    dist_s50 = (p - s50v) / s50v * 100.0
+
+    # Pullback observe sur les 5 dernieres bougies, vers EMA20 ou SMA50.
+    pullback_recent = False
+    for j in range(max(0, i - 4), i + 1):
+        cj = float(close.iloc[j])
+        e20j = float(e20_s.iloc[j])
+        s50j = float(s50.iloc[j])
+        if any(np.isnan(x) for x in [cj, e20j, s50j]) or e20j <= 0 or s50j <= 0:
+            continue
+        d20 = (cj - e20j) / e20j * 100.0
+        d50 = (cj - s50j) / s50j * 100.0
+        if -5.0 <= d20 <= 2.0 or -6.0 <= d50 <= 3.0:
+            pullback_recent = True
+            break
+
+    rebound_confirmed = p > prev_close or p > prev_high
+
+    return (
+        p > s200v
+        and s50v > s200v
+        and sma50_rising
+        and pullback_recent
+        and (-4.0 <= dist_e20 <= 3.0 or -6.0 <= dist_s50 <= 3.0)
+        and 42 <= rv <= 62
+        and mhv > -0.5
+        and rebound_confirmed
+    )
+
+
 def _sig_breakout_quality(close, high, low, volume, s50, s200, rsi_s, mh_s, atr_s, e20_s, i):
     """
     B. Breakout Quality — cassure de plus haut 20 jours avec confirmation volume.
@@ -250,6 +316,18 @@ LAB_STRATEGIES: List[Dict] = [
         "tp_pct":      0.07,
         "sl_pct":      0.03,
         "fn":          _sig_pullback_trend,
+        "screener_strategy": "standard",
+        "screener_signal":   "Pullback",
+    },
+    {
+        "key":         "pullback_confirmed",
+        "name":        "Pullback Confirmed",
+        "description": "Pullback vers EMA20/SMA50 avec rebond confirme",
+        "color":       "#22c55e",
+        "emoji":       "✓",
+        "tp_pct":      0.07,
+        "sl_pct":      0.03,
+        "fn":          _sig_pullback_confirmed,
         "screener_strategy": "standard",
         "screener_signal":   "Pullback",
     },

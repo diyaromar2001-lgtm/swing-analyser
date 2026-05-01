@@ -39,6 +39,14 @@ _edge_cache: Dict[str, dict] = {}
 _EDGE_TTL   = 86_400          # 24 h
 
 
+def _cache_key(ticker: str, period_months: int = PERIOD_MONTHS) -> str:
+    """Conserve la cle historique pour l'horizon par defaut."""
+    t = ticker.upper()
+    if int(period_months) == PERIOD_MONTHS:
+        return t
+    return f"{t}:{int(period_months)}m"
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _metrics(trades: List[Dict]) -> Dict:
@@ -139,13 +147,15 @@ def _classify_status(overall: Dict, train: Dict, test: Dict,
 
 # ── Calcul principal ──────────────────────────────────────────────────────────
 
-def compute_ticker_edge(ticker: str, df: pd.DataFrame) -> Dict:
+def compute_ticker_edge(ticker: str, df: pd.DataFrame, period_months: int = PERIOD_MONTHS) -> Dict:
     """
     Calcule l'edge par stratégie pour un ticker.
     Résultat mis en cache 24 h.
     """
     now    = _time.time()
-    cached = _edge_cache.get(ticker)
+    period_months = int(period_months or PERIOD_MONTHS)
+    cache_key = _cache_key(ticker, period_months)
+    cached = _edge_cache.get(cache_key)
     if cached and (now - cached.get("ts", 0)) < _EDGE_TTL:
         return cached["data"]
 
@@ -157,7 +167,7 @@ def compute_ticker_edge(ticker: str, df: pd.DataFrame) -> Dict:
                 ticker        = ticker,
                 df            = df,
                 strategy_def  = strat,
-                period_months = PERIOD_MONTHS,
+                period_months = period_months,
             )
 
             if not all_trades:
@@ -288,16 +298,17 @@ def compute_ticker_edge(ticker: str, df: pd.DataFrame) -> Dict:
         "overfit_reasons": best["overfit_reasons"]   if best else [],
         # Détail de toutes les stratégies
         "all_strategies":  strategy_results,
+        "period_months":   period_months,
         "computed_at":     now,
     }
 
-    _edge_cache[ticker] = {"data": data, "ts": now}
+    _edge_cache[cache_key] = {"data": data, "ts": now}
     return data
 
 
-def get_cached_edge(ticker: str) -> Optional[Dict]:
+def get_cached_edge(ticker: str, period_months: int = PERIOD_MONTHS) -> Optional[Dict]:
     """Retourne l'edge depuis le cache uniquement (sans recalcul)."""
-    cached = _edge_cache.get(ticker)
+    cached = _edge_cache.get(_cache_key(ticker, period_months))
     if cached:
         return cached["data"]
     return None
@@ -306,6 +317,9 @@ def get_cached_edge(ticker: str) -> Optional[Dict]:
 def invalidate_cache(ticker: Optional[str] = None) -> None:
     """Vide le cache (tout ou un ticker)."""
     if ticker:
-        _edge_cache.pop(ticker, None)
+        t = ticker.upper()
+        for key in list(_edge_cache.keys()):
+            if key == t or key.startswith(f"{t}:"):
+                _edge_cache.pop(key, None)
     else:
         _edge_cache.clear()
