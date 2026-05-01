@@ -506,7 +506,13 @@ function StrategyPanel({
 
 // ── Vue principale ────────────────────────────────────────────────────────────
 
-export function BacktestView({ strategy }: { strategy: Strategy }) {
+export function BacktestView({
+  strategy,
+  scope = "actions",
+}: {
+  strategy: Strategy;
+  scope?: "actions" | "crypto";
+}) {
   const [mode, setMode] = useState<"single" | "compare">("single");
 
   // Single strategy data
@@ -524,9 +530,12 @@ export function BacktestView({ strategy }: { strategy: Strategy }) {
     setLoading(true);
     try {
       const s = strat ?? strategy;
-      const res  = await fetch(`${API_URL}/api/backtest?strategy=${s}`, { cache: "no-store" });
+      const path = scope === "crypto"
+        ? `${API_URL}/api/crypto/backtest?strategy=${s === "conservative" ? "btc_eth_trend_breakout" : "pullback_uptrend"}`
+        : `${API_URL}/api/backtest?strategy=${s}`;
+      const res  = await fetch(path, { cache: "no-store" });
       const json = await res.json();
-      setData(json);
+      setData(scope === "crypto" ? ({ ...json, results: json.results ?? [], global_total_trades: json.summary?.total_trades ?? 0, global_win_rate: json.summary?.win_rate ?? 0, global_expectancy: json.summary?.expectancy ?? 0, global_reliable_count: json.results?.length ?? 0, best_ticker: json.results?.[0]?.ticker ?? "—", worst_ticker: json.results?.[json.results?.length - 1]?.ticker ?? "—", portfolio: null } as BacktestSummary) : json);
       setLoaded(true);
     } catch (e) {
       console.error(e);
@@ -538,13 +547,21 @@ export function BacktestView({ strategy }: { strategy: Strategy }) {
   const runComparison = useCallback(async () => {
     setCmpLoading(true);
     try {
-      const [stdRes, conRes] = await Promise.all([
+      const [stdRes, conRes] = await Promise.all(scope === "crypto" ? [
+        fetch(`${API_URL}/api/crypto/backtest?strategy=pullback_uptrend`, { cache: "no-store" }),
+        fetch(`${API_URL}/api/crypto/backtest?strategy=btc_eth_trend_breakout`, { cache: "no-store" }),
+      ] : [
         fetch(`${API_URL}/api/backtest?strategy=standard`, { cache: "no-store" }),
         fetch(`${API_URL}/api/backtest?strategy=conservative`, { cache: "no-store" }),
       ]);
       const [stdJson, conJson] = await Promise.all([stdRes.json(), conRes.json()]);
-      setStdData(stdJson);
-      setConData(conJson);
+      if (scope === "crypto") {
+        setStdData({ ...stdJson, results: stdJson.results ?? [], global_total_trades: stdJson.summary?.total_trades ?? 0, global_win_rate: stdJson.summary?.win_rate ?? 0, global_expectancy: stdJson.summary?.expectancy ?? 0, global_reliable_count: stdJson.results?.length ?? 0, best_ticker: stdJson.results?.[0]?.ticker ?? "—", worst_ticker: stdJson.results?.[stdJson.results?.length - 1]?.ticker ?? "—", portfolio: null } as BacktestSummary);
+        setConData({ ...conJson, results: conJson.results ?? [], global_total_trades: conJson.summary?.total_trades ?? 0, global_win_rate: conJson.summary?.win_rate ?? 0, global_expectancy: conJson.summary?.expectancy ?? 0, global_reliable_count: conJson.results?.length ?? 0, best_ticker: conJson.results?.[0]?.ticker ?? "—", worst_ticker: conJson.results?.[conJson.results?.length - 1]?.ticker ?? "—", portfolio: null } as BacktestSummary);
+      } else {
+        setStdData(stdJson);
+        setConData(conJson);
+      }
       setCmpLoaded(true);
     } catch (e) {
       console.error(e);
@@ -603,8 +620,8 @@ export function BacktestView({ strategy }: { strategy: Strategy }) {
             <div className="flex flex-col items-center justify-center py-24 gap-6">
               <div className="text-center">
                 <p className="text-4xl mb-3">📊</p>
-                <p className="text-white font-bold text-lg mb-1">Backtest sur 12 mois</p>
-                <p className="text-gray-500 text-sm mb-1">Simule les signaux BUY NOW sur l&apos;historique complet</p>
+                <p className="text-white font-bold text-lg mb-1">{scope === "crypto" ? "Backtest crypto swing" : "Backtest sur 12 mois"}</p>
+                <p className="text-gray-500 text-sm mb-1">{scope === "crypto" ? "Teste une stratégie crypto robuste par actif" : "Simule les signaux BUY NOW sur l&apos;historique complet"}</p>
                 <p className="text-gray-600 text-xs">TP +5% · SL -2% · Durée max 30 jours</p>
               </div>
               <button

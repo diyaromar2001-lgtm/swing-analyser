@@ -52,6 +52,20 @@ from ticker_edge import compute_ticker_edge, get_cached_edge, invalidate_cache a
 import market_regime_engine as _regime_engine_module
 import market_context as _market_context_module
 import ticker_edge as _ticker_edge_module
+from crypto_data import clear_crypto_caches, crypto_sector
+from crypto_edge import _edge_cache as _crypto_edge_cache
+from crypto_edge import clear_crypto_edge_cache, compute_crypto_edge, get_cached_crypto_edge
+from crypto_regime_engine import _cache as _crypto_regime_cache
+from crypto_regime_engine import compute_crypto_regime
+from crypto_service import (
+    analyze_crypto_symbol,
+    clear_crypto_screener_cache,
+    crypto_data_freshness,
+    crypto_prices,
+    crypto_screener,
+)
+from crypto_strategy_lab import compute_crypto_strategy_lab, evaluate_crypto_strategy_for_symbol
+from crypto_universe import CRYPTO_SECTORS, CRYPTO_SYMBOLS
 
 app = FastAPI(title="Swing Trading Screener Pro")
 
@@ -966,7 +980,27 @@ def market_regime():
 
 
 @app.get("/api/data-freshness")
-def data_freshness():
+def data_freshness(scope: str = Query("actions")):
+    if scope.lower() == "crypto":
+        crypto = crypto_data_freshness()
+        return {
+            "price_label": crypto["price_label"],
+            "screener_label": crypto["screener_label"],
+            "regime_label": crypto["regime_label"],
+            "market_context_label": crypto["market_context_label"],
+            "edge_label": crypto["edge_label"],
+            "price_ttl_seconds": crypto["price_ttl_seconds"],
+            "screener_ttl_seconds": crypto["screener_ttl_seconds"],
+            "regime_ttl_seconds": crypto["regime_ttl_seconds"],
+            "market_context_ttl_seconds": crypto["market_context_ttl_seconds"],
+            "edge_ttl_seconds": crypto["edge_ttl_seconds"],
+            "last_price_update": _ts_to_iso(crypto["last_price_update"]),
+            "last_screener_update": _ts_to_iso(crypto["last_screener_update"]),
+            "last_regime_update": _ts_to_iso(crypto["last_regime_update"]),
+            "last_market_context_update": _ts_to_iso(crypto["last_market_context_update"]),
+            "last_edge_update": _ts_to_iso(crypto["last_edge_update"]),
+        }
+
     screener_ts = max((v.get("ts", 0) for v in _screener_cache.values()), default=0)
     price_ts = max((v.get("ts", 0) for v in _price_cache.values()), default=0)
     edge_ts = max((v.get("ts", 0) for v in _ticker_edge_module._edge_cache.values()), default=0)
@@ -1008,6 +1042,10 @@ def clear_cache():
     _market_regime_cache.clear()
     _regime_engine_module._cache.clear()
     _market_context_module._context_cache.clear()
+    _crypto_regime_cache.clear()
+    clear_crypto_screener_cache()
+    clear_crypto_caches()
+    clear_crypto_edge_cache()
     # NE PAS vider _ohlcv_cache : les indicateurs (SMA/RSI) sont stables 4h
     return {"cleared": True, "message": "Cache prix vidé — les prochains prix seront frais"}
 
@@ -1054,6 +1092,85 @@ def regime_engine():
     Cache 1h côté serveur.
     """
     return compute_regime_engine()
+
+
+# Scope: CRYPTO
+@app.get("/api/crypto/universe")
+def crypto_universe():
+    return {"symbols": CRYPTO_SYMBOLS, "sectors": CRYPTO_SECTORS}
+
+
+# Scope: CRYPTO
+@app.get("/api/crypto/regime")
+def crypto_regime():
+    return compute_crypto_regime()
+
+
+# Scope: CRYPTO
+@app.get("/api/crypto/screener")
+def crypto_screener_endpoint(
+    sector: Optional[str] = Query(None),
+    min_score: int = Query(0),
+    signal: Optional[str] = Query(None),
+):
+    return crypto_screener(sector=sector, min_score=min_score, signal=signal)
+
+
+# Scope: CRYPTO
+@app.get("/api/crypto/prices")
+def crypto_prices_endpoint(symbols: str = Query(..., description="BTC,ETH,SOL")):
+    symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()][:50]
+    return crypto_prices(symbol_list)
+
+
+# Scope: CRYPTO
+@app.get("/api/crypto/edge/{symbol}")
+def crypto_edge_endpoint(symbol: str):
+    if symbol.upper() == "STATUS":
+        return crypto_edge_status()
+    return compute_crypto_edge(symbol.upper())
+
+
+# Scope: CRYPTO
+@app.post("/api/crypto/edge/compute")
+def compute_crypto_edge_endpoint(symbols: Optional[str] = Query(None)):
+    symbol_list = (
+        [s.strip().upper() for s in symbols.split(",") if s.strip()]
+        if symbols else CRYPTO_SYMBOLS
+    )
+    computed = 0
+    errors = 0
+    for symbol in symbol_list:
+        try:
+            compute_crypto_edge(symbol)
+            computed += 1
+        except Exception:
+            errors += 1
+    return {
+        "status": "ok",
+        "computed": computed,
+        "errors": errors,
+        "total": len(symbol_list),
+        "message": f"Crypto edge calculé pour {computed}/{len(symbol_list)} symboles",
+    }
+
+
+# Scope: CRYPTO
+@app.get("/api/crypto/edge/status")
+def crypto_edge_status():
+    now = _time.time()
+    valid = sum(1 for v in _crypto_edge_cache.values() if (now - v.get("ts", 0)) < 86_400)
+    by_status: Dict[str, int] = {}
+    for v in _crypto_edge_cache.values():
+        status = v.get("data", {}).get("ticker_edge_status", "NO_EDGE")
+        by_status[status] = by_status.get(status, 0) + 1
+    return {
+        "cached_symbols": len(_crypto_edge_cache),
+        "valid_symbols": valid,
+        "total_symbols": len(CRYPTO_SYMBOLS),
+        "coverage_pct": round(valid / max(len(CRYPTO_SYMBOLS), 1) * 100, 1),
+        "by_status": by_status,
+    }
 
 
 # ── Backtest ──────────────────────────────────────────────────────────────────
@@ -1194,6 +1311,45 @@ def backtest_single(ticker: str, strategy: str = Query("standard")):
     return _run_one_backtest(ticker.upper(), df, strategy)
 
 
+# Scope: CRYPTO
+@app.get("/api/crypto/backtest")
+def crypto_backtest_all(
+    strategy: str = Query("pullback_uptrend"),
+    period: int = Query(12),
+):
+    summary = compute_crypto_strategy_lab(period_months=period)
+    strategy_row = next((row for row in summary["strategies"] if row["key"] == strategy), None)
+    if strategy_row is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Stratégie crypto inconnue: {strategy}")
+    return {
+        "strategy": strategy,
+        "period_months": period,
+        "summary": strategy_row,
+        "results": strategy_row.get("per_symbol", []),
+    }
+
+
+# Scope: CRYPTO
+@app.get("/api/crypto/backtest/{symbol}")
+def crypto_backtest_single(
+    symbol: str,
+    strategy: str = Query("pullback_uptrend"),
+    period: int = Query(12),
+):
+    strategy_map = {row["key"]: row for row in CRYPTO_LAB_STRATEGIES}
+    strategy_def = strategy_map.get(strategy)
+    if not strategy_def:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Stratégie crypto inconnue: {strategy}")
+    return evaluate_crypto_strategy_for_symbol(
+        symbol.upper(),
+        strategy_def,
+        period_months=period,
+        regime="CRYPTO_BULL",
+    )
+
+
 # ── API Status ────────────────────────────────────────────────────────────────
 
 @app.get("/api/status")
@@ -1297,6 +1453,12 @@ def strategy_lab_endpoint(period: int = Query(12)):
         "confirmed_count":     len(confirmed),
         "period_months":       period,
     }
+
+
+# Scope: CRYPTO
+@app.get("/api/crypto/strategy-lab")
+def crypto_strategy_lab_endpoint(period: int = Query(12)):
+    return compute_crypto_strategy_lab(period_months=period)
 
 
 # ── Market Context ────────────────────────────────────────────────────────────

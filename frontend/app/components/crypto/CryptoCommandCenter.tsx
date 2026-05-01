@@ -1,0 +1,206 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { CryptoRegimeEngine, TickerResult } from "../../types";
+import { getApiUrl } from "../../lib/api";
+import { CryptoTradePlan } from "./CryptoTradePlan";
+
+const API_URL = getApiUrl();
+
+function hasValidatedEdge(row: TickerResult) {
+  return row.ticker_edge_status === "STRONG_EDGE" || row.ticker_edge_status === "VALID_EDGE";
+}
+
+function isCritical(row: TickerResult) {
+  return row.ticker_edge_status === "OVERFITTED" || row.overfit_warning || row.setup_grade === "REJECT" || row.setup_status === "INVALID";
+}
+
+export function CryptoCommandCenter({
+  data,
+  loading,
+  onRefresh,
+  onRefreshPrices,
+  onAdvancedView,
+  onGoToLab,
+}: {
+  data: TickerResult[];
+  loading: boolean;
+  onRefresh: () => void;
+  onRefreshPrices: () => void;
+  onAdvancedView: () => void;
+  onGoToLab: () => void;
+}) {
+  const [regime, setRegime] = useState<CryptoRegimeEngine | null>(null);
+  const [selected, setSelected] = useState<TickerResult | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/crypto/regime`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then(setRegime)
+      .catch(() => null);
+  }, []);
+
+  const tradeable = useMemo(() => {
+    return data
+      .filter((row) => hasValidatedEdge(row))
+      .filter((row) => !isCritical(row))
+      .filter((row) => !["SKIP", "NO_TRADE", "WATCHLIST"].includes(row.final_decision ?? "WAIT"))
+      .sort((a, b) => (b.final_score ?? b.score) - (a.final_score ?? a.score))
+      .slice(0, 3);
+  }, [data]);
+
+  const technicalWatchlist = useMemo(() => {
+    return data
+      .filter((row) => !hasValidatedEdge(row))
+      .filter((row) => !isCritical(row))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8);
+  }, [data]);
+
+  const noTrade = tradeable.length === 0 || !regime || ["CRYPTO_BEAR", "CRYPTO_HIGH_VOLATILITY", "CRYPTO_NO_TRADE"].includes(regime.crypto_regime);
+  const activeLabel = regime?.active_strategy === "NO_TRADE" ? "NO TRADE" : regime?.active_crypto_strategies?.[0]?.replaceAll("_", " ") ?? "—";
+
+  return (
+    <div className="space-y-3">
+      {selected && <CryptoTradePlan row={selected} onClose={() => setSelected(null)} />}
+
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-bold text-gray-700 uppercase tracking-widest">
+          {data.length} cryptos analysées · {tradeable.length} setup{tradeable.length > 1 ? "s" : ""} avec edge validé
+        </p>
+        <div className="flex items-center gap-2">
+          <button onClick={onRefreshPrices} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: "#0c0c18", border: "1px solid #1a1a2e", color: "#10b981" }}>
+            Prix seulement
+          </button>
+          <button onClick={onRefresh} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-40" style={{ background: "#1a1a2e", border: "1px solid #2a2a4e", color: "#818cf8" }}>
+            {loading ? "Loading…" : "⟳ Analyse complète"}
+          </button>
+          <button onClick={onAdvancedView} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "#0c0c18", border: "1px solid #1a1a2e", color: "#4b5563" }}>
+            Advanced →
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl px-5 py-3 flex items-center gap-5 flex-wrap" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
+        <div>
+          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">Marché</p>
+          <p className="text-xs font-black" style={{ color: noTrade ? "#ef4444" : "#10b981" }}>24/7 Crypto</p>
+        </div>
+        <div className="w-px h-5 hidden sm:block" style={{ background: "#1a1a2e" }} />
+        <div>
+          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">Régime</p>
+          <p className="text-xs font-black text-white">{regime?.regime_label ?? "—"}</p>
+        </div>
+        <div className="w-px h-5 hidden sm:block" style={{ background: "#1a1a2e" }} />
+        <div>
+          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">BTC</p>
+          <p className="text-xs font-black text-white">{regime ? `$${regime.btc_price.toFixed(0)}` : "—"}</p>
+        </div>
+        <div>
+          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">ETH</p>
+          <p className="text-xs font-black text-white">{regime ? `$${regime.eth_price.toFixed(0)}` : "—"}</p>
+        </div>
+        <div>
+          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">Breadth</p>
+          <p className="text-xs font-black text-white">{regime ? `${regime.breadth_pct}%` : "—"}</p>
+        </div>
+        <div>
+          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">BTC dom.</p>
+          <p className="text-xs font-black text-white">{regime ? `${regime.btc_dominance.toFixed(1)}%` : "—"}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="rounded-2xl p-5 flex flex-col gap-3" style={{ background: "#09091e", border: "1px solid #3730a355" }}>
+          <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Stratégie crypto active</p>
+          <p className="text-xl font-black text-indigo-300">{activeLabel}</p>
+          <p className="text-xs text-gray-500">{regime?.reasons?.join(" · ") || "Analyse du régime crypto"}</p>
+        </div>
+        <div className="rounded-2xl p-8 text-center" style={{ background: noTrade ? "#130404" : "#041310", border: `2px solid ${noTrade ? "#7f1d1d" : "#065f46"}` }}>
+          <p className="text-3xl mb-3">{noTrade ? "🛑" : "⚡"}</p>
+          <p className="text-2xl font-black tracking-widest mb-2" style={{ color: noTrade ? "#ef4444" : "#10b981" }}>
+            {noTrade ? "NO TRADE CRYPTO" : "CRYPTO TRADE READY"}
+          </p>
+          <p className="text-sm" style={{ color: noTrade ? "#fca5a5" : "#86efac" }}>
+            {noTrade
+              ? "Aucun setup crypto avec edge validé aujourd’hui."
+              : `${tradeable.length} setup${tradeable.length > 1 ? "s" : ""} crypto avec edge validé.`}
+          </p>
+        </div>
+      </div>
+
+      {tradeable.length > 0 && (
+        <div>
+          <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-2 px-1">
+            🎯 Meilleures cryptos à trader aujourd&apos;hui — edge validé uniquement
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {tradeable.map((row) => (
+              <button
+                key={row.ticker}
+                onClick={() => setSelected(row)}
+                className="rounded-xl p-4 text-left transition-all hover:opacity-90"
+                style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}
+              >
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-xl font-black text-white">{row.ticker}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded font-black" style={{ background: "#052e16", color: "#4ade80" }}>
+                    {row.ticker_edge_status}
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500">{row.signal_type} · {row.best_strategy_name ?? "Best strategy"}</p>
+                <div className="grid grid-cols-3 gap-1.5 mt-3 text-center">
+                  <div><p className="text-[9px] text-gray-600 uppercase">Entrée</p><p className="text-xs font-bold text-gray-300">${row.entry.toFixed(2)}</p></div>
+                  <div><p className="text-[9px] text-gray-600 uppercase">TP2</p><p className="text-xs font-bold text-emerald-400">${row.tp2.toFixed(2)}</p></div>
+                  <div><p className="text-[9px] text-gray-600 uppercase">SL</p><p className="text-xs font-bold text-red-400">${row.stop_loss.toFixed(2)}</p></div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {technicalWatchlist.length > 0 && (
+        <div className="rounded-xl px-5 py-4" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
+          <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-2">
+            👁 Watchlist technique — à surveiller, pas trade
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {technicalWatchlist.map((row) => (
+              <button
+                key={row.ticker}
+                className="text-left px-3 py-2 rounded-lg transition-colors hover:bg-white/[0.03]"
+                style={{ background: "#07070f", border: "1px solid #1a1a2e" }}
+                onClick={() => setSelected(row)}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-black text-white">{row.ticker}</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded font-black" style={{ background: "#052e16", color: "#4ade80" }}>Technique OK</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded font-black" style={{ background: "#111118", color: "#9ca3af" }}>
+                      {row.ticker_edge_status === "OVERFITTED" ? "Overfit — éviter" : "Edge non validé"}
+                    </span>
+                  </div>
+                  <span className="text-xs font-black text-gray-400">{row.score}</span>
+                </div>
+                <p className="text-[10px] text-gray-600 mt-1">
+                  {row.signal_type} · {row.setup_grade} · {row.final_decision ?? "WATCHLIST"}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between px-4 py-3 rounded-xl" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
+        <div>
+          <p className="text-[9px] text-gray-700 uppercase tracking-widest">Validation stratégie crypto</p>
+          <p className="text-xs font-black text-gray-400">Ouvrir le Crypto Strategy Lab pour vérifier les edges robustes</p>
+        </div>
+        <button onClick={onGoToLab} className="text-[10px] font-bold text-gray-600 hover:text-gray-400 transition-colors">
+          Ouvrir le Lab →
+        </button>
+      </div>
+    </div>
+  );
+}

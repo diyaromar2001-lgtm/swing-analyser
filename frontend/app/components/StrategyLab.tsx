@@ -633,9 +633,10 @@ function UseStrategyBanner({
 interface StrategyLabProps {
   onUseStrategy: (screenerStrategy: Strategy, screenerSignal: string, labKey: string, tradableStatus?: string) => void;
   activeStrategyKey: string;
+  scope?: "actions" | "crypto";
 }
 
-export function StrategyLab({ onUseStrategy, activeStrategyKey }: StrategyLabProps) {
+export function StrategyLab({ onUseStrategy, activeStrategyKey, scope = "actions" }: StrategyLabProps) {
   const [data, setData]         = useState<LabSummary | null>(null);
   const [loading, setLoading]   = useState(false);
   const [loaded, setLoaded]     = useState(false);
@@ -648,7 +649,7 @@ export function StrategyLab({ onUseStrategy, activeStrategyKey }: StrategyLabPro
     setLoading(true);
     const per = p ?? period;
     try {
-      const res  = await fetch(`${API_URL}/api/strategy-lab?period=${per}`, { cache: "no-store" });
+      const res  = await fetch(`${API_URL}/api/${scope === "crypto" ? "crypto/" : ""}strategy-lab?period=${per}`, { cache: "no-store" });
       const json = await res.json();
       setData(json);
       setLoaded(true);
@@ -699,12 +700,13 @@ export function StrategyLab({ onUseStrategy, activeStrategyKey }: StrategyLabPro
       <div className="flex flex-col items-center justify-center py-20 gap-8">
         <div className="text-center max-w-lg">
           <p className="text-5xl mb-4">🧬</p>
-          <h2 className="text-2xl font-black text-white mb-2">Strategy Lab</h2>
+          <h2 className="text-2xl font-black text-white mb-2">{scope === "crypto" ? "Crypto Strategy Lab" : "Strategy Lab"}</h2>
           <p className="text-gray-400 text-sm leading-relaxed mb-1">
-            Backteste 5 stratégies swing sur l&apos;univers complet avec walk-forward validation (75% train / 25% test)
-            et détection d&apos;overfitting. TRADABLE = min 50 trades + PF &gt; 1.3 + DD &lt; 25% + Sharpe &gt; 0.5.
+            {scope === "crypto"
+              ? "Backteste les stratégies crypto swing sur l’univers crypto avec validation train/test et détection d’overfitting."
+              : "Backteste 5 stratégies swing sur l&apos;univers complet avec walk-forward validation (75% train / 25% test) et détection d&apos;overfitting. TRADABLE = min 50 trades + PF > 1.3 + DD < 25% + Sharpe > 0.5."}
           </p>
-          <p className="text-gray-600 text-xs">Portfolio réaliste · $10 000 · 1% risque/trade · Max 8 positions · Commissions incluses</p>
+          <p className="text-gray-600 text-xs">{scope === "crypto" ? "Focus crypto spot swing · pas de levier par défaut · validation robuste only" : "Portfolio réaliste · $10 000 · 1% risque/trade · Max 8 positions · Commissions incluses"}</p>
         </div>
 
         {/* Stratégies preview */}
@@ -1007,7 +1009,7 @@ export function StrategyLab({ onUseStrategy, activeStrategyKey }: StrategyLabPro
       </div>
 
       {/* Parameter Optimizer */}
-      <OptimizerSection period={period} onUseStrategy={onUseStrategy} />
+      {scope === "actions" && <OptimizerSection period={period} onUseStrategy={onUseStrategy} />}
 
     </div>
   );

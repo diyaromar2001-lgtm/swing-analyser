@@ -11,6 +11,7 @@ import { ScoreBreakdown } from "./ScoreBreakdown";
 import { TradePlan } from "./TradePlan";
 import { SentimentCell } from "./SentimentPanel";
 import { EdgeStatusBadge, EdgeScoreBar, BestStrategyBadge, EdgeValidationNote } from "./EdgeBadge";
+import { CryptoTradePlan } from "./crypto/CryptoTradePlan";
 
 type SortKey = "score" | "rsi_val" | "perf_3m" | "perf_6m" | "dist_entry_pct" | "risk_now_pct" | "rr_ratio" | "confidence" | "edge_score" | "final_score" | "edge_train_pf" | "edge_test_pf";
 
@@ -28,7 +29,15 @@ function PctCell({ val, good = "positive" }: { val: number; good?: "positive" | 
 
 type EdgeFilter = "all" | "STRONG_EDGE" | "VALID_EDGE" | "no_no_edge";
 
-export function ScreenerTable({ data, showEdge = false }: { data: TickerResult[]; showEdge?: boolean }) {
+export function ScreenerTable({
+  data,
+  showEdge = false,
+  scope = "actions",
+}: {
+  data: TickerResult[];
+  showEdge?: boolean;
+  scope?: "actions" | "crypto";
+}) {
   const [expanded, setExpanded]   = useState<string | null>(null);
   const [tradePlan, setTradePlan] = useState<TickerResult | null>(null);
   const [sortKey, setSortKey]     = useState<SortKey>("score");
@@ -94,7 +103,11 @@ export function ScreenerTable({ data, showEdge = false }: { data: TickerResult[]
 
   return (
     <>
-      {tradePlan && <TradePlan row={tradePlan} onClose={() => setTradePlan(null)} />}
+      {tradePlan && (
+        scope === "crypto"
+          ? <CryptoTradePlan row={tradePlan} onClose={() => setTradePlan(null)} />
+          : <TradePlan row={tradePlan} onClose={() => setTradePlan(null)} />
+      )}
 
       {/* ── Filtres Edge ── */}
       {showEdge && (
@@ -145,7 +158,9 @@ export function ScreenerTable({ data, showEdge = false }: { data: TickerResult[]
                 <Th label="Dist." k="dist_entry_pct" />
                 <Th label="RSI" k="rsi_val" />
                 <Th label="3m" k="perf_3m" />
-                <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Sentiment</th>
+                      <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                        {scope === "crypto" ? "Validation" : "Sentiment"}
+                      </th>
                 <th className="px-3 py-3" />
               </tr>
             </thead>
@@ -252,7 +267,13 @@ export function ScreenerTable({ data, showEdge = false }: { data: TickerResult[]
                       </td>
                       <td className="px-3 py-2.5"><PctCell val={row.perf_3m} /></td>
                       <td className="px-3 py-2.5 text-center">
-                        <SentimentCell ticker={row.ticker} apisConfigured={apisConfigured} />
+                        {scope === "crypto" ? (
+                          <span className="text-[10px] font-bold" style={{ color: row.ticker_edge_status === "OVERFITTED" ? "#f59e0b" : row.ticker_edge_status === "NO_EDGE" ? "#9ca3af" : "#4ade80" }}>
+                            {row.ticker_edge_status === "NO_EDGE" ? "Non validé historiquement" : row.ticker_edge_status === "OVERFITTED" ? "Overfit — éviter" : row.ticker_edge_status ?? "—"}
+                          </span>
+                        ) : (
+                          <SentimentCell ticker={row.ticker} apisConfigured={apisConfigured} />
+                        )}
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-1.5">

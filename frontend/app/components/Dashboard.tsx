@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { TickerResult, MarketRegime, DataFreshness } from "../types";
+import { TickerResult, MarketRegime, DataFreshness, UniverseScope, CryptoRegimeEngine } from "../types";
 import { ScreenerTable } from "./ScreenerTable";
 import { Top5Cards } from "./Top5Cards";
 import { DynamicCategories } from "./DynamicCategories";
@@ -14,6 +14,7 @@ import { CommandCenter } from "./CommandCenter";
 import { TradeJournal } from "./TradeJournal";
 import { DataFreshnessPanel } from "./DataFreshnessPanel";
 import { getApiUrl } from "../lib/api";
+import { CryptoCommandCenter } from "./crypto/CryptoCommandCenter";
 
 const API_URL = getApiUrl();
 
@@ -25,6 +26,11 @@ const SECTORS = [
   "Growth / Innovation",
 ];
 const SIGNALS = ["Momentum", "Pullback", "Breakout"];
+const CRYPTO_SECTORS = [
+  "Store of Value", "Smart Contracts", "Layer 1", "Exchange", "Payments",
+  "Meme", "Oracle", "Layer 0", "Layer 2", "DeFi", "Infra", "Storage",
+];
+const CRYPTO_SIGNALS = ["Momentum", "Pullback", "Breakout", "Neutral"];
 const GRADES  = ["A+", "A", "B"] as const;
 
 export type Strategy = "standard" | "conservative";
@@ -160,11 +166,13 @@ function GlobalStatusBar({
 // ── Dashboard ───────────────────────────────────────────────────────────────
 
 export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
+  const [universe, setUniverse]     = useState<UniverseScope>("actions");
   const [data, setData]             = useState(initialData);
   const [loading, setLoading]       = useState(initialData.length === 0);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const [strategy, setStrategy]     = useState<Strategy>("standard");
   const [regime, setRegime]         = useState<MarketRegime | null>(null);
+  const [cryptoRegime, setCryptoRegime] = useState<CryptoRegimeEngine | null>(null);
   const [freshness, setFreshness]   = useState<DataFreshness | null>(null);
 
   // Filtres
@@ -195,16 +203,19 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   });
   // API Status modal
   const [showApiStatus, setShowApiStatus] = useState(false);
+  const isCrypto = universe === "crypto";
+  const currentSectors = isCrypto ? CRYPTO_SECTORS : SECTORS;
+  const currentSignals = isCrypto ? CRYPTO_SIGNALS : SIGNALS;
 
   const fetchFreshness = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/data-freshness`, { cache: "no-store" });
+      const res = await fetch(`${API_URL}/api/data-freshness?scope=${isCrypto ? "crypto" : "actions"}`, { cache: "no-store" });
       const json = await res.json();
       setFreshness(json);
     } catch {
       // silencieux
     }
-  }, []);
+  }, [isCrypto]);
 
   // ── Fetch sans vider le cache (auto-refresh toutes les 60s) ─────────────────
   const fetchData = useCallback(async (strat?: Strategy, excEarnings?: boolean) => {
@@ -212,10 +223,21 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     const s  = strat      ?? strategy;
     const ee = excEarnings ?? excludeEarnings;
     try {
-      const screenerPromise = fetch(`${API_URL}/api/screener?strategy=${s}&exclude_earnings=${ee}`, { cache: "no-store" });
-      const regimePromise = fetch(`${API_URL}/api/market-regime`, { cache: "no-store" })
+      const screenerPromise = fetch(
+        isCrypto
+          ? `${API_URL}/api/crypto/screener`
+          : `${API_URL}/api/screener?strategy=${s}&exclude_earnings=${ee}`,
+        { cache: "no-store" }
+      );
+      const regimePromise = fetch(
+        isCrypto ? `${API_URL}/api/crypto/regime` : `${API_URL}/api/market-regime`,
+        { cache: "no-store" }
+      )
         .then(r => r.json())
-        .then(setRegime)
+        .then(json => {
+          if (isCrypto) setCryptoRegime(json);
+          else setRegime(json);
+        })
         .catch(() => null);
 
       const screenerRes = await screenerPromise;
@@ -226,7 +248,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       await fetchFreshness();
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, [strategy, excludeEarnings, fetchFreshness]);
+  }, [strategy, excludeEarnings, fetchFreshness, isCrypto]);
 
   // ── Strategy Edge — recalcul à la demande (après fetchData) ────────────────
   const [edgeCoverage, setEdgeCoverage] = useState<number>(0);
@@ -235,21 +257,21 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const recalculateEdge = useCallback(async () => {
     setEdgeComputing(true);
     try {
-      await fetch(`${API_URL}/api/strategy-edge/compute`, { method: "POST" });
+      await fetch(`${API_URL}/${isCrypto ? "api/crypto/edge/compute" : "api/strategy-edge/compute"}`, { method: "POST" });
       await fetchData();
-      const r = await fetch(`${API_URL}/api/strategy-edge/status`);
+      const r = await fetch(`${API_URL}/${isCrypto ? "api/crypto/edge/status" : "api/strategy-edge/status"}`);
       const j = await r.json();
       setEdgeCoverage(j?.coverage_pct ?? 0);
     } catch { /* silencieux */ }
     finally { setEdgeComputing(false); }
-  }, [fetchData]);
+  }, [fetchData, isCrypto]);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/strategy-edge/status`)
+    fetch(`${API_URL}/${isCrypto ? "api/crypto/edge/status" : "api/strategy-edge/status"}`)
       .then(r => r.json())
       .then(j => setEdgeCoverage(j?.coverage_pct ?? 0))
       .catch(() => {});
-  }, []);
+  }, [isCrypto]);
 
   // ── Refresh manuel : vide le cache prix puis recharge ────────────────────────
   const refresh = useCallback(async (strat?: Strategy, excEarnings?: boolean) => {
@@ -262,7 +284,10 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     if (rows.length === 0) return;
     const tickers = rows.map(r => r.ticker).join(",");
     try {
-      const res  = await fetch(`${API_URL}/api/prices?tickers=${tickers}`, { cache: "no-store" });
+      const res  = await fetch(
+        isCrypto ? `${API_URL}/api/crypto/prices?symbols=${tickers}` : `${API_URL}/api/prices?tickers=${tickers}`,
+        { cache: "no-store" }
+      );
       const list = await res.json() as { ticker: string; price: number; change_pct: number; change_abs: number }[];
       setPriceMap(prev => {
         const next = { ...prev };
@@ -272,7 +297,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       setLastPriceUpdate(new Date());
       setSecondsSincePrice(0);
     } catch { /* silencieux */ }
-  }, []);
+  }, [isCrypto]);
 
   const refreshPricesOnly = useCallback(async () => {
     setPriceRefreshing(true);
@@ -315,29 +340,32 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
   // Chargement initial + auto-refresh toutes les 60 secondes
   useEffect(() => {
-    if (initialData.length === 0) {
-      fetchData();
-    }
-    fetch(`${API_URL}/api/market-regime`)
+    fetchData();
+    fetch(isCrypto ? `${API_URL}/api/crypto/regime` : `${API_URL}/api/market-regime`)
       .then(r => r.json())
-      .then(setRegime)
+      .then(json => {
+        if (isCrypto) setCryptoRegime(json);
+        else setRegime(json);
+      })
       .catch(() => null);
     fetchFreshness();
 
     // Auto-refresh toutes les 60 secondes (cache prix expire en 60s côté backend)
     const id = setInterval(() => fetchData(), 60_000);
     return () => clearInterval(id);
-  }, [fetchData, fetchFreshness]);
+  }, [fetchData, fetchFreshness, isCrypto]);
 
   const switchStrategy = useCallback((s: Strategy) => {
+    if (isCrypto) return;
     setStrategy(s);
     refresh(s, excludeEarnings);
-  }, [refresh, excludeEarnings]);
+  }, [refresh, excludeEarnings, isCrypto]);
 
   const toggleEarnings = useCallback((val: boolean) => {
+    if (isCrypto) return;
     setExcludeEarnings(val);
     refresh(strategy, val);
-  }, [refresh, strategy]);
+  }, [refresh, strategy, isCrypto]);
 
   const handleUseLabStrategy = useCallback((
     screenerStrategy: Strategy,
@@ -438,7 +466,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             </h1>
           </div>
           <p className="text-gray-600 text-xs ml-5" suppressHydrationWarning>
-            {dataWithLivePrices.length} setups qualifiés · screener {lastUpdate.toLocaleTimeString("fr-FR")}
+            {dataWithLivePrices.length} {isCrypto ? "cryptos qualifiées" : "setups qualifiés"} · screener {lastUpdate.toLocaleTimeString("fr-FR")}
             {lastPriceUpdate && (
               <span className="ml-2 text-emerald-700">
                 · prix{" "}
@@ -455,6 +483,28 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
         <div className="flex items-center gap-2 flex-wrap justify-end">
 
           {/* Toggle Command / Advanced */}
+          <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
+            {(["actions", "crypto"] as const).map((u) => (
+              <button key={u} onClick={() => {
+                setUniverse(u);
+                setSector("");
+                setSignal("");
+                setGrade("");
+                setSearch("");
+                setMinScore(0);
+                setView("table");
+              }}
+                className="px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-all"
+                style={{
+                  background: universe === u ? (u === "actions" ? "#041310" : "#101025") : "#0d0d18",
+                  color: universe === u ? (u === "actions" ? "#10b981" : "#60a5fa") : "#4b5563",
+                  borderRight: u === "actions" ? "1px solid #1e1e2a" : undefined,
+                }}>
+                {u === "actions" ? "Actions" : "Crypto"}
+              </button>
+            ))}
+          </div>
+
           <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
             {(["simple", "pro"] as const).map(m => (
               <button key={m} onClick={() => {
@@ -473,7 +523,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           </div>
 
           {/* Toggle Stratégie screener */}
-          {uiMode === "pro" && view !== "lab" && view !== "signals" && view !== "trades" && (
+          {!isCrypto && uiMode === "pro" && view !== "lab" && view !== "signals" && view !== "trades" && (
             <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
               {([["standard", "📊 Standard"], ["conservative", "🛡 Conservative"]] as [Strategy, string][]).map(([s, label]) => (
                 <button key={s} onClick={() => switchStrategy(s)}
@@ -491,14 +541,20 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
           {/* Onglets vue — Pro seulement */}
           {uiMode === "pro" && <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
-            {([
-              ["table",    "📋 Tableau"],
-              ["dynamic",  "⚡ Signaux"],
-              ["signals",  "📈 Tracking"],
-              ["backtest", "🧪 Backtest"],
-              ["lab",      "🧬 Strategy Lab"],
-              ["trades",   "📌 Trades"],
-            ] as [typeof view, string][]).map(([v, label]) => (
+            {((isCrypto
+              ? ([
+                  ["table", "📋 Tableau"],
+                  ["backtest", "🧪 Backtest"],
+                  ["lab", "🧬 Strategy Lab"],
+                ] as [typeof view, string][])
+              : ([
+                  ["table",    "📋 Tableau"],
+                  ["dynamic",  "⚡ Signaux"],
+                  ["signals",  "📈 Tracking"],
+                  ["backtest", "🧪 Backtest"],
+                  ["lab",      "🧬 Strategy Lab"],
+                  ["trades",   "📌 Trades"],
+                ] as [typeof view, string][]))).map(([v, label]) => (
               <button
                 key={v}
                 onClick={() => setView(v)}
@@ -506,7 +562,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
                 style={{
                   background: view === v ? "#1e1e3a" : "#0d0d18",
                   color:      view === v ? "#818cf8" : "#4b5563",
-                  borderRight: v !== "trades" ? "1px solid #1e1e2a" : undefined,
+                  borderRight: (!isCrypto && v !== "trades") || (isCrypto && v !== "lab") ? "1px solid #1e1e2a" : undefined,
 
                 }}
               >
@@ -569,35 +625,53 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       />
 
       {uiMode === "simple" && (
-        <CommandCenter
-          data={dataWithLivePrices}
-          regime={regime}
-          backtestStatus={backtestStatus}
-          loading={loading}
-          onRefresh={() => refresh()}
-          onRefreshPrices={refreshPricesOnly}
-          onAdvancedView={() => {
-            setUiMode("pro");
-            localStorage.setItem("swing_ui_mode", "pro");
-          }}
-          onGoToLab={() => {
-            setUiMode("pro");
-            setView("lab");
-            localStorage.setItem("swing_ui_mode", "pro");
-          }}
-        />
+        isCrypto ? (
+          <CryptoCommandCenter
+            data={dataWithLivePrices}
+            loading={loading}
+            onRefresh={() => refresh()}
+            onRefreshPrices={refreshPricesOnly}
+            onAdvancedView={() => {
+              setUiMode("pro");
+              localStorage.setItem("swing_ui_mode", "pro");
+            }}
+            onGoToLab={() => {
+              setUiMode("pro");
+              setView("lab");
+              localStorage.setItem("swing_ui_mode", "pro");
+            }}
+          />
+        ) : (
+          <CommandCenter
+            data={dataWithLivePrices}
+            regime={regime}
+            backtestStatus={backtestStatus}
+            loading={loading}
+            onRefresh={() => refresh()}
+            onRefreshPrices={refreshPricesOnly}
+            onAdvancedView={() => {
+              setUiMode("pro");
+              localStorage.setItem("swing_ui_mode", "pro");
+            }}
+            onGoToLab={() => {
+              setUiMode("pro");
+              setView("lab");
+              localStorage.setItem("swing_ui_mode", "pro");
+            }}
+          />
+        )
       )}
 
       {/* ── MODE PRO ────────────────────────────────────────────────────── */}
       {uiMode === "pro" && <>
 
       {/* GLOBAL STATUS BAR */}
-      {view !== "lab" && view !== "signals" && view !== "trades" && (
+      {!isCrypto && view !== "lab" && view !== "signals" && view !== "trades" && (
         <GlobalStatusBar regime={regime} backtestStatus={backtestStatus} />
       )}
 
       {/* NON TRADABLE gating banner */}
-      {view !== "lab" && view !== "signals" && view !== "trades" && backtestStatus === "NON TRADABLE" && (
+      {!isCrypto && view !== "lab" && view !== "signals" && view !== "trades" && backtestStatus === "NON TRADABLE" && (
         <div className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap"
           style={{ background: "#1a0a0a", border: "1px solid #7f1d1d66" }}>
           <span>🚫</span>
@@ -618,10 +692,25 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       )}
 
       {/* MARKET REGIME BANNER */}
-      {view !== "lab" && view !== "signals" && view !== "trades" && <MarketRegimeBanner regime={regime} />}
+      {!isCrypto && view !== "lab" && view !== "signals" && view !== "trades" && <MarketRegimeBanner regime={regime} />}
+
+      {isCrypto && view !== "lab" && view !== "backtest" && cryptoRegime && (
+        <div className="rounded-xl px-4 py-3 mb-5 flex items-center gap-4 flex-wrap" style={{ background: "#081018", border: "1px solid #1f3b5a" }}>
+          <div>
+            <p className="text-xs font-black text-cyan-300 uppercase tracking-widest">{cryptoRegime.regime_label}</p>
+            <p className="text-[10px] text-gray-500 mt-0.5">{cryptoRegime.reasons.join(" · ")}</p>
+          </div>
+          <div className="flex items-center gap-4 text-xs text-gray-400 flex-wrap ml-auto">
+            <span>BTC <strong className="text-white">${cryptoRegime.btc_price.toFixed(0)}</strong></span>
+            <span>ETH <strong className="text-white">${cryptoRegime.eth_price.toFixed(0)}</strong></span>
+            <span>Breadth <strong className="text-cyan-300">{cryptoRegime.breadth_pct}%</strong></span>
+            <span>BTC Dom. <strong className="text-cyan-300">{cryptoRegime.btc_dominance.toFixed(1)}%</strong></span>
+          </div>
+        </div>
+      )}
 
       {/* MARKET CONTEXT (VIX + Breadth + Sectors) */}
-      {view === "table" && <MarketContext />}
+      {!isCrypto && view === "table" && <MarketContext />}
 
       {/* STATS ROW */}
       {view !== "lab" && view !== "signals" && view !== "trades" && (
@@ -653,7 +742,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       {/* CONTENU */}
       {view === "table" ? (
         <>
-          <Top5Cards data={dataWithLivePrices} />
+          <Top5Cards data={dataWithLivePrices} scope={isCrypto ? "crypto" : "actions"} />
 
           {/* FILTRES */}
           <div className="rounded-xl p-4 mb-4" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
@@ -706,7 +795,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
               {/* Secteurs */}
               <div className="flex gap-1.5 flex-wrap">
                 <FilterBtn label="Tous secteurs" active={sector === ""} onClick={() => setSector("")} />
-                {SECTORS.map(s => (
+                {currentSectors.map(s => (
                   <FilterBtn key={s} label={s} active={sector === s} onClick={() => setSector(sector === s ? "" : s)} />
                 ))}
               </div>
@@ -715,7 +804,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
               {/* Signaux */}
               <div className="flex gap-1.5">
-                {SIGNALS.map(s => (
+                {currentSignals.map(s => (
                   <FilterBtn key={s} label={s} active={signal === s} onClick={() => setSignal(signal === s ? "" : s)} />
                 ))}
               </div>
@@ -723,7 +812,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
               <div className="h-4 w-px" style={{ background: "#1e1e2a" }} />
 
               {/* Filtre earnings */}
-              <button
+              {!isCrypto && <button
                 onClick={() => toggleEarnings(!excludeEarnings)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
                 style={{
@@ -734,7 +823,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
                 title="Exclure les actions avec des résultats financiers dans les 5 prochains jours"
               >
                 {excludeEarnings ? "⚠️" : "📅"} Earnings {excludeEarnings ? "exclus" : "inclus"}
-              </button>
+              </button>}
 
               <span className="ml-auto text-xs text-gray-600">{filtered.length} résultats</span>
             </div>
@@ -760,7 +849,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
               Aucun résultat pour ces filtres.
             </div>
           ) : (
-            <ScreenerTable data={filtered} showEdge={true} />
+            <ScreenerTable data={filtered} showEdge={true} scope={isCrypto ? "crypto" : "actions"} />
           )}
         </>
       ) : view === "dynamic" ? (
@@ -768,12 +857,13 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       ) : view === "signals" ? (
         <SignalTracker />
       ) : view === "backtest" ? (
-        <BacktestView strategy={strategy} />
+        <BacktestView strategy={strategy} scope={isCrypto ? "crypto" : "actions"} />
       ) : view === "trades" ? (
         <TradeJournal />
       ) : (
         <StrategyLab
           activeStrategyKey={activeLabKey}
+          scope={isCrypto ? "crypto" : "actions"}
           onUseStrategy={(screenerStrategy, screenerSignal, labKey, tradableStatus) =>
             handleUseLabStrategy(screenerStrategy, screenerSignal, labKey, tradableStatus as TradableStatus)
           }

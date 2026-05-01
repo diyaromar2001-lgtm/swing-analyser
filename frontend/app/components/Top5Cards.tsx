@@ -4,8 +4,15 @@ import { TickerResult } from "../types";
 import { ScoreBar } from "./ScoreBar";
 import { SetupGradeBadge, SignalBadge } from "./CategoryBadge";
 import { TradePlan } from "./TradePlan";
+import { CryptoTradePlan } from "./crypto/CryptoTradePlan";
 
-export function Top5Cards({ data }: { data: TickerResult[] }) {
+export function Top5Cards({
+  data,
+  scope = "actions",
+}: {
+  data: TickerResult[];
+  scope?: "actions" | "crypto";
+}) {
   const [tradePlan, setTradePlan] = useState<TickerResult | null>(null);
 
   // Top 3 A+ d'abord, complété par A si besoin, puis B
@@ -27,7 +34,11 @@ export function Top5Cards({ data }: { data: TickerResult[] }) {
 
   return (
     <>
-      {tradePlan && <TradePlan row={tradePlan} onClose={() => setTradePlan(null)} />}
+      {tradePlan && (
+        scope === "crypto"
+          ? <CryptoTradePlan row={tradePlan} onClose={() => setTradePlan(null)} />
+          : <TradePlan row={tradePlan} onClose={() => setTradePlan(null)} />
+      )}
 
       {/* ── Question centrale ── */}
       <div className="mb-6 rounded-2xl p-5" style={{ background: "linear-gradient(135deg, #0a0a1a, #0d0d22)", border: "1px solid #2a2a4a" }}>
@@ -35,7 +46,9 @@ export function Top5Cards({ data }: { data: TickerResult[] }) {
           Réponse du jour
         </p>
         <p className="text-lg font-black text-white mb-4">
-          🎯 Quelles sont les meilleures actions à trader aujourd&apos;hui ?
+          {scope === "crypto"
+            ? "🎯 Quelles sont les meilleures cryptos à surveiller aujourd’hui ?"
+            : "🎯 Quelles sont les meilleures actions à trader aujourd&apos;hui ?"}
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {top3.map((row, i) => {

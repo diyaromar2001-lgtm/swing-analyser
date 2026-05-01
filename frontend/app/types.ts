@@ -23,6 +23,7 @@ export interface TickerResult {
   sector:        string;
   price:         number;
   score:         number;
+  asset_scope?:  "ACTIONS" | "CRYPTO";
   // Grades
   setup_grade:   "A+" | "A" | "B" | "REJECT";
   setup_reason:  string;
@@ -71,7 +72,7 @@ export interface TickerResult {
   news_risk?:           "LOW" | "MEDIUM" | "HIGH";
   sector_rank?:         "STRONG" | "NEUTRAL" | "WEAK";
   vix_risk?:            "LOW" | "MEDIUM" | "HIGH";
-  final_decision?:      "BUY" | "WAIT" | "SKIP";
+  final_decision?:      "BUY" | "WAIT" | "SKIP" | "BUY NOW" | "BUY NEAR ENTRY" | "WATCHLIST" | "NO_TRADE";
   // Tradability (qualité > quantité)
   tradable?:            boolean;
   rejection_reason?:    string;
@@ -97,8 +98,15 @@ export interface TickerResult {
   // Prix temps réel (injecté côté frontend par polling /api/prices)
   change_pct?:          number;
   change_abs?:          number;
+  volume_24h?:          number;
+  market_cap?:          number;
+  volatility_pct?:      number;
+  liquidity_score?:     number;
+  avg_hold_days?:       number;
   error?:            string;
 }
+
+export type UniverseScope = "actions" | "crypto";
 
 // ── Setup Stats (validation historique) ──────────────────────────────────────
 
@@ -485,4 +493,28 @@ export interface RegimeEngine {
   sma50_rising:          boolean;
   vix:                   number;
   error?:                string;
+}
+
+export interface CryptoRegimeEngine {
+  crypto_regime: "CRYPTO_BULL" | "CRYPTO_PULLBACK" | "CRYPTO_RANGE" | "CRYPTO_HIGH_VOLATILITY" | "CRYPTO_BEAR" | "CRYPTO_NO_TRADE";
+  regime_label: string;
+  active_crypto_strategies: string[];
+  active_strategy: "BREAKOUT" | "PULLBACK" | "MEAN_REVERSION" | "NO_TRADE";
+  confidence: number;
+  reasons: string[];
+  risk_status: "LOW" | "MEDIUM" | "HIGH";
+  data_status: "OK" | "MISSING";
+  btc_price: number;
+  btc_sma50: number;
+  btc_sma200: number;
+  btc_rsi: number;
+  eth_price: number;
+  eth_sma50: number;
+  eth_sma200: number;
+  eth_rsi: number;
+  btc_dominance: number;
+  total_market_cap: number;
+  breadth_pct: number;
+  momentum_30d: number;
+  volatility_btc: number;
 }
