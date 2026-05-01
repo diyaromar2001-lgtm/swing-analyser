@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CryptoRegimeEngine, TickerResult } from "../../types";
 import { getApiUrl } from "../../lib/api";
+import { formatCryptoPrice, isCryptoDefensiveRegime } from "../../lib/cryptoFormat";
 import { CryptoTradePlan } from "./CryptoTradePlan";
 
 const API_URL = getApiUrl();
@@ -13,6 +14,15 @@ function hasValidatedEdge(row: TickerResult) {
 
 function isCritical(row: TickerResult) {
   return row.ticker_edge_status === "OVERFITTED" || row.overfit_warning || row.setup_grade === "REJECT" || row.setup_status === "INVALID";
+}
+
+function edgeLabel(status?: string | null) {
+  if (status === "NO_EDGE") return "Edge non validé";
+  if (status === "OVERFITTED") return "Backtest suspect — éviter";
+  if (status === "WEAK_EDGE") return "Edge faible";
+  if (status === "STRONG_EDGE") return "Edge robuste";
+  if (status === "VALID_EDGE") return "Edge validé";
+  return status ?? "—";
 }
 
 export function CryptoCommandCenter({
@@ -58,7 +68,9 @@ export function CryptoCommandCenter({
   }, [data]);
 
   const noTrade = tradeable.length === 0 || !regime || ["CRYPTO_BEAR", "CRYPTO_HIGH_VOLATILITY", "CRYPTO_NO_TRADE"].includes(regime.crypto_regime);
+  const defensiveRegime = isCryptoDefensiveRegime(regime?.crypto_regime);
   const activeLabel = regime?.active_strategy === "NO_TRADE" ? "NO TRADE" : regime?.active_crypto_strategies?.[0]?.replaceAll("_", " ") ?? "—";
+  const primaryCards = defensiveRegime ? technicalWatchlist : tradeable;
 
   return (
     <div className="space-y-3">
@@ -94,11 +106,11 @@ export function CryptoCommandCenter({
         <div className="w-px h-5 hidden sm:block" style={{ background: "#1a1a2e" }} />
         <div>
           <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">BTC</p>
-          <p className="text-xs font-black text-white">{regime ? `$${regime.btc_price.toFixed(0)}` : "—"}</p>
+          <p className="text-xs font-black text-white">{regime ? `$${formatCryptoPrice("BTC", regime.btc_price)}` : "—"}</p>
         </div>
         <div>
           <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">ETH</p>
-          <p className="text-xs font-black text-white">{regime ? `$${regime.eth_price.toFixed(0)}` : "—"}</p>
+          <p className="text-xs font-black text-white">{regime ? `$${formatCryptoPrice("ETH", regime.eth_price)}` : "—"}</p>
         </div>
         <div>
           <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">Breadth</p>
@@ -123,19 +135,27 @@ export function CryptoCommandCenter({
           </p>
           <p className="text-sm" style={{ color: noTrade ? "#fca5a5" : "#86efac" }}>
             {noTrade
-              ? "Aucun setup crypto avec edge validé aujourd’hui."
+              ? "Aucun setup crypto avec edge robuste aujourd’hui."
               : `${tradeable.length} setup${tradeable.length > 1 ? "s" : ""} crypto avec edge validé.`}
           </p>
         </div>
       </div>
 
-      {tradeable.length > 0 && (
+      {primaryCards.length > 0 && (
         <div>
           <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-2 px-1">
-            🎯 Meilleures cryptos à trader aujourd&apos;hui — edge validé uniquement
+            {defensiveRegime
+              ? "👁 Watchlist technique — aucun trade autorisé"
+              : "🎯 Meilleures cryptos à trader aujourd&apos;hui — edge validé uniquement"}
           </p>
+          {defensiveRegime && (
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest"
+              style={{ background: "#2b0f0f", border: "1px solid #ef444455", color: "#fca5a5" }}>
+              Régime crypto défensif — surveillance seulement
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {tradeable.map((row) => (
+            {primaryCards.map((row) => (
               <button
                 key={row.ticker}
                 onClick={() => setSelected(row)}
@@ -150,10 +170,16 @@ export function CryptoCommandCenter({
                 </div>
                 <p className="text-[11px] text-gray-500">{row.signal_type} · {row.best_strategy_name ?? "Best strategy"}</p>
                 <div className="grid grid-cols-3 gap-1.5 mt-3 text-center">
-                  <div><p className="text-[9px] text-gray-600 uppercase">Entrée</p><p className="text-xs font-bold text-gray-300">${row.entry.toFixed(2)}</p></div>
-                  <div><p className="text-[9px] text-gray-600 uppercase">TP2</p><p className="text-xs font-bold text-emerald-400">${row.tp2.toFixed(2)}</p></div>
-                  <div><p className="text-[9px] text-gray-600 uppercase">SL</p><p className="text-xs font-bold text-red-400">${row.stop_loss.toFixed(2)}</p></div>
+                  <div><p className="text-[9px] text-gray-600 uppercase">Entrée</p><p className="text-xs font-bold text-gray-300">${formatCryptoPrice(row.ticker, row.entry)}</p></div>
+                  <div><p className="text-[9px] text-gray-600 uppercase">TP2</p><p className="text-xs font-bold text-emerald-400">${formatCryptoPrice(row.ticker, row.tp2)}</p></div>
+                  <div><p className="text-[9px] text-gray-600 uppercase">SL</p><p className="text-xs font-bold text-red-400">${formatCryptoPrice(row.ticker, row.stop_loss)}</p></div>
                 </div>
+                {defensiveRegime && (
+                  <div className="mt-3 rounded-lg px-3 py-2 text-[10px] font-bold text-red-300"
+                    style={{ background: "#2a0d0d", border: "1px solid #ef444440" }}>
+                    Pas de trade — régime crypto défensif
+                  </div>
+                )}
               </button>
             ))}
           </div>
@@ -178,7 +204,7 @@ export function CryptoCommandCenter({
                     <span className="text-sm font-black text-white">{row.ticker}</span>
                     <span className="text-[9px] px-1.5 py-0.5 rounded font-black" style={{ background: "#052e16", color: "#4ade80" }}>Technique OK</span>
                     <span className="text-[9px] px-1.5 py-0.5 rounded font-black" style={{ background: "#111118", color: "#9ca3af" }}>
-                      {row.ticker_edge_status === "OVERFITTED" ? "Overfit — éviter" : "Edge non validé"}
+                      {edgeLabel(row.ticker_edge_status)}
                     </span>
                   </div>
                   <span className="text-xs font-black text-gray-400">{row.score}</span>
@@ -186,6 +212,9 @@ export function CryptoCommandCenter({
                 <p className="text-[10px] text-gray-600 mt-1">
                   {row.signal_type} · {row.setup_grade} · {row.final_decision ?? "WATCHLIST"}
                 </p>
+                {defensiveRegime && (
+                  <p className="text-[10px] text-red-400 mt-1 font-bold">Pas de trade — régime crypto défensif</p>
+                )}
               </button>
             ))}
           </div>

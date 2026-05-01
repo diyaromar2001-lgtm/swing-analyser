@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { TickerResult } from "../types";
+import { formatCryptoPrice, isCryptoDefensiveRegime } from "../lib/cryptoFormat";
 import { ScoreBar } from "./ScoreBar";
 import { SetupGradeBadge, SignalBadge } from "./CategoryBadge";
 import { TradePlan } from "./TradePlan";
@@ -9,9 +10,11 @@ import { CryptoTradePlan } from "./crypto/CryptoTradePlan";
 export function Top5Cards({
   data,
   scope = "actions",
+  cryptoRegime = null,
 }: {
   data: TickerResult[];
   scope?: "actions" | "crypto";
+  cryptoRegime?: { crypto_regime?: string | null } | null;
 }) {
   const [tradePlan, setTradePlan] = useState<TickerResult | null>(null);
 
@@ -25,6 +28,7 @@ export function Top5Cards({
   if (ranked.length === 0) return null;
 
   const top3 = ranked.slice(0, 3);
+  const defensiveRegime = scope === "crypto" && isCryptoDefensiveRegime(cryptoRegime?.crypto_regime);
 
   const gradeGlow: Record<string, string> = {
     "A+": "#4ade80",
@@ -47,9 +51,17 @@ export function Top5Cards({
         </p>
         <p className="text-lg font-black text-white mb-4">
           {scope === "crypto"
-            ? "🎯 Quelles sont les meilleures cryptos à surveiller aujourd’hui ?"
+            ? defensiveRegime
+              ? "👁 Watchlist technique — aucun trade autorisé"
+              : "🎯 Quelles sont les meilleures cryptos à surveiller aujourd’hui ?"
             : "🎯 Quelles sont les meilleures actions à trader aujourd&apos;hui ?"}
         </p>
+        {defensiveRegime && (
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest"
+            style={{ background: "#2b0f0f", border: "1px solid #ef444455", color: "#fca5a5" }}>
+            Régime crypto défensif — surveillance seulement
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {top3.map((row, i) => {
             const glow = gradeGlow[row.setup_grade] ?? "#818cf8";
@@ -80,15 +92,15 @@ export function Top5Cards({
                 <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
                   <div>
                     <p className="text-[9px] text-gray-600 uppercase">Entrée</p>
-                    <p className="text-xs font-bold text-gray-300">${row.entry.toFixed(0)}</p>
+                    <p className="text-xs font-bold text-gray-300">${scope === "crypto" ? formatCryptoPrice(row.ticker, row.entry) : row.entry.toFixed(0)}</p>
                   </div>
                   <div>
                     <p className="text-[9px] text-gray-600 uppercase">TP2</p>
-                    <p className="text-xs font-bold" style={{ color: "#10b981" }}>${row.tp2.toFixed(0)}</p>
+                    <p className="text-xs font-bold" style={{ color: "#10b981" }}>${scope === "crypto" ? formatCryptoPrice(row.ticker, row.tp2) : row.tp2.toFixed(0)}</p>
                   </div>
                   <div>
                     <p className="text-[9px] text-gray-600 uppercase">SL</p>
-                    <p className="text-xs font-bold" style={{ color: "#ef4444" }}>${row.stop_loss.toFixed(0)}</p>
+                    <p className="text-xs font-bold" style={{ color: "#ef4444" }}>${scope === "crypto" ? formatCryptoPrice(row.ticker, row.stop_loss) : row.stop_loss.toFixed(0)}</p>
                   </div>
                 </div>
                 <div className="mt-3 flex items-center justify-between">
@@ -114,6 +126,12 @@ export function Top5Cards({
                 >
                   📋 Voir le Trade Plan complet
                 </button>
+                {scope === "crypto" && defensiveRegime && (
+                  <div className="mt-3 rounded-lg px-3 py-2 text-[10px] font-bold text-red-300"
+                    style={{ background: "#2a0d0d", border: "1px solid #ef444440" }}>
+                    Pas de trade — régime crypto défensif
+                  </div>
+                )}
               </div>
             );
           })}
@@ -123,8 +141,8 @@ export function Top5Cards({
       {/* ── Watchlist (rang 4–5) ── */}
       {ranked.length > 3 && (
         <div className="mb-6">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">
-            👁 Watchlist — Prochaines opportunités
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">
+            {scope === "crypto" && defensiveRegime ? "👁 Watchlist technique — à surveiller, pas trade" : "👁 Watchlist — Prochaines opportunités"}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {ranked.slice(3, 5).map((row, i) => (

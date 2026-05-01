@@ -15,6 +15,7 @@ import { TradeJournal } from "./TradeJournal";
 import { DataFreshnessPanel } from "./DataFreshnessPanel";
 import { getApiUrl } from "../lib/api";
 import { CryptoCommandCenter } from "./crypto/CryptoCommandCenter";
+import { formatCryptoPrice } from "../lib/cryptoFormat";
 
 const API_URL = getApiUrl();
 
@@ -701,8 +702,8 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             <p className="text-[10px] text-gray-500 mt-0.5">{cryptoRegime.reasons.join(" · ")}</p>
           </div>
           <div className="flex items-center gap-4 text-xs text-gray-400 flex-wrap ml-auto">
-            <span>BTC <strong className="text-white">${cryptoRegime.btc_price.toFixed(0)}</strong></span>
-            <span>ETH <strong className="text-white">${cryptoRegime.eth_price.toFixed(0)}</strong></span>
+            <span>BTC <strong className="text-white">${formatCryptoPrice("BTC", cryptoRegime.btc_price)}</strong></span>
+            <span>ETH <strong className="text-white">${formatCryptoPrice("ETH", cryptoRegime.eth_price)}</strong></span>
             <span>Breadth <strong className="text-cyan-300">{cryptoRegime.breadth_pct}%</strong></span>
             <span>BTC Dom. <strong className="text-cyan-300">{cryptoRegime.btc_dominance.toFixed(1)}%</strong></span>
           </div>
@@ -742,7 +743,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       {/* CONTENU */}
       {view === "table" ? (
         <>
-          <Top5Cards data={dataWithLivePrices} scope={isCrypto ? "crypto" : "actions"} />
+          <Top5Cards data={dataWithLivePrices} scope={isCrypto ? "crypto" : "actions"} cryptoRegime={cryptoRegime} />
 
           {/* FILTRES */}
           <div className="rounded-xl p-4 mb-4" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>

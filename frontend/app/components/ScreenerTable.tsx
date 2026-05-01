@@ -3,6 +3,7 @@
 import { useState, Fragment, useEffect } from "react";
 import { TickerResult } from "../types";
 import { getApiUrl } from "../lib/api";
+import { formatCryptoPrice } from "../lib/cryptoFormat";
 
 const API_URL = getApiUrl();
 import { ScoreBar } from "./ScoreBar";
@@ -183,7 +184,7 @@ export function ScreenerTable({
                       <td className="px-3 py-2.5"><span className="font-black text-white text-sm">{row.ticker}</span></td>
                       <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">{row.sector}</td>
                       <td className="px-3 py-2.5 tabular-nums text-xs">
-                        <span className="font-mono text-gray-200">${row.price.toFixed(2)}</span>
+                        <span className="font-mono text-gray-200">${scope === "crypto" ? formatCryptoPrice(row.ticker, row.price) : row.price.toFixed(2)}</span>
                         {row.change_pct !== undefined && (
                           <span
                             className="ml-1.5 font-semibold"
@@ -243,15 +244,15 @@ export function ScreenerTable({
                           }
                         </td>
                       )}
-                      <td className="px-3 py-2.5 font-mono text-gray-300 tabular-nums text-xs">${row.entry.toFixed(2)}</td>
+                      <td className="px-3 py-2.5 font-mono text-gray-300 tabular-nums text-xs">${scope === "crypto" ? formatCryptoPrice(row.ticker, row.entry) : row.entry.toFixed(2)}</td>
                       <td className="px-3 py-2.5">
                         <div>
-                          <span className="font-mono tabular-nums text-xs" style={{ color: "#ef4444" }}>${row.stop_loss.toFixed(2)}</span>
+                          <span className="font-mono tabular-nums text-xs" style={{ color: "#ef4444" }}>${scope === "crypto" ? formatCryptoPrice(row.ticker, row.stop_loss) : row.stop_loss.toFixed(2)}</span>
                           <span className="text-[9px] text-gray-700 ml-1">{row.sl_type}</span>
                         </div>
                       </td>
-                      <td className="px-3 py-2.5 font-mono tabular-nums text-xs" style={{ color: "#86efac" }}>${row.tp1.toFixed(2)}</td>
-                      <td className="px-3 py-2.5 font-mono tabular-nums text-xs" style={{ color: "#10b981" }}>${row.tp2.toFixed(2)}</td>
+                      <td className="px-3 py-2.5 font-mono tabular-nums text-xs" style={{ color: "#86efac" }}>${scope === "crypto" ? formatCryptoPrice(row.ticker, row.tp1) : row.tp1.toFixed(2)}</td>
+                      <td className="px-3 py-2.5 font-mono tabular-nums text-xs" style={{ color: "#10b981" }}>${scope === "crypto" ? formatCryptoPrice(row.ticker, row.tp2) : row.tp2.toFixed(2)}</td>
                       <td className="px-3 py-2.5">
                         <span className="text-xs font-bold tabular-nums"
                           style={{ color: row.rr_ratio >= 2 ? "#4ade80" : row.rr_ratio >= 1.5 ? "#f59e0b" : "#f87171" }}>
@@ -269,7 +270,13 @@ export function ScreenerTable({
                       <td className="px-3 py-2.5 text-center">
                         {scope === "crypto" ? (
                           <span className="text-[10px] font-bold" style={{ color: row.ticker_edge_status === "OVERFITTED" ? "#f59e0b" : row.ticker_edge_status === "NO_EDGE" ? "#9ca3af" : "#4ade80" }}>
-                            {row.ticker_edge_status === "NO_EDGE" ? "Non validé historiquement" : row.ticker_edge_status === "OVERFITTED" ? "Overfit — éviter" : row.ticker_edge_status ?? "—"}
+                            {row.ticker_edge_status === "NO_EDGE"
+                              ? "Edge non validé"
+                              : row.ticker_edge_status === "OVERFITTED"
+                                ? "Backtest suspect — éviter"
+                                : row.ticker_edge_status === "WEAK_EDGE"
+                                  ? "Edge faible"
+                                  : row.ticker_edge_status ?? "—"}
                           </span>
                         ) : (
                           <SentimentCell ticker={row.ticker} apisConfigured={apisConfigured} />
