@@ -163,15 +163,17 @@ def _ts_to_iso(ts: float | int | None) -> Optional[str]:
         return None
 
 
-def _get_ohlcv(ticker: str) -> Optional[object]:
+def _get_ohlcv(ticker: str, allow_download: bool = True) -> Optional[object]:
     """
     Retourne le DataFrame OHLCV historique (26 mois, daily).
     Cache 4h — les indicateurs ne changent pas en intraday.
     """
     now   = _time.time()
     entry = _ohlcv_cache.get(ticker)
-    if entry and (now - entry["ts"]) < _OHLCV_TTL:
+    if entry and ((now - entry["ts"]) < _OHLCV_TTL or not allow_download):
         return entry["df"]
+    if not allow_download:
+        return None
     try:
         def _download():
             return yf.download(
@@ -265,19 +267,26 @@ def _get_current_price(ticker: str) -> Optional[float]:
     return info["price"] if info else None
 
 
-def _get_market_ctx() -> dict:
+def _get_market_ctx(allow_download: bool = True) -> dict:
     """
     Retourne {vix, sector_strength} depuis le cache (TTL 1h).
     Utilisé par analyze_ticker pour les filtres fondamentaux.
     """
     now = _time.time()
-    if _mkt_ctx_cache and (now - _mkt_ctx_cache.get("ts", 0)) < _MKT_CTX_TTL:
+    if _mkt_ctx_cache and ((now - _mkt_ctx_cache.get("ts", 0)) < _MKT_CTX_TTL or not allow_download):
         return _mkt_ctx_cache
 
     with _mkt_ctx_lock:
         now = _time.time()
-        if _mkt_ctx_cache and (now - _mkt_ctx_cache.get("ts", 0)) < _MKT_CTX_TTL:
+        if _mkt_ctx_cache and ((now - _mkt_ctx_cache.get("ts", 0)) < _MKT_CTX_TTL or not allow_download):
             return _mkt_ctx_cache
+
+        if not allow_download:
+            return {
+                "vix": _mkt_ctx_cache.get("vix", 20.0) if _mkt_ctx_cache else 20.0,
+                "sector_strength": _mkt_ctx_cache.get("sector_strength", {}) if _mkt_ctx_cache else {},
+                "ts": _mkt_ctx_cache.get("ts", now) if _mkt_ctx_cache else now,
+            }
 
         try:
             # Fast path for screener: only fetch the fields actually used by
@@ -484,6 +493,7 @@ def analyze_ticker(
     fetch_news: bool = True,
     use_live_price: bool = True,
     fetch_earnings: bool = True,
+    fast: bool = False,
     audit: Optional[Counter] = None,
     audit_lock: Optional[threading.Lock] = None,
 ) -> Optional[TickerResult]:
@@ -494,7 +504,7 @@ def analyze_ticker(
 
     try:
         # Utiliser le cache OHLCV (évite re-téléchargement à chaque scan)
-        df = _get_ohlcv(ticker)
+        df = _get_ohlcv(ticker, allow_download=not fast)
         if df is None:
             _audit_inc("ohlcv_none")
             return None
@@ -629,7 +639,7 @@ def analyze_ticker(
         strategy_fit = _STRATEGY_FIT_MAP.get(signal_type, "PULLBACK")
 
         # ── 6. Filtres fondamentaux ────────────────────────────────────────
-        mkt_ctx         = _get_market_ctx()
+        mkt_ctx         = _get_market_ctx(allow_download=not fast)
         vix_val         = mkt_ctx.get("vix", 20.0)
         sector_strength = mkt_ctx.get("sector_strength", {})
         regime_str      = _market_regime_cache.get("regime", "UNKNOWN")
@@ -662,7 +672,7 @@ def analyze_ticker(
         rejection_reason = ""
 
         # 1. Régime de marché — hard filter : BULL_TREND only
-        engine_result = compute_regime_engine()
+        engine_result = compute_regime_engine(fast=fast)
         engine_regime = engine_result.get("regime", "UNKNOWN")
         if strategy_fit != engine_result.get("active_strategy"):
             _audit_inc("strategy_fit_mismatch")
@@ -849,30 +859,32 @@ def screener(
     signal:           Optional[str] = Query(None),
     strategy:         str           = Query("standard"),
     exclude_earnings: bool          = Query(False),
+    fast:             bool          = Query(False),
 ):
     cache_key = f"{strategy}|{exclude_earnings}|{sector or ''}|{min_score}|{signal or ''}"
     now = _time.time()
     cached = _screener_cache.get(cache_key)
-    if cached and (now - cached.get("ts", 0)) < _SCREENER_TTL:
+    if cached and ((now - cached.get("ts", 0)) < _SCREENER_TTL or fast):
         return cached["data"]
 
-    fetch_sp500_perf()
-    # Warm shared caches once to avoid N threads recomputing the same
-    # expensive market context during the bulk screener scan.
-    try:
-        _ = _get_market_ctx()
-    except Exception:
-        pass
-    try:
-        _ = compute_regime_engine()
-    except Exception:
-        pass
+    if not fast:
+        fetch_sp500_perf()
+        # Warm shared caches once to avoid N threads recomputing the same
+        # expensive market context during the bulk screener scan.
+        try:
+            _ = _get_market_ctx()
+        except Exception:
+            pass
+        try:
+            _ = compute_regime_engine()
+        except Exception:
+            pass
     results = []
     audit = Counter()
     audit_lock = threading.Lock()
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
-            executor.submit(analyze_ticker, t, strategy, exclude_earnings, False, False, False, audit, audit_lock): t
+            executor.submit(analyze_ticker, t, strategy, exclude_earnings, False, False, False, fast, audit, audit_lock): t
             for t in ALL_TICKERS
         }
         for future in as_completed(futures):
@@ -908,6 +920,9 @@ def screener(
     )
 
     results.sort(key=lambda x: (x.score, x.confidence), reverse=True)
+    if fast:
+        _screener_cache[cache_key] = {"ts": _time.time(), "data": results}
+        return results
 
     # ── Logging automatique des signaux ───────────────────────────────────────
     try:
@@ -1030,24 +1045,31 @@ def data_freshness(scope: str = Query("actions")):
 # ── Clear cache (force refresh immédiat de tous les prix) ────────────────────
 
 @app.post("/api/clear-cache")
-def clear_cache():
+def clear_cache(scope: str = Query("all")):
     """
     Vide le cache OHLCV + contexte marché.
     Le prochain appel au screener récupère les prix frais depuis yfinance.
     """
-    _price_cache.clear()   # prix actuels → prochaine lecture sera fraîche
-    _mkt_ctx_cache.clear()
-    _cache.clear()
-    _screener_cache.clear()
-    _market_regime_cache.clear()
-    _regime_engine_module._cache.clear()
-    _market_context_module._context_cache.clear()
-    _crypto_regime_cache.clear()
-    clear_crypto_screener_cache()
-    clear_crypto_caches()
-    clear_crypto_edge_cache()
+    normalized = (scope or "all").strip().lower()
+    if normalized not in {"actions", "crypto", "all"}:
+        normalized = "all"
+
+    if normalized in {"actions", "all"}:
+        _price_cache.clear()   # prix actuels → prochaine lecture sera fraîche
+        _mkt_ctx_cache.clear()
+        _cache.clear()
+        _screener_cache.clear()
+        _market_regime_cache.clear()
+        _regime_engine_module._cache.clear()
+        _market_context_module._context_cache.clear()
+
+    if normalized in {"crypto", "all"}:
+        _crypto_regime_cache.clear()
+        clear_crypto_screener_cache()
+        clear_crypto_caches()
+        clear_crypto_edge_cache()
     # NE PAS vider _ohlcv_cache : les indicateurs (SMA/RSI) sont stables 4h
-    return {"cleared": True, "message": "Cache prix vidé — les prochains prix seront frais"}
+    return {"cleared": True, "scope": normalized, "message": "Cache vidé — les prochains prix seront frais"}
 
 
 # ── Prix en temps réel ────────────────────────────────────────────────────────
@@ -1118,8 +1140,9 @@ def crypto_screener_endpoint(
     sector: Optional[str] = Query(None),
     min_score: int = Query(0),
     signal: Optional[str] = Query(None),
+    fast: bool = Query(False),
 ):
-    return crypto_screener(sector=sector, min_score=min_score, signal=signal)
+    return crypto_screener(sector=sector, min_score=min_score, signal=signal, fast=fast)
 
 
 # Scope: CRYPTO

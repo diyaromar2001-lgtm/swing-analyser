@@ -18,6 +18,56 @@ import { CryptoCommandCenter } from "./crypto/CryptoCommandCenter";
 import { formatCryptoPrice } from "../lib/cryptoFormat";
 
 const API_URL = getApiUrl();
+const SCREENER_TIMEOUT_MS = 30_000;
+const ACTIONS_SCREENER_CACHE_KEY = "last_actions_screener_results";
+const CRYPTO_SCREENER_CACHE_KEY = "last_crypto_screener_results";
+
+type ScreenerCachePayload = {
+  ts: number;
+  data: TickerResult[];
+};
+
+function getScreenerCacheKey(scope: UniverseScope): string {
+  return scope === "crypto" ? CRYPTO_SCREENER_CACHE_KEY : ACTIONS_SCREENER_CACHE_KEY;
+}
+
+function loadScreenerCache(scope: UniverseScope): ScreenerCachePayload | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(getScreenerCacheKey(scope));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ScreenerCachePayload>;
+    if (!Array.isArray(parsed.data)) return null;
+    return {
+      ts: typeof parsed.ts === "number" ? parsed.ts : Date.now(),
+      data: parsed.data as TickerResult[],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveScreenerCache(scope: UniverseScope, data: TickerResult[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      getScreenerCacheKey(scope),
+      JSON.stringify({ ts: Date.now(), data }),
+    );
+  } catch {
+    // silencieux
+  }
+}
+
+async function fetchJsonWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = SCREENER_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 const SECTORS = [
   "Technology", "Healthcare", "Financials",
@@ -111,6 +161,12 @@ function MarketRegimeBanner({ regime }: { regime: MarketRegime | null }) {
 // ── Global Status Bar ───────────────────────────────────────────────────────
 
 type TradableStatus = "TRADABLE" | "À CONFIRMER" | "NON TRADABLE" | null;
+type FetchDataOptions = {
+  fast?: boolean;
+  background?: boolean;
+  strategyOverride?: Strategy;
+  excludeEarningsOverride?: boolean;
+};
 
 function GlobalStatusBar({
   regime,
@@ -168,13 +224,16 @@ function GlobalStatusBar({
 
 export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [universe, setUniverse]     = useState<UniverseScope>("actions");
-  const [data, setData]             = useState(initialData);
-  const [loading, setLoading]       = useState(initialData.length === 0);
-  const [lastUpdate, setLastUpdate] = useState(new Date());
+  const initialScreenerCache = typeof window === "undefined" ? null : loadScreenerCache("actions");
+  const [data, setData]             = useState<TickerResult[]>(initialScreenerCache?.data?.length ? initialScreenerCache.data : initialData);
+  const [loading, setLoading]       = useState((initialScreenerCache?.data?.length ? false : initialData.length === 0));
+  const [lastUpdate, setLastUpdate] = useState(() => initialScreenerCache?.ts ? new Date(initialScreenerCache.ts) : new Date());
   const [strategy, setStrategy]     = useState<Strategy>("standard");
   const [regime, setRegime]         = useState<MarketRegime | null>(null);
   const [cryptoRegime, setCryptoRegime] = useState<CryptoRegimeEngine | null>(null);
   const [freshness, setFreshness]   = useState<DataFreshness | null>(null);
+  const [screenerRefreshing, setScreenerRefreshing] = useState(false);
+  const [screenerNotice, setScreenerNotice] = useState<{ kind: "timeout" | "refresh-failed"; message: string } | null>(null);
 
   // Filtres
   const [search, setSearch]         = useState("");
@@ -205,8 +264,24 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   // API Status modal
   const [showApiStatus, setShowApiStatus] = useState(false);
   const isCrypto = universe === "crypto";
+  const screenerScope: UniverseScope = isCrypto ? "crypto" : "actions";
   const currentSectors = isCrypto ? CRYPTO_SECTORS : SECTORS;
   const currentSignals = isCrypto ? CRYPTO_SIGNALS : SIGNALS;
+  const dataLengthRef = useRef(data.length);
+  const strategyRef = useRef(strategy);
+  const excludeEarningsRef = useRef(excludeEarnings);
+
+  useEffect(() => {
+    dataLengthRef.current = data.length;
+  }, [data.length]);
+
+  useEffect(() => {
+    strategyRef.current = strategy;
+  }, [strategy]);
+
+  useEffect(() => {
+    excludeEarningsRef.current = excludeEarnings;
+  }, [excludeEarnings]);
 
   const fetchFreshness = useCallback(async () => {
     try {
@@ -219,17 +294,20 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   }, [isCrypto]);
 
   // ── Fetch sans vider le cache (auto-refresh toutes les 60s) ─────────────────
-  const fetchData = useCallback(async (strat?: Strategy, excEarnings?: boolean) => {
+  const fetchData = useCallback(async (opts: FetchDataOptions = {}) => {
+    const fast = opts.fast ?? true;
+    const background = opts.background ?? false;
+    const s  = opts.strategyOverride ?? strategyRef.current;
+    const ee = opts.excludeEarningsOverride ?? excludeEarningsRef.current;
+    const hadVisibleData = dataLengthRef.current > 0;
     setLoading(true);
-    const s  = strat      ?? strategy;
-    const ee = excEarnings ?? excludeEarnings;
+    setScreenerRefreshing(true);
+    setScreenerNotice(null);
     try {
-      const screenerPromise = fetch(
-        isCrypto
-          ? `${API_URL}/api/crypto/screener`
-          : `${API_URL}/api/screener?strategy=${s}&exclude_earnings=${ee}`,
-        { cache: "no-store" }
-      );
+      const screenerUrl = isCrypto
+        ? `${API_URL}/api/crypto/screener${fast ? "?fast=true" : ""}`
+        : `${API_URL}/api/screener?strategy=${encodeURIComponent(s)}&exclude_earnings=${ee ? "true" : "false"}${fast ? "&fast=true" : ""}`;
+      const screenerPromise = fetchJsonWithTimeout(screenerUrl, { cache: "no-store" });
       const regimePromise = fetch(
         isCrypto ? `${API_URL}/api/crypto/regime` : `${API_URL}/api/market-regime`,
         { cache: "no-store" }
@@ -242,14 +320,39 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
         .catch(() => null);
 
       const screenerRes = await screenerPromise;
+      if (!screenerRes.ok) {
+        throw new Error(`HTTP ${screenerRes.status}`);
+      }
       const json = await screenerRes.json();
+      if (!Array.isArray(json)) {
+        throw new Error("Format screener inattendu");
+      }
       setData(json);
+      dataLengthRef.current = json.length;
       setLastUpdate(new Date());
+      saveScreenerCache(screenerScope, json);
       await regimePromise;
       await fetchFreshness();
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
-  }, [strategy, excludeEarnings, fetchFreshness, isCrypto]);
+    } catch (e) {
+      const timeout = e instanceof DOMException && e.name === "AbortError";
+      setScreenerNotice({
+        kind: timeout ? "timeout" : "refresh-failed",
+        message: timeout
+          ? "Analyse complète trop longue. Les dernières données disponibles restent affichées."
+          : "Données précédentes — refresh échoué",
+      });
+      const cached = loadScreenerCache(screenerScope);
+      if (cached?.data?.length && !hadVisibleData) {
+        setData(cached.data);
+        dataLengthRef.current = cached.data.length;
+        setLastUpdate(new Date(cached.ts));
+      }
+      if (!timeout) console.error(e);
+    } finally {
+      setScreenerRefreshing(false);
+      setLoading(false);
+    }
+  }, [fetchFreshness, isCrypto, screenerScope]);
 
   // ── Strategy Edge — recalcul à la demande (après fetchData) ────────────────
   const [edgeCoverage, setEdgeCoverage] = useState<number>(0);
@@ -259,7 +362,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     setEdgeComputing(true);
     try {
       await fetch(`${API_URL}/${isCrypto ? "api/crypto/edge/compute" : "api/strategy-edge/compute"}`, { method: "POST" });
-      await fetchData();
+      await fetchData({ fast: true, background: true });
       const r = await fetch(`${API_URL}/${isCrypto ? "api/crypto/edge/status" : "api/strategy-edge/status"}`);
       const j = await r.json();
       setEdgeCoverage(j?.coverage_pct ?? 0);
@@ -275,10 +378,14 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   }, [isCrypto]);
 
   // ── Refresh manuel : vide le cache prix puis recharge ────────────────────────
-  const refresh = useCallback(async (strat?: Strategy, excEarnings?: boolean) => {
-    await fetch(`${API_URL}/api/clear-cache`, { method: "POST" }).catch(() => {});
-    await fetchData(strat, excEarnings);
-  }, [fetchData]);
+  const refreshAnalysis = useCallback(async () => {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm("Cette action peut prendre 1 à 3 minutes et vider le cache. Continuer ?");
+      if (!confirmed) return;
+    }
+    await fetch(`${API_URL}/api/clear-cache?scope=${screenerScope}`, { method: "POST" }).catch(() => {});
+    await fetchData({ fast: false, background: true });
+  }, [fetchData, screenerScope]);
 
   // ── Polling prix léger toutes les 15 secondes ────────────────────────────────
   const pollPrices = useCallback(async (rows: TickerResult[]) => {
@@ -341,7 +448,25 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
   // Chargement initial + auto-refresh toutes les 60 secondes
   useEffect(() => {
-    fetchData();
+    const cached = loadScreenerCache(screenerScope);
+    if (cached?.data?.length) {
+      setData(cached.data);
+      setLastUpdate(new Date(cached.ts));
+      dataLengthRef.current = cached.data.length;
+      setLoading(false);
+    } else {
+      setData([]);
+      dataLengthRef.current = 0;
+      setLoading(true);
+    }
+    setPriceMap({});
+    setLastPriceUpdate(null);
+    setSecondsSincePrice(0);
+    setRegime(null);
+    setCryptoRegime(null);
+    setFreshness(null);
+    setScreenerNotice(null);
+    void fetchData({ fast: true, background: !!cached?.data?.length });
     fetch(isCrypto ? `${API_URL}/api/crypto/regime` : `${API_URL}/api/market-regime`)
       .then(r => r.json())
       .then(json => {
@@ -352,21 +477,21 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     fetchFreshness();
 
     // Auto-refresh toutes les 60 secondes (cache prix expire en 60s côté backend)
-    const id = setInterval(() => fetchData(), 60_000);
+    const id = setInterval(() => fetchData({ fast: true, background: true }), 60_000);
     return () => clearInterval(id);
-  }, [fetchData, fetchFreshness, isCrypto]);
+  }, [fetchData, fetchFreshness, isCrypto, screenerScope]);
 
   const switchStrategy = useCallback((s: Strategy) => {
     if (isCrypto) return;
     setStrategy(s);
-    refresh(s, excludeEarnings);
-  }, [refresh, excludeEarnings, isCrypto]);
+    void fetchData({ fast: false, background: true, strategyOverride: s, excludeEarningsOverride: excludeEarnings });
+  }, [fetchData, excludeEarnings, isCrypto]);
 
   const toggleEarnings = useCallback((val: boolean) => {
     if (isCrypto) return;
     setExcludeEarnings(val);
-    refresh(strategy, val);
-  }, [refresh, strategy, isCrypto]);
+    void fetchData({ fast: false, background: true, strategyOverride: strategy, excludeEarningsOverride: val });
+  }, [fetchData, strategy, isCrypto]);
 
   const handleUseLabStrategy = useCallback((
     screenerStrategy: Strategy,
@@ -377,13 +502,13 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     setActiveLabKey(labKey);
     setStrategy(screenerStrategy);
     setSignal(screenerSignal);
-    refresh(screenerStrategy);
+    void fetchData({ fast: false, background: true, strategyOverride: screenerStrategy, excludeEarningsOverride: excludeEarnings });
     setView("table");
     if (tradableStatus) {
       setBacktestStatus(tradableStatus);
       localStorage.setItem("swing_backtest_status", tradableStatus);
     }
-  }, [refresh]);
+  }, [fetchData, excludeEarnings]);
 
   const filtered = useMemo(() => {
     return dataWithLivePrices.filter(r => {
@@ -430,7 +555,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   };
 
   // Écran de chargement initial
-  if (loading && data.length === 0) {
+  if (loading && data.length === 0 && !screenerNotice) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: "#070710" }}>
         <div className="text-center space-y-4">
@@ -596,7 +721,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
           {uiMode === "pro" && view !== "lab" && view !== "signals" && view !== "trades" && (
             <button
-              onClick={() => refresh()}
+              onClick={() => void refreshAnalysis()}
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
               style={{ background: "#1e1e3a", border: "1px solid #2a2a4a", color: "#818cf8" }}
@@ -617,20 +742,53 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       </div>
 
       {/* ── COMMAND CENTER ───────────────────────────────────────────────── */}
-      <DataFreshnessPanel
-        freshness={freshness}
-        onFullRefresh={() => refresh()}
-        onPriceRefresh={refreshPricesOnly}
-        loading={loading}
-        priceRefreshing={priceRefreshing}
-      />
+        {screenerNotice && (
+          <div className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap"
+            style={{ background: screenerNotice.kind === "timeout" ? "#1a1010" : "#1a0f06", border: `1px solid ${screenerNotice.kind === "timeout" ? "#ef444455" : "#f59e0b55"}` }}>
+            <span className="text-sm">{screenerNotice.kind === "timeout" ? "⏳" : "⚠️"}</span>
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest" style={{ color: screenerNotice.kind === "timeout" ? "#f87171" : "#f59e0b" }}>
+                {screenerNotice.message}
+              </p>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                {screenerNotice.kind === "timeout"
+                  ? "Les données déjà visibles restent affichées pendant que le backend finit le calcul."
+                  : "Les dernières données connues sont conservées côté navigateur."}
+              </p>
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={() => void fetchData({ fast: true, background: true })}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold"
+                style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#818cf8" }}
+              >
+                Réessayer
+              </button>
+              <button
+                onClick={refreshPricesOnly}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold"
+                style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#10b981" }}
+              >
+                Rafraîchir prix seulement
+              </button>
+            </div>
+          </div>
+        )}
+
+        <DataFreshnessPanel
+          freshness={freshness}
+          onFullRefresh={() => void refreshAnalysis()}
+          onPriceRefresh={refreshPricesOnly}
+          loading={loading || screenerRefreshing}
+          priceRefreshing={priceRefreshing}
+        />
 
       {uiMode === "simple" && (
         isCrypto ? (
           <CryptoCommandCenter
             data={dataWithLivePrices}
             loading={loading}
-            onRefresh={() => refresh()}
+            onRefresh={() => void refreshAnalysis()}
             onRefreshPrices={refreshPricesOnly}
             onAdvancedView={() => {
               setUiMode("pro");
@@ -648,7 +806,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             regime={regime}
             backtestStatus={backtestStatus}
             loading={loading}
-            onRefresh={() => refresh()}
+            onRefresh={() => void refreshAnalysis()}
             onRefreshPrices={refreshPricesOnly}
             onAdvancedView={() => {
               setUiMode("pro");

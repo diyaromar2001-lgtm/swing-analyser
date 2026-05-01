@@ -168,7 +168,7 @@ def _classify(
     return "RANGE", reasons, 50
 
 
-def compute_regime_engine() -> dict:
+def compute_regime_engine(fast: bool = False) -> dict:
     """
     Calcule le régime de marché et la stratégie active.
     Cache 1h — thread-safe.
@@ -188,8 +188,32 @@ def compute_regime_engine() -> dict:
     now = time.time()
 
     with _lock:
-        if _cache and (now - _cache.get("ts", 0)) < _TTL:
+        if _cache and ((now - _cache.get("ts", 0)) < _TTL or fast):
             return {k: v for k, v in _cache.items() if k != "ts"}
+
+    if fast and not _cache:
+        return {
+            "regime":               "UNKNOWN",
+            "regime_label":         "Unknown",
+            "regime_color":         "#6b7280",
+            "active_strategy":      "NO_TRADE",
+            "strategy_name":        "No Trade",
+            "strategy_description": "Fast mode cache unavailable",
+            "strategy_emoji":       "⚠️",
+            "strategy_color":       "#6b7280",
+            "strategy_min_score":   999,
+            "strategy_min_rr":      999,
+            "signal_filter":        [],
+            "activation_reason":    ["Fast mode cache unavailable"],
+            "confidence":           0,
+            "can_trade":            False,
+            "spy_price":            0.0,
+            "spy_sma50":            0.0,
+            "spy_sma200":           0.0,
+            "spy_rsi":              0.0,
+            "sma50_rising":         False,
+            "vix":                  0.0,
+        }
 
     try:
         # ── Téléchargement SPY ────────────────────────────────────────────────

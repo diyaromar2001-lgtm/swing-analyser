@@ -130,15 +130,38 @@ def _levels(price: float, high: pd.Series, low: pd.Series, ema20_v: float, atr_v
     }
 
 
-def analyze_crypto_symbol(symbol: str, regime_data: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
-    df = get_crypto_ohlcv(symbol, "1d")
+def analyze_crypto_symbol(
+    symbol: str,
+    regime_data: Optional[Dict[str, Any]] = None,
+    fast: bool = False,
+) -> Optional[Dict[str, Any]]:
+    df = get_crypto_ohlcv(symbol, "1d", allow_download=not fast)
     if df is None or len(df) < 220:
         return None
-    h4_df = get_crypto_ohlcv(symbol, "4h")
-    price_info = get_crypto_price_snapshot(symbol) or {}
-    market_info = get_crypto_market_snapshots().get(symbol, {})
-    regime = regime_data or compute_crypto_regime()
-    edge = get_cached_crypto_edge(symbol) or compute_crypto_edge(symbol)
+    h4_df = get_crypto_ohlcv(symbol, "4h", allow_download=not fast)
+    price_info = get_crypto_price_snapshot(symbol, allow_download=not fast) or {}
+    market_info = get_crypto_market_snapshots(allow_download=not fast).get(symbol, {})
+    regime = regime_data or compute_crypto_regime(fast=fast)
+    edge = get_cached_crypto_edge(symbol) if fast else (get_cached_crypto_edge(symbol) or compute_crypto_edge(symbol))
+    if not edge:
+        edge = {
+            "ticker_edge_status": "NO_EDGE",
+            "best_strategy": None,
+            "best_strategy_name": None,
+            "best_strategy_color": "#6b7280",
+            "best_strategy_emoji": "",
+            "edge_score": 0,
+            "train_pf": 0.0,
+            "test_pf": 0.0,
+            "total_trades": 0,
+            "win_rate": 0.0,
+            "pf": 0.0,
+            "expectancy": 0.0,
+            "max_dd": 0.0,
+            "overfit_warning": False,
+            "overfit_reasons": [],
+            "all_strategies": [],
+        }
 
     close = df["Close"]
     high = df["High"]
@@ -357,18 +380,25 @@ def crypto_screener(
     sector: Optional[str] = None,
     min_score: int = 0,
     signal: Optional[str] = None,
+    fast: bool = False,
 ) -> List[Dict[str, Any]]:
     global _last_screener_update_ts
     cache_key = f"{sector or ''}|{min_score}|{signal or ''}"
     now = _time.time()
     cached = _screener_cache.get(cache_key)
-    if cached and (now - cached.get("ts", 0)) < _SCREENER_TTL:
+    if cached and ((now - cached.get("ts", 0)) < _SCREENER_TTL or fast):
         return cached["data"]
 
-    regime = compute_crypto_regime()
+    if fast and not cached:
+        regime = compute_crypto_regime(fast=True)
+    else:
+        regime = compute_crypto_regime(fast=fast)
     results: List[Dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = {executor.submit(analyze_crypto_symbol, symbol, regime): symbol for symbol in available_crypto_symbols()}
+        futures = {
+            executor.submit(analyze_crypto_symbol, symbol, regime, fast): symbol
+            for symbol in available_crypto_symbols()
+        }
         for future in as_completed(futures):
             try:
                 row = future.result()

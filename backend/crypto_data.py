@@ -321,15 +321,17 @@ def _fetch_yfinance_price(symbol: str) -> Optional[Dict]:
         return None
 
 
-def get_crypto_ohlcv(symbol: str, timeframe: str = "1d") -> Optional[pd.DataFrame]:
+def get_crypto_ohlcv(symbol: str, timeframe: str = "1d", allow_download: bool = True) -> Optional[pd.DataFrame]:
     global _last_daily_update_ts, _last_h4_update_ts
     sym = _normalize_symbol(symbol)
     now = _time.time()
 
     if timeframe == "4h":
         entry = _ohlcv_4h_cache.get(sym)
-        if entry and (now - entry["ts"]) < OHLCV_4H_TTL:
+        if entry and ((now - entry["ts"]) < OHLCV_4H_TTL or not allow_download):
             return entry["df"]
+        if not allow_download:
+            return None
         df = _first_not_none(
             _fetch_binance_klines(_binance_pair(sym), "4h", 500, sym),
             _fetch_yfinance_ohlcv(sym, "4h"),
@@ -340,8 +342,10 @@ def get_crypto_ohlcv(symbol: str, timeframe: str = "1d") -> Optional[pd.DataFram
         return df
 
     entry = _ohlcv_daily_cache.get(sym)
-    if entry and (now - entry["ts"]) < OHLCV_DAILY_TTL:
+    if entry and ((now - entry["ts"]) < OHLCV_DAILY_TTL or not allow_download):
         return entry["df"]
+    if not allow_download:
+        return None
 
     df = _first_not_none(
         _fetch_binance_klines(_binance_pair(sym), "1d", 500, sym),
@@ -354,13 +358,15 @@ def get_crypto_ohlcv(symbol: str, timeframe: str = "1d") -> Optional[pd.DataFram
     return df
 
 
-def get_crypto_price_snapshot(symbol: str) -> Optional[Dict]:
+def get_crypto_price_snapshot(symbol: str, allow_download: bool = True) -> Optional[Dict]:
     global _last_price_update_ts
     sym = _normalize_symbol(symbol)
     now = _time.time()
     entry = _price_cache.get(sym)
-    if entry and (now - entry["ts"]) < PRICE_TTL:
+    if entry and ((now - entry["ts"]) < PRICE_TTL or not allow_download):
         return entry
+    if not allow_download:
+        return None
 
     out = _first_not_none(
         _fetch_binance_price(sym),
@@ -374,11 +380,13 @@ def get_crypto_price_snapshot(symbol: str) -> Optional[Dict]:
     return out
 
 
-def get_crypto_market_snapshots() -> Dict[str, Dict]:
+def get_crypto_market_snapshots(allow_download: bool = True) -> Dict[str, Dict]:
     global _last_market_update_ts
     now = _time.time()
-    if _markets_cache and (now - _markets_cache.get("ts", 0)) < MARKETS_TTL:
+    if _markets_cache and ((now - _markets_cache.get("ts", 0)) < MARKETS_TTL or not allow_download):
         return _markets_cache["data"]
+    if not allow_download:
+        return _markets_cache.get("data", {})
 
     ids = ",".join(filter(None, (_coingecko_id(symbol) for symbol in CRYPTO_SYMBOLS)))
     url = f"{COINGECKO_BASE}/coins/markets"
@@ -422,14 +430,16 @@ def get_crypto_market_snapshots() -> Dict[str, Dict]:
     except Exception as exc:
         ms = (_time.perf_counter() - started) * 1000
         _log_source_event("FAIL", "coingecko", "ALL", "markets", ms, f"{type(exc).__name__}: {exc}", url=url, rows=0)
-        return _markets_cache.get("data", {})
+    return _markets_cache.get("data", {})
 
 
-def get_crypto_global_metrics() -> Dict:
+def get_crypto_global_metrics(allow_download: bool = True) -> Dict:
     global _last_global_update_ts
     now = _time.time()
-    if _global_cache and (now - _global_cache.get("ts", 0)) < GLOBAL_TTL:
+    if _global_cache and ((now - _global_cache.get("ts", 0)) < GLOBAL_TTL or not allow_download):
         return _global_cache["data"]
+    if not allow_download:
+        return _global_cache.get("data", {})
 
     url = f"{COINGECKO_BASE}/global"
     started = _time.perf_counter()

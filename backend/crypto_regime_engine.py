@@ -48,14 +48,16 @@ def _empty(error: str = "Crypto regime unavailable") -> Dict:
     }
 
 
-def compute_crypto_regime() -> Dict:
+def compute_crypto_regime(fast: bool = False) -> Dict:
     global _last_regime_update_ts
     now = _time.time()
-    if _cache and (now - _cache.get("ts", 0)) < _CACHE_TTL:
+    if _cache and ((now - _cache.get("ts", 0)) < _CACHE_TTL or fast):
         return _cache["data"]  # type: ignore[index]
+    if fast and not _cache:
+        return _empty("Crypto regime cache unavailable in fast mode")
 
-    btc_df = get_crypto_ohlcv("BTC", "1d")
-    eth_df = get_crypto_ohlcv("ETH", "1d")
+    btc_df = get_crypto_ohlcv("BTC", "1d", allow_download=not fast)
+    eth_df = get_crypto_ohlcv("ETH", "1d", allow_download=not fast)
     if btc_df is None or eth_df is None or len(btc_df) < 220 or len(eth_df) < 220:
         data = _empty("BTC/ETH history insufficient")
         _cache.update({"ts": now, "data": data})
@@ -79,7 +81,7 @@ def compute_crypto_regime() -> Dict:
     breadth_total = 0
     perf_30d: List[float] = []
     for symbol in CRYPTO_SYMBOLS:
-        df = get_crypto_ohlcv(symbol, "1d")
+        df = get_crypto_ohlcv(symbol, "1d", allow_download=not fast)
         if df is None or len(df) < 220:
             continue
         close = df["Close"]
@@ -94,7 +96,7 @@ def compute_crypto_regime() -> Dict:
 
     breadth_pct = round((breadth_count / max(breadth_total, 1)) * 100.0, 1)
     momentum_30d = round(float(np.mean(perf_30d)) if perf_30d else 0.0, 2)
-    global_metrics = get_crypto_global_metrics()
+    global_metrics = get_crypto_global_metrics(allow_download=not fast)
     btc_dom = float(global_metrics.get("btc_dominance", 0.0))
     total_mcap = float(global_metrics.get("total_market_cap", 0.0))
     market_cap_change = float(global_metrics.get("market_cap_change_24h", 0.0))
