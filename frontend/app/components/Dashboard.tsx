@@ -167,6 +167,27 @@ type FetchDataOptions = {
   strategyOverride?: Strategy;
   excludeEarningsOverride?: boolean;
 };
+type EdgeHorizon = 24 | 36;
+type EdgeOverlay = Pick<
+  TickerResult,
+  | "ticker_edge_status"
+  | "best_strategy_for_ticker"
+  | "best_strategy_name"
+  | "best_strategy_color"
+  | "best_strategy_emoji"
+  | "edge_score"
+  | "edge_train_pf"
+  | "edge_test_pf"
+  | "edge_trades"
+  | "edge_win_rate"
+  | "edge_pf"
+  | "edge_expectancy"
+  | "edge_max_dd"
+  | "overfit_warning"
+  | "overfit_reasons"
+> & {
+  edge_period_months?: number;
+};
 
 function GlobalStatusBar({
   regime,
@@ -378,26 +399,91 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   }, [fetchFreshness, isCrypto, screenerScope]);
 
   // ── Strategy Edge — recalcul à la demande (après fetchData) ────────────────
+  const [edgeHorizon, setEdgeHorizon] = useState<EdgeHorizon>(24);
   const [edgeCoverage, setEdgeCoverage] = useState<number>(0);
   const [edgeComputing, setEdgeComputing] = useState(false);
+  const [edgeOverlayCache, setEdgeOverlayCache] = useState<Record<string, Record<string, EdgeOverlay>>>({});
+  const [edgeOverlayLoading, setEdgeOverlayLoading] = useState(false);
+  const [edgeOverlayNotice, setEdgeOverlayNotice] = useState<string | null>(null);
 
-  const recalculateEdge = useCallback(async () => {
+  async function recalculateEdge() {
     setEdgeComputing(true);
     try {
-      await fetch(`${API_URL}/${isCrypto ? "api/crypto/edge/compute" : "api/strategy-edge/compute"}`, { method: "POST" });
+      const actionTickers = !isCrypto && edgeHorizon === 36
+        ? data.map(row => row.ticker).join(",")
+        : "";
+      const edgeUrl = isCrypto
+        ? `${API_URL}/api/crypto/edge/compute`
+        : `${API_URL}/api/strategy-edge/compute?period=${edgeHorizon}${actionTickers ? `&tickers=${encodeURIComponent(actionTickers)}` : ""}`;
+      await fetchJsonWithTimeout(edgeUrl, { method: "POST" }, edgeHorizon === 36 ? 120_000 : 60_000);
       await fetchData({ fast: true, background: true });
-      const r = await fetch(`${API_URL}/${isCrypto ? "api/crypto/edge/status" : "api/strategy-edge/status"}`);
-      const j = await r.json();
-      setEdgeCoverage(j?.coverage_pct ?? 0);
+      if (!isCrypto && edgeHorizon === 36) {
+        setEdgeOverlayCache(prev => ({ ...prev, ["36"]: {} }));
+        await loadAdvancedEdgeOverlay(36, data);
+        setEdgeOverlayNotice("Edge 36m recalculé pour l'analyse avancée.");
+      } else {
+        const r = await fetch(`${API_URL}/${isCrypto ? "api/crypto/edge/status" : "api/strategy-edge/status"}`);
+        const j = await r.json();
+        setEdgeCoverage(j?.coverage_pct ?? 0);
+      }
     } catch { /* silencieux */ }
     finally { setEdgeComputing(false); }
-  }, [fetchData, isCrypto]);
+  }
 
   useEffect(() => {
     fetch(`${API_URL}/${isCrypto ? "api/crypto/edge/status" : "api/strategy-edge/status"}`)
       .then(r => r.json())
       .then(j => setEdgeCoverage(j?.coverage_pct ?? 0))
       .catch(() => {});
+  }, [isCrypto]);
+
+  const loadAdvancedEdgeOverlay = useCallback(async (period: EdgeHorizon, rows: TickerResult[]) => {
+    if (isCrypto || period === 24 || rows.length === 0) return;
+    const tickers = rows.map(row => row.ticker).join(",");
+    setEdgeOverlayLoading(true);
+    setEdgeOverlayNotice(null);
+    try {
+      await fetchJsonWithTimeout(
+        `${API_URL}/api/strategy-edge/compute?period=${period}&tickers=${encodeURIComponent(tickers)}`,
+        { method: "POST" },
+        120_000,
+      );
+      const res = await fetchJsonWithTimeout(
+        `${API_URL}/api/strategy-edge/results?period=${period}&tickers=${encodeURIComponent(tickers)}`,
+        { cache: "no-store" },
+        120_000,
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const next: Record<string, EdgeOverlay> = {};
+      for (const row of (json?.results ?? []) as any[]) {
+        if (!row?.ticker) continue;
+        next[row.ticker] = {
+          ticker_edge_status: row.ticker_edge_status,
+          best_strategy_for_ticker: row.best_strategy,
+          best_strategy_name: row.best_strategy_name,
+          best_strategy_color: row.best_strategy_color,
+          best_strategy_emoji: row.best_strategy_emoji,
+          edge_score: row.edge_score,
+          edge_train_pf: row.train_pf,
+          edge_test_pf: row.test_pf,
+          edge_trades: row.total_trades,
+          edge_win_rate: row.win_rate,
+          edge_pf: row.pf,
+          edge_expectancy: row.expectancy,
+          edge_max_dd: row.max_dd,
+          overfit_warning: row.overfit_warning,
+          overfit_reasons: row.overfit_reasons,
+          edge_period_months: row.period_months,
+        };
+      }
+      setEdgeOverlayCache(prev => ({ ...prev, [String(period)]: next }));
+      setEdgeOverlayNotice("Mode analyse avancée - horizon plus long, risque d'overfit à surveiller.");
+    } catch {
+      setEdgeOverlayNotice("Analyse Edge 36m indisponible pour le moment. Les valeurs 24m restent affichées.");
+    } finally {
+      setEdgeOverlayLoading(false);
+    }
   }, [isCrypto]);
 
   // ── Refresh manuel : vide le cache prix puis recharge ────────────────────────
@@ -469,6 +555,24 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     });
   }, [data, priceMap]);
 
+  const edgeOverlayRows = useMemo<Record<string, EdgeOverlay>>(
+    () => edgeHorizon === 36 ? (edgeOverlayCache["36"] ?? {}) : {},
+    [edgeHorizon, edgeOverlayCache],
+  );
+
+  const advancedEdgeData = useMemo<TickerResult[]>(() => {
+    if (isCrypto || edgeHorizon === 24) return dataWithLivePrices;
+    return dataWithLivePrices.map(row => {
+      const overlay = edgeOverlayRows[row.ticker];
+      return overlay ? { ...row, ...overlay } : row;
+    });
+  }, [dataWithLivePrices, edgeHorizon, edgeOverlayRows, isCrypto]);
+
+  const activeTableData = useMemo<TickerResult[]>(
+    () => (!isCrypto && uiMode === "pro" && view === "table" ? advancedEdgeData : dataWithLivePrices),
+    [advancedEdgeData, dataWithLivePrices, isCrypto, uiMode, view],
+  );
+
   // Chargement initial + auto-refresh toutes les 60 secondes
   useEffect(() => {
     const cached = loadScreenerCache(screenerScope);
@@ -504,6 +608,19 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     return () => clearInterval(id);
   }, [fetchData, fetchFreshness, isCrypto, screenerScope]);
 
+  useEffect(() => {
+    if (isCrypto || uiMode !== "pro" || view !== "table") return;
+    if (edgeHorizon === 24) {
+      setEdgeOverlayLoading(false);
+      setEdgeOverlayNotice(null);
+      return;
+    }
+    const cached = edgeOverlayCache["36"] ?? {};
+    const missingRows = data.filter(row => !cached[row.ticker]);
+    if (missingRows.length === 0) return;
+    void loadAdvancedEdgeOverlay(36, missingRows);
+  }, [data, edgeHorizon, edgeOverlayCache, isCrypto, loadAdvancedEdgeOverlay, uiMode, view]);
+
   const switchStrategy = useCallback((s: Strategy) => {
     if (isCrypto) return;
     setStrategy(s);
@@ -534,7 +651,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   }, [fetchData, excludeEarnings]);
 
   const filtered = useMemo(() => {
-    return dataWithLivePrices.filter(r => {
+    return activeTableData.filter(r => {
       if (search   && !r.ticker.toLowerCase().includes(search.toLowerCase())) return false;
       if (sector   && r.sector !== sector)       return false;
       if (signal   && r.signal_type !== signal)  return false;
@@ -542,10 +659,10 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       if (minScore > 0 && r.score < minScore)    return false;
       return true;
     });
-  }, [dataWithLivePrices, search, sector, signal, grade, minScore]);
+  }, [activeTableData, search, sector, signal, grade, minScore]);
 
   const stats = useMemo(() => {
-    const d = dataWithLivePrices;
+    const d = activeTableData;
     const aPlus   = d.filter(r => r.setup_grade === "A+").length;
     const a       = d.filter(r => r.setup_grade === "A").length;
     const b       = d.filter(r => r.setup_grade === "B").length;
@@ -553,7 +670,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     const avgRR    = d.length ? Math.round(d.reduce((acc, r) => acc + r.rr_ratio, 0) / d.length * 10) / 10 : 0;
     const avgConf  = d.length ? Math.round(d.reduce((acc, r) => acc + r.confidence, 0) / d.length) : 0;
     return { aPlus, a, b, avgScore, avgRR, avgConf };
-  }, [dataWithLivePrices]);
+  }, [activeTableData]);
 
   const FilterBtn = ({
     label, active, onClick, color,
@@ -636,6 +753,8 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             {(["actions", "crypto"] as const).map((u) => (
               <button key={u} onClick={() => {
                 setUniverse(u);
+                setEdgeHorizon(24);
+                setEdgeOverlayNotice(null);
                 setSector("");
                 setSignal("");
                 setGrade("");
@@ -722,14 +841,39 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
           <ApiStatusDot onClick={() => setShowApiStatus(true)} />
 
+          {!isCrypto && uiMode === "pro" && view === "table" && (
+            <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
+              {[24, 36].map(period => (
+                <button
+                  key={period}
+                  onClick={() => setEdgeHorizon(period as EdgeHorizon)}
+                  className="px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-all"
+                  style={{
+                    background: edgeHorizon === period ? (period === 36 ? "#1a1400" : "#0a1a0a") : "#0d0d18",
+                    color: edgeHorizon === period ? (period === 36 ? "#f59e0b" : "#4ade80") : "#4b5563",
+                    borderRight: period === 24 ? "1px solid #1e1e2a" : undefined,
+                  }}
+                >
+                  Edge {period}m
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Bouton Recalculate Edge — mode Advanced uniquement */}
           {uiMode === "pro" && view === "table" && (
             <button
               onClick={recalculateEdge}
               disabled={edgeComputing}
-              title={`Recalculer l'edge historique par ticker (cache 24h)\nCouverture actuelle : ${edgeCoverage.toFixed(0)}%`}
+              title={edgeHorizon === 36
+                ? "Recalculer l'edge 36m pour l'analyse avancée visible"
+                : `Recalculer l'edge historique par ticker (cache 24h)\nCouverture actuelle : ${edgeCoverage.toFixed(0)}%`}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all disabled:opacity-40"
-              style={{ background: "#0a1a0a", border: "1px solid #16a34a44", color: edgeComputing ? "#4ade8088" : "#4ade80" }}
+              style={{
+                background: edgeHorizon === 36 ? "#1a1400" : "#0a1a0a",
+                border: `1px solid ${edgeHorizon === 36 ? "#f59e0b44" : "#16a34a44"}`,
+                color: edgeComputing ? (edgeHorizon === 36 ? "#f59e0b88" : "#4ade8088") : (edgeHorizon === 36 ? "#f59e0b" : "#4ade80"),
+              }}
             >
               {edgeComputing ? (
                 <><svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
@@ -925,7 +1069,33 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       {/* CONTENU */}
       {view === "table" ? (
         <>
-          <Top5Cards data={dataWithLivePrices} scope={isCrypto ? "crypto" : "actions"} cryptoRegime={cryptoRegime} />
+          {!isCrypto && edgeHorizon === 36 && (
+            <div
+              className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap"
+              style={{ background: "#1a1400", border: "1px solid #f59e0b44" }}
+            >
+              <span className="text-xs font-black uppercase tracking-widest text-amber-400">
+                Edge horizon : 36m
+              </span>
+              <span className="text-xs text-amber-200">
+                Mode analyse avancée - horizon plus long, risque d'overfit à surveiller.
+              </span>
+              {edgeOverlayLoading && (
+                <span className="ml-auto text-xs text-amber-300">Calcul edge 36m en cours...</span>
+              )}
+            </div>
+          )}
+
+          {edgeOverlayNotice && !isCrypto && edgeHorizon === 36 && (
+            <div
+              className="rounded-xl px-4 py-2.5 mb-4 text-xs"
+              style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#9ca3af" }}
+            >
+              {edgeOverlayNotice}
+            </div>
+          )}
+
+          <Top5Cards data={activeTableData} scope={isCrypto ? "crypto" : "actions"} cryptoRegime={cryptoRegime} />
 
           {/* FILTRES */}
           <div className="rounded-xl p-4 mb-4" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>

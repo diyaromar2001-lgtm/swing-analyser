@@ -1638,6 +1638,40 @@ def compute_strategy_edge(
     }
 
 
+@app.get("/api/strategy-edge/results")
+def strategy_edge_results(
+    tickers: str = Query(..., description="Sous-ensemble tickers séparés par virgule"),
+    period: int = Query(24, ge=12, le=60, description="Horizon backtest en mois"),
+    compute_missing: bool = Query(False, description="Calcule les edges manquants si absents du cache"),
+):
+    """
+    Retourne les résultats edge pour un sous-ensemble de tickers.
+    Utilisé par l'Advanced View pour comparer 24m vs 36m sans changer
+    les décisions officielles du screener.
+    """
+    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    results: List[Dict[str, Any]] = []
+
+    for t in ticker_list:
+        edge = get_cached_edge(t, period_months=period)
+        if edge is None and compute_missing:
+            df = _get_ohlcv(t)
+            if df is None:
+                continue
+            try:
+                edge = compute_ticker_edge(t, df, period_months=period)
+            except Exception:
+                continue
+        if edge is not None:
+            results.append(edge)
+
+    return {
+        "period_months": period,
+        "count": len(results),
+        "results": results,
+    }
+
+
 @app.get("/api/strategy-edge/status")
 def strategy_edge_status():
     """Retourne l'état du cache edge (combien de tickers ont un edge calculé)."""
