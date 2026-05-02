@@ -3,6 +3,12 @@
 import { TickerResult } from "../../types";
 import { formatCryptoPrice } from "../../lib/cryptoFormat";
 
+function safeFixed(value?: number | null, digits = 1, suffix = "") {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value.toFixed(digits)}${suffix}`
+    : "—";
+}
+
 function Row({ label, value, sub }: { label: string; value: React.ReactNode; sub?: string }) {
   return (
     <div className="flex items-start justify-between py-2.5" style={{ borderBottom: "1px solid #1a1a28" }}>
@@ -76,12 +82,12 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
             <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #1a1a28" }}>
               <div className="px-4" style={{ background: "#0d0d18" }}>
                 <Row label="Prix actuel" value={<span className="text-blue-400">${formatCryptoPrice(row.ticker, row.price)}</span>} sub="Prix live approximatif / différé" />
-                <Row label="Entrée" value={<span className="text-white">${formatCryptoPrice(row.ticker, row.entry)}</span>} sub={`${row.dist_entry_pct >= 0 ? "+" : ""}${row.dist_entry_pct.toFixed(1)}% vs entrée idéale`} />
+                <Row label="Entrée" value={<span className="text-white">${formatCryptoPrice(row.ticker, row.entry)}</span>} sub={`${typeof row.dist_entry_pct === "number" && Number.isFinite(row.dist_entry_pct) && row.dist_entry_pct >= 0 ? "+" : ""}${safeFixed(row.dist_entry_pct, 1, "%")} vs entrée idéale`} />
                 <Row label="Stop loss" value={<span className="text-red-400">${formatCryptoPrice(row.ticker, row.stop_loss)}</span>} sub="Stop ATR crypto — levier non recommandé" />
                 <Row label="TP1" value={<span className="text-emerald-300">${formatCryptoPrice(row.ticker, row.tp1)}</span>} sub="Prise partielle 40–50%" />
                 <Row label="TP2" value={<span className="text-emerald-500">${formatCryptoPrice(row.ticker, row.tp2)}</span>} sub="Objectif final swing" />
                 <Row label="Trailing stop" value={<span className="text-amber-400">${formatCryptoPrice(row.ticker, row.trailing_stop)}</span>} sub="À activer après TP1" />
-                <Row label="Risque / rendement" value={<span style={{ color: row.rr_ratio >= 2 ? "#4ade80" : "#f59e0b" }}>1:{row.rr_ratio.toFixed(2)}</span>} sub={`Risque actuel ${row.risk_now_pct.toFixed(2)}%`} />
+                <Row label="Risque / rendement" value={<span style={{ color: (row.rr_ratio ?? 0) >= 2 ? "#4ade80" : "#f59e0b" }}>1:{safeFixed(row.rr_ratio, 2)}</span>} sub={`Risque actuel ${safeFixed(row.risk_now_pct, 2, "%")}`} />
               </div>
             </div>
           </div>
@@ -107,8 +113,8 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
                 <Row label="Score edge" value={row.edge_score ?? 0} sub={`Train PF ${row.edge_train_pf ?? 0} · Test PF ${row.edge_test_pf ?? 0}`} />
                 <Row label="Volume 24h" value={row.volume_24h ? `$${Math.round(row.volume_24h).toLocaleString()}` : "—"} sub="Liquidité crypto spot" />
                 <Row label="Market cap" value={row.market_cap ? `$${Math.round(row.market_cap).toLocaleString()}` : "—"} sub="Capitalisation approximative" />
-                <Row label="Volatilité" value={row.volatility_pct !== undefined ? `${row.volatility_pct.toFixed(2)}%` : "—"} sub="ATR / prix" />
-                <Row label="Durée moy. histo" value={row.avg_hold_days !== undefined ? `${row.avg_hold_days.toFixed(1)}j` : "—"} sub="Hold time moyen de la stratégie" />
+                <Row label="Volatilité" value={safeFixed(row.volatility_pct, 2, "%")} sub="ATR / prix" />
+                <Row label="Durée moy. histo" value={safeFixed(row.avg_hold_days, 1, "j")} sub="Hold time moyen de la stratégie" />
               </div>
             </div>
           </div>

@@ -13,7 +13,7 @@ import { SignalTracker } from "./SignalTracker";
 import { CommandCenter } from "./CommandCenter";
 import { TradeJournal } from "./TradeJournal";
 import { DataFreshnessPanel } from "./DataFreshnessPanel";
-import { getApiUrl } from "../lib/api";
+import { ensureApiResponse, getApiUrl, isAdminProtectedError } from "../lib/api";
 import { CryptoCommandCenter } from "./crypto/CryptoCommandCenter";
 import { formatCryptoPrice } from "../lib/cryptoFormat";
 
@@ -189,6 +189,15 @@ type EdgeOverlay = Pick<
   edge_period_months?: number;
 };
 
+function safeNumber(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function safePercent(value?: number | null, digits = 1) {
+  const num = safeNumber(value);
+  return num === null ? "—" : `${num.toFixed(digits)}%`;
+}
+
 function GlobalStatusBar({
   regime,
   backtestStatus,
@@ -255,6 +264,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [freshness, setFreshness]   = useState<DataFreshness | null>(null);
   const [screenerRefreshing, setScreenerRefreshing] = useState(false);
   const [screenerNotice, setScreenerNotice] = useState<{ kind: "timeout" | "refresh-failed" | "empty-cache"; message: string } | null>(null);
+  const [adminNotice, setAdminNotice] = useState<string | null>(null);
 
   // Filtres
   const [search, setSearch]         = useState("");
@@ -408,6 +418,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
   async function recalculateEdge() {
     setEdgeComputing(true);
+    setAdminNotice(null);
     try {
       const actionTickers = !isCrypto && edgeHorizon === 36
         ? data.map(row => row.ticker).join(",")
@@ -415,7 +426,8 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       const edgeUrl = isCrypto
         ? `${API_URL}/api/crypto/edge/compute`
         : `${API_URL}/api/strategy-edge/compute?period=${edgeHorizon}${actionTickers ? `&tickers=${encodeURIComponent(actionTickers)}` : ""}`;
-      await fetchJsonWithTimeout(edgeUrl, { method: "POST" }, edgeHorizon === 36 ? 120_000 : 60_000);
+      const edgeRes = await fetchJsonWithTimeout(edgeUrl, { method: "POST" }, edgeHorizon === 36 ? 120_000 : 60_000);
+      await ensureApiResponse(edgeRes);
       await fetchData({ fast: true, background: true });
       if (!isCrypto && edgeHorizon === 36) {
         setEdgeOverlayCache(prev => ({ ...prev, ["36"]: {} }));
@@ -426,7 +438,12 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
         const j = await r.json();
         setEdgeCoverage(j?.coverage_pct ?? 0);
       }
-    } catch { /* silencieux */ }
+    } catch (error) {
+      if (isAdminProtectedError(error)) {
+        setAdminNotice("Action admin protégée");
+        setEdgeOverlayNotice("Action admin protégée");
+      }
+    }
     finally { setEdgeComputing(false); }
   }
 
@@ -443,18 +460,31 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     setEdgeOverlayLoading(true);
     setEdgeOverlayNotice(null);
     try {
-      await fetchJsonWithTimeout(
-        `${API_URL}/api/strategy-edge/compute?period=${period}&tickers=${encodeURIComponent(tickers)}`,
-        { method: "POST" },
-        120_000,
-      );
-      const res = await fetchJsonWithTimeout(
+      const cachedRes = await fetchJsonWithTimeout(
         `${API_URL}/api/strategy-edge/results?period=${period}&tickers=${encodeURIComponent(tickers)}`,
         { cache: "no-store" },
-        120_000,
+        30_000,
       );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      await ensureApiResponse(cachedRes);
+      let json = await cachedRes.json();
+      const cachedCount = Array.isArray(json?.results) ? json.results.length : 0;
+
+      if (cachedCount < rows.length) {
+        const computeRes = await fetchJsonWithTimeout(
+          `${API_URL}/api/strategy-edge/compute?period=${period}&tickers=${encodeURIComponent(tickers)}`,
+          { method: "POST" },
+          120_000,
+        );
+        await ensureApiResponse(computeRes);
+        const freshRes = await fetchJsonWithTimeout(
+          `${API_URL}/api/strategy-edge/results?period=${period}&tickers=${encodeURIComponent(tickers)}`,
+          { cache: "no-store" },
+          120_000,
+        );
+        await ensureApiResponse(freshRes);
+        json = await freshRes.json();
+      }
+
       const next: Record<string, EdgeOverlay> = {};
       for (const row of (json?.results ?? []) as any[]) {
         if (!row?.ticker) continue;
@@ -478,8 +508,13 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
         };
       }
       setEdgeOverlayCache(prev => ({ ...prev, [String(period)]: next }));
-    } catch {
-      setEdgeOverlayNotice("Analyse Edge 36m indisponible pour le moment. Les valeurs 24m restent affichées.");
+    } catch (error) {
+      if (isAdminProtectedError(error)) {
+        setAdminNotice("Action admin protégée");
+        setEdgeOverlayNotice("Action admin protégée");
+      } else {
+        setEdgeOverlayNotice("Analyse Edge 36m indisponible pour le moment. Les valeurs 24m restent affichées.");
+      }
     } finally {
       setEdgeOverlayLoading(false);
     }
@@ -491,8 +526,20 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       const confirmed = window.confirm("Cette action peut prendre 1 à 3 minutes et vider le cache. Continuer ?");
       if (!confirmed) return;
     }
-    await fetch(`${API_URL}/api/clear-cache?scope=${screenerScope}`, { method: "POST" }).catch(() => {});
-    await fetchData({ fast: false, background: true });
+    setAdminNotice(null);
+    try {
+      const clearRes = await fetch(`${API_URL}/api/clear-cache?scope=${screenerScope}`, { method: "POST" });
+      await ensureApiResponse(clearRes);
+      await fetchData({ fast: false, background: true });
+    } catch (error) {
+      if (isAdminProtectedError(error)) {
+        setAdminNotice("Action admin protégée");
+        setScreenerNotice({
+          kind: "refresh-failed",
+          message: "Action admin protégée",
+        });
+      }
+    }
   }, [fetchData, screenerScope]);
 
   // ── Polling prix léger toutes les 15 secondes ────────────────────────────────
@@ -941,6 +988,21 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           </div>
         )}
 
+        {adminNotice && (
+          <div className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3"
+            style={{ background: "#1a0a0a", border: "1px solid #7f1d1d66" }}>
+            <span className="text-sm">🔒</span>
+            <div>
+              <p className="text-xs font-black text-red-400 uppercase tracking-widest">
+                {adminNotice}
+              </p>
+              <p className="text-[11px] text-red-200 mt-0.5">
+                Cette action nécessite une clé admin côté backend. L&apos;interface reste utilisable sans recalcul protégé.
+              </p>
+            </div>
+          </div>
+        )}
+
         <DataFreshnessPanel
           freshness={freshness}
           onFullRefresh={() => void refreshAnalysis()}
@@ -1025,12 +1087,17 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           <div>
             <p className="text-xs font-black text-cyan-300 uppercase tracking-widest">{cryptoRegime.regime_label}</p>
             <p className="text-[10px] text-gray-500 mt-0.5">{cryptoRegime.reasons.join(" · ")}</p>
+            {(!safeNumber(cryptoRegime.btc_price) || !safeNumber(cryptoRegime.eth_price)) && (
+              <p className="text-[10px] text-red-300 mt-1">
+                Données BTC/ETH indisponibles — régime crypto non fiable
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-4 text-xs text-gray-400 flex-wrap ml-auto">
-            <span>BTC <strong className="text-white">${formatCryptoPrice("BTC", cryptoRegime.btc_price)}</strong></span>
-            <span>ETH <strong className="text-white">${formatCryptoPrice("ETH", cryptoRegime.eth_price)}</strong></span>
-            <span>Breadth <strong className="text-cyan-300">{cryptoRegime.breadth_pct}%</strong></span>
-            <span>BTC Dom. <strong className="text-cyan-300">{cryptoRegime.btc_dominance.toFixed(1)}%</strong></span>
+            <span>BTC <strong className="text-white">{safeNumber(cryptoRegime.btc_price) ? `$${formatCryptoPrice("BTC", cryptoRegime.btc_price)}` : "—"}</strong></span>
+            <span>ETH <strong className="text-white">{safeNumber(cryptoRegime.eth_price) ? `$${formatCryptoPrice("ETH", cryptoRegime.eth_price)}` : "—"}</strong></span>
+            <span>Breadth <strong className="text-cyan-300">{safePercent(cryptoRegime.breadth_pct, 0)}</strong></span>
+            <span>BTC Dom. <strong className="text-cyan-300">{safePercent(cryptoRegime.btc_dominance, 1)}</strong></span>
           </div>
         </div>
       )}

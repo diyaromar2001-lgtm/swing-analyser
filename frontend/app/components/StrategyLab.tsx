@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import { LabStrategyResult, LabSummary, WalkForward, OptimizedParamSet, OptimizerResult } from "../types";
 import { Strategy } from "./Dashboard";
 import { EngineBanner } from "./BacktestView";
-import { getApiUrl } from "../lib/api";
+import { ensureApiResponse, getApiUrl, isAdminProtectedError } from "../lib/api";
 
 const API_URL = getApiUrl();
 
@@ -640,6 +640,7 @@ export function StrategyLab({ onUseStrategy, activeStrategyKey, scope = "actions
   const [data, setData]         = useState<LabSummary | null>(null);
   const [loading, setLoading]   = useState(false);
   const [loaded, setLoaded]     = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [period, setPeriod]     = useState<12 | 24>(12);
   const [banner, setBanner]     = useState<LabStrategyResult | null>(null);
   const [view, setView]         = useState<"cards" | "table">("cards");
@@ -647,18 +648,24 @@ export function StrategyLab({ onUseStrategy, activeStrategyKey, scope = "actions
 
   const run = useCallback(async (p?: 12 | 24) => {
     setLoading(true);
+    setErrorMessage(null);
     const per = p ?? period;
     try {
       const res  = await fetch(`${API_URL}/api/${scope === "crypto" ? "crypto/" : ""}strategy-lab?period=${per}`, { cache: "no-store" });
+      await ensureApiResponse(res);
       const json = await res.json();
       setData(json);
       setLoaded(true);
     } catch (e) {
-      console.error(e);
+      if (isAdminProtectedError(e)) {
+        setErrorMessage("Action admin protégée");
+      } else {
+        console.error(e);
+      }
     } finally {
       setLoading(false);
     }
-  }, [period]);
+  }, [period, scope]);
 
   const handlePeriod = (p: 12 | 24) => {
     setPeriod(p);
@@ -698,6 +705,15 @@ export function StrategyLab({ onUseStrategy, activeStrategyKey, scope = "actions
   if (!loaded) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-8">
+        {errorMessage && (
+          <div className="rounded-xl px-4 py-3 max-w-2xl w-full"
+            style={{ background: "#1a0a0a", border: "1px solid #7f1d1d66" }}>
+            <p className="text-xs font-black text-red-400 uppercase tracking-widest mb-1">Action admin protégée</p>
+            <p className="text-sm text-red-200">
+              Le Strategy Lab nécessite une clé admin côté backend. L&apos;interface reste disponible, mais ce calcul lourd est protégé.
+            </p>
+          </div>
+        )}
         <div className="text-center max-w-lg">
           <p className="text-5xl mb-4">🧬</p>
           <h2 className="text-2xl font-black text-white mb-2">{scope === "crypto" ? "Crypto Strategy Lab" : "Strategy Lab"}</h2>
@@ -1190,11 +1206,16 @@ function OptimizerSection({
     setOptLoading(true);
     try {
       const res  = await fetch(`${API_URL}/api/optimizer?period=${period}`, { cache: "no-store" });
+      await ensureApiResponse(res);
       const json = await res.json();
       setOptData(json);
       setOptLoaded(true);
     } catch (e) {
-      console.error(e);
+      if (isAdminProtectedError(e)) {
+        setOptLoaded(false);
+      } else {
+        console.error(e);
+      }
     } finally {
       setOptLoading(false);
     }

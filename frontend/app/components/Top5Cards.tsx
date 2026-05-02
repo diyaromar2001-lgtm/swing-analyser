@@ -7,6 +7,12 @@ import { SetupGradeBadge, SignalBadge } from "./CategoryBadge";
 import { TradePlan } from "./TradePlan";
 import { CryptoTradePlan } from "./crypto/CryptoTradePlan";
 
+function safeFixed(value?: number | null, digits = 1, suffix = "") {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value.toFixed(digits)}${suffix}`
+    : "—";
+}
+
 export function Top5Cards({
   data,
   scope = "actions",
@@ -119,8 +125,8 @@ export function Top5Cards({
                   <div className="flex items-center gap-2">
                     <SignalBadge signal={row.signal_type} />
                     <span className="text-[10px] text-gray-600">
-                      R/R&nbsp;<span className="font-bold" style={{ color: row.rr_ratio >= 2 ? "#4ade80" : "#f59e0b" }}>
-                        1:{row.rr_ratio.toFixed(1)}
+                      R/R&nbsp;<span className="font-bold" style={{ color: (row.rr_ratio ?? 0) >= 2 ? "#4ade80" : "#f59e0b" }}>
+                        1:{safeFixed(row.rr_ratio, 1)}
                       </span>
                     </span>
                   </div>
@@ -128,7 +134,7 @@ export function Top5Cards({
                     className="text-[10px] font-bold tabular-nums"
                     style={{ color: row.perf_3m > 0 ? "#10b981" : "#ef4444" }}
                   >
-                    {row.perf_3m > 0 ? "+" : ""}{row.perf_3m.toFixed(1)}% 3m
+                    {typeof row.perf_3m === "number" && row.perf_3m > 0 ? "+" : ""}{safeFixed(row.perf_3m, 1, "%")} 3m
                   </span>
                 </div>
                 <button
@@ -171,7 +177,7 @@ export function Top5Cards({
                     <SetupGradeBadge grade={row.setup_grade} />
                     <SignalBadge signal={row.signal_type} />
                   </div>
-                  <p className="text-[10px] text-gray-600">{row.sector} · Score {row.score}/100 · R/R 1:{row.rr_ratio.toFixed(1)}</p>
+                  <p className="text-[10px] text-gray-600">{row.sector} · Score {row.score}/100 · R/R 1:{safeFixed(row.rr_ratio, 1)}</p>
                 </div>
                 <ScoreBar score={row.score} />
               </div>

@@ -16,6 +16,12 @@ import { CryptoTradePlan } from "./crypto/CryptoTradePlan";
 
 type SortKey = "score" | "rsi_val" | "perf_3m" | "perf_6m" | "dist_entry_pct" | "risk_now_pct" | "rr_ratio" | "confidence" | "edge_score" | "final_score" | "edge_train_pf" | "edge_test_pf";
 
+function safeFixed(value?: number | null, digits = 1, suffix = "") {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value.toFixed(digits)}${suffix}`
+    : "—";
+}
+
 function PctCell({ val, good = "positive" }: { val: number; good?: "positive" | "negative" | "neutral" }) {
   const color =
     good === "neutral"  ? "#9ca3af" :
@@ -256,7 +262,7 @@ export function ScreenerTable({
                       <td className="px-3 py-2.5">
                         <span className="text-xs font-bold tabular-nums"
                           style={{ color: row.rr_ratio >= 2 ? "#4ade80" : row.rr_ratio >= 1.5 ? "#f59e0b" : "#f87171" }}>
-                          1:{row.rr_ratio.toFixed(1)}
+                          1:{safeFixed(row.rr_ratio, 1)}
                         </span>
                       </td>
                       <td className="px-3 py-2.5"><PctCell val={row.risk_now_pct} good="negative" /></td>

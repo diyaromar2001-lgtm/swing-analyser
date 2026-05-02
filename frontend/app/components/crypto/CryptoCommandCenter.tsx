@@ -25,6 +25,15 @@ function edgeLabel(status?: string | null) {
   return status ?? "—";
 }
 
+function safeNumber(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function safePercent(value?: number | null, digits = 1) {
+  const num = safeNumber(value);
+  return num === null ? "—" : `${num.toFixed(digits)}%`;
+}
+
 export function CryptoCommandCenter({
   data,
   loading,
@@ -85,12 +94,15 @@ export function CryptoCommandCenter({
   const defensiveRegime = isCryptoDefensiveRegime(regime?.crypto_regime);
   const activeLabel = regime?.active_strategy === "NO_TRADE" ? "NO TRADE" : regime?.active_crypto_strategies?.[0]?.replaceAll("_", " ") ?? "—";
   const primaryCards = defensiveRegime ? technicalWatchlist : tradeable;
-  const btcDisplay = regime && regime.btc_price > 0 ? regime.btc_price : marketPrices.BTC;
-  const ethDisplay = regime && regime.eth_price > 0 ? regime.eth_price : marketPrices.ETH;
+  const btcDisplay = regime && safeNumber(regime.btc_price) && regime.btc_price > 0 ? regime.btc_price : safeNumber(marketPrices.BTC);
+  const ethDisplay = regime && safeNumber(regime.eth_price) && regime.eth_price > 0 ? regime.eth_price : safeNumber(marketPrices.ETH);
+  const missingBtcEth = !btcDisplay || !ethDisplay;
+  const regimeTrustWarning = missingBtcEth ? "Données BTC/ETH indisponibles — régime crypto non fiable" : null;
   const hasPreviousData = screenerNotice?.kind === "refresh-failed" || screenerNotice?.kind === "timeout";
   const emptyCacheMessage = screenerNotice?.kind === "empty-cache"
     ? screenerNotice.message
     : "Aucune donnée crypto en cache. Lancez une analyse complète.";
+  const effectiveNoTrade = noTrade || missingBtcEth;
 
   if (!loading && data.length === 0) {
     return (
@@ -159,7 +171,7 @@ export function CryptoCommandCenter({
         <div className="rounded-xl px-5 py-3 flex items-center gap-5 flex-wrap" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
         <div>
           <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">Marché</p>
-          <p className="text-xs font-black" style={{ color: noTrade ? "#ef4444" : "#10b981" }}>24/7 Crypto</p>
+          <p className="text-xs font-black" style={{ color: effectiveNoTrade ? "#ef4444" : "#10b981" }}>24/7 Crypto</p>
         </div>
         <div className="w-px h-5 hidden sm:block" style={{ background: "#1a1a2e" }} />
         <div>
@@ -177,13 +189,28 @@ export function CryptoCommandCenter({
         </div>
         <div>
           <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">Breadth</p>
-          <p className="text-xs font-black text-white">{regime ? `${regime.breadth_pct}%` : "—"}</p>
+          <p className="text-xs font-black text-white">{safePercent(regime?.breadth_pct, 0)}</p>
         </div>
         <div>
           <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-0.5">BTC dom.</p>
-          <p className="text-xs font-black text-white">{regime ? `${regime.btc_dominance.toFixed(1)}%` : "—"}</p>
+          <p className="text-xs font-black text-white">{safePercent(regime?.btc_dominance, 1)}</p>
         </div>
       </div>
+
+      {regimeTrustWarning && (
+        <div className="rounded-xl px-4 py-3 flex items-center gap-3"
+          style={{ background: "#1a0a0a", border: "1px solid #7f1d1d66" }}>
+          <span className="text-sm">⚠</span>
+          <div>
+            <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">
+              {regimeTrustWarning}
+            </p>
+            <p className="text-xs text-red-200 mt-0.5">
+              NO TRADE crypto forcé tant que le contexte BTC/ETH reste incomplet.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="rounded-2xl p-5 flex flex-col gap-3" style={{ background: "#09091e", border: "1px solid #3730a355" }}>
@@ -191,14 +218,16 @@ export function CryptoCommandCenter({
           <p className="text-xl font-black text-indigo-300">{activeLabel}</p>
           <p className="text-xs text-gray-500">{regime?.reasons?.join(" · ") || "Analyse du régime crypto"}</p>
         </div>
-        <div className="rounded-2xl p-8 text-center" style={{ background: noTrade ? "#130404" : "#041310", border: `2px solid ${noTrade ? "#7f1d1d" : "#065f46"}` }}>
-          <p className="text-3xl mb-3">{noTrade ? "🛑" : "⚡"}</p>
-          <p className="text-2xl font-black tracking-widest mb-2" style={{ color: noTrade ? "#ef4444" : "#10b981" }}>
-            {noTrade ? "NO TRADE CRYPTO" : "CRYPTO TRADE READY"}
+        <div className="rounded-2xl p-8 text-center" style={{ background: effectiveNoTrade ? "#130404" : "#041310", border: `2px solid ${effectiveNoTrade ? "#7f1d1d" : "#065f46"}` }}>
+          <p className="text-3xl mb-3">{effectiveNoTrade ? "🛑" : "⚡"}</p>
+          <p className="text-2xl font-black tracking-widest mb-2" style={{ color: effectiveNoTrade ? "#ef4444" : "#10b981" }}>
+            {effectiveNoTrade ? "NO TRADE CRYPTO" : "CRYPTO TRADE READY"}
           </p>
-          <p className="text-sm" style={{ color: noTrade ? "#fca5a5" : "#86efac" }}>
-            {noTrade
-              ? "Aucun setup crypto avec edge robuste aujourd’hui."
+          <p className="text-sm" style={{ color: effectiveNoTrade ? "#fca5a5" : "#86efac" }}>
+            {effectiveNoTrade
+              ? missingBtcEth
+                ? "Contexte BTC/ETH incomplet — aucune autorisation de trade crypto."
+                : "Aucun setup crypto avec edge robuste aujourd’hui."
               : `${tradeable.length} setup${tradeable.length > 1 ? "s" : ""} crypto avec edge validé.`}
           </p>
         </div>

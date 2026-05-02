@@ -1,4 +1,8 @@
-export function formatCryptoPrice(symbol: string, price: number) {
+export function formatCryptoPrice(symbol: string, price?: number | null) {
+  if (typeof price !== "number" || !Number.isFinite(price)) {
+    return "—";
+  }
+
   const s = symbol.toUpperCase();
 
   if (s === "BTC") {

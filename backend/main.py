@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 import yfinance as yf
 import time as _time
@@ -12,7 +12,7 @@ except ImportError:
 
 import pandas as pd
 import numpy as np
-from typing import List, Optional, Dict
+from typing import Any, List, Optional, Dict
 from pydantic import BaseModel
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
@@ -77,6 +77,20 @@ _ALLOWED_ORIGINS = [
     # Vercel preview URLs
     "https://*.vercel.app",
 ]
+
+_ADMIN_API_KEY = _os.environ.get("ADMIN_API_KEY")
+_ADMIN_WARNING_EMITTED = False
+
+
+def require_admin_key(x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")):
+    global _ADMIN_WARNING_EMITTED
+    if not _ADMIN_API_KEY:
+        if not _ADMIN_WARNING_EMITTED:
+            print("[security] ADMIN_API_KEY absent - endpoints admin non bloqués (mode local/dev).")
+            _ADMIN_WARNING_EMITTED = True
+        return
+    if x_admin_key != _ADMIN_API_KEY:
+        raise HTTPException(status_code=401, detail="Action admin protégée")
 
 app.add_middleware(
     CORSMiddleware,
@@ -1045,7 +1059,10 @@ def data_freshness(scope: str = Query("actions")):
 # ── Clear cache (force refresh immédiat de tous les prix) ────────────────────
 
 @app.post("/api/clear-cache")
-def clear_cache(scope: str = Query("all")):
+def clear_cache(
+    scope: str = Query("all"),
+    _: None = Depends(require_admin_key),
+):
     """
     Vide le cache OHLCV + contexte marché.
     Le prochain appel au screener récupère les prix frais depuis yfinance.
@@ -1124,7 +1141,7 @@ def crypto_universe():
 
 # Scope: CRYPTO
 @app.get("/api/crypto/debug-data")
-def crypto_debug_data():
+def crypto_debug_data(_: None = Depends(require_admin_key)):
     return debug_crypto_sources()
 
 
@@ -1162,7 +1179,10 @@ def crypto_edge_endpoint(symbol: str):
 
 # Scope: CRYPTO
 @app.post("/api/crypto/edge/compute")
-def compute_crypto_edge_endpoint(symbols: Optional[str] = Query(None)):
+def compute_crypto_edge_endpoint(
+    symbols: Optional[str] = Query(None),
+    _: None = Depends(require_admin_key),
+):
     symbol_list = (
         [s.strip().upper() for s in symbols.split(",") if s.strip()]
         if symbols else CRYPTO_SYMBOLS
@@ -1269,7 +1289,11 @@ def _run_one_backtest(ticker: str, df, strategy: str = "standard") -> BacktestRe
 
 
 @app.get("/api/backtest", response_model=BacktestSummary)
-def backtest_all(strategy: str = Query("standard"), period: int = Query(12)):
+def backtest_all(
+    strategy: str = Query("standard"),
+    period: int = Query(12),
+    _: None = Depends(require_admin_key),
+):
     """
     Backtest sur tous les tickers.
     Utilise le cache OHLCV (2h) — relance un téléchargement si expiré.
@@ -1345,6 +1369,7 @@ def backtest_single(ticker: str, strategy: str = Query("standard")):
 def crypto_backtest_all(
     strategy: str = Query("pullback_uptrend"),
     period: int = Query(12),
+    _: None = Depends(require_admin_key),
 ):
     summary = compute_crypto_strategy_lab(period_months=period)
     strategy_row = next((row for row in summary["strategies"] if row["key"] == strategy), None)
@@ -1420,7 +1445,10 @@ def social_sentiment(ticker: str = Query(...)):
 # ── Strategy Lab ──────────────────────────────────────────────────────────────
 
 @app.get("/api/strategy-lab")
-def strategy_lab_endpoint(period: int = Query(12)):
+def strategy_lab_endpoint(
+    period: int = Query(12),
+    _: None = Depends(require_admin_key),
+):
     yf_period = "26mo" if period >= 24 else "14mo"
     min_bars  = 420   if period >= 24 else 210
 
@@ -1486,7 +1514,10 @@ def strategy_lab_endpoint(period: int = Query(12)):
 
 # Scope: CRYPTO
 @app.get("/api/crypto/strategy-lab")
-def crypto_strategy_lab_endpoint(period: int = Query(12)):
+def crypto_strategy_lab_endpoint(
+    period: int = Query(12),
+    _: None = Depends(require_admin_key),
+):
     return compute_crypto_strategy_lab(period_months=period)
 
 
@@ -1553,7 +1584,10 @@ def earnings_endpoint(ticker: str):
 # ── Parameter Optimizer ───────────────────────────────────────────────────────
 
 @app.get("/api/optimizer")
-def optimizer_endpoint(period: int = Query(12)):
+def optimizer_endpoint(
+    period: int = Query(12),
+    _: None = Depends(require_admin_key),
+):
     global _opt_data_cache
     yf_period = "26mo" if period >= 24 else "14mo"
     min_bars  = 420   if period >= 24 else 210
@@ -1599,6 +1633,7 @@ def ticker_edge_endpoint(
 def compute_strategy_edge(
     tickers: Optional[str] = Query(None, description="Sous-ensemble tickers séparés par virgule (défaut : tous)"),
     period: int = Query(24, ge=12, le=60, description="Horizon backtest en mois"),
+    _: None = Depends(require_admin_key),
 ):
     """
     Calcule l'edge pour une liste de tickers (ou tous) en parallèle.
@@ -1697,7 +1732,10 @@ def strategy_edge_status():
 
 
 @app.delete("/api/strategy-edge/cache")
-def clear_edge_cache(ticker: Optional[str] = Query(None)):
+def clear_edge_cache(
+    ticker: Optional[str] = Query(None),
+    _: None = Depends(require_admin_key),
+):
     """Vide le cache edge (tout ou un ticker spécifique)."""
     _invalidate_edge_cache(ticker.upper() if ticker else None)
     return {"cleared": True, "ticker": ticker}

@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { BacktestSummary, BacktestResult, BacktestTrade, PortfolioMetrics } from "../types";
 import { Strategy } from "./Dashboard";
-import { getApiUrl } from "../lib/api";
+import { ensureApiResponse, getApiUrl, isAdminProtectedError } from "../lib/api";
 
 const API_URL = getApiUrl();
 
@@ -519,6 +519,7 @@ export function BacktestView({
   const [data, setData]       = useState<BacktestSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded]   = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Comparison data
   const [stdData, setStdData]   = useState<BacktestSummary | null>(null);
@@ -528,24 +529,31 @@ export function BacktestView({
 
   const run = useCallback(async (strat?: string) => {
     setLoading(true);
+    setErrorMessage(null);
     try {
       const s = strat ?? strategy;
       const path = scope === "crypto"
         ? `${API_URL}/api/crypto/backtest?strategy=${s === "conservative" ? "btc_eth_trend_breakout" : "pullback_uptrend"}`
         : `${API_URL}/api/backtest?strategy=${s}`;
       const res  = await fetch(path, { cache: "no-store" });
+      await ensureApiResponse(res);
       const json = await res.json();
       setData(scope === "crypto" ? ({ ...json, results: json.results ?? [], global_total_trades: json.summary?.total_trades ?? 0, global_win_rate: json.summary?.win_rate ?? 0, global_expectancy: json.summary?.expectancy ?? 0, global_reliable_count: json.results?.length ?? 0, best_ticker: json.results?.[0]?.ticker ?? "—", worst_ticker: json.results?.[json.results?.length - 1]?.ticker ?? "—", portfolio: null } as BacktestSummary) : json);
       setLoaded(true);
     } catch (e) {
-      console.error(e);
+      if (isAdminProtectedError(e)) {
+        setErrorMessage("Action admin protégée");
+      } else {
+        console.error(e);
+      }
     } finally {
       setLoading(false);
     }
-  }, [strategy]);
+  }, [scope, strategy]);
 
   const runComparison = useCallback(async () => {
     setCmpLoading(true);
+    setErrorMessage(null);
     try {
       const [stdRes, conRes] = await Promise.all(scope === "crypto" ? [
         fetch(`${API_URL}/api/crypto/backtest?strategy=pullback_uptrend`, { cache: "no-store" }),
@@ -554,6 +562,8 @@ export function BacktestView({
         fetch(`${API_URL}/api/backtest?strategy=standard`, { cache: "no-store" }),
         fetch(`${API_URL}/api/backtest?strategy=conservative`, { cache: "no-store" }),
       ]);
+      await ensureApiResponse(stdRes);
+      await ensureApiResponse(conRes);
       const [stdJson, conJson] = await Promise.all([stdRes.json(), conRes.json()]);
       if (scope === "crypto") {
         setStdData({ ...stdJson, results: stdJson.results ?? [], global_total_trades: stdJson.summary?.total_trades ?? 0, global_win_rate: stdJson.summary?.win_rate ?? 0, global_expectancy: stdJson.summary?.expectancy ?? 0, global_reliable_count: stdJson.results?.length ?? 0, best_ticker: stdJson.results?.[0]?.ticker ?? "—", worst_ticker: stdJson.results?.[stdJson.results?.length - 1]?.ticker ?? "—", portfolio: null } as BacktestSummary);
@@ -564,11 +574,15 @@ export function BacktestView({
       }
       setCmpLoaded(true);
     } catch (e) {
-      console.error(e);
+      if (isAdminProtectedError(e)) {
+        setErrorMessage("Action admin protégée");
+      } else {
+        console.error(e);
+      }
     } finally {
       setCmpLoading(false);
     }
-  }, []);
+  }, [scope]);
 
   // ── Mode tabs ──
   return (
@@ -618,6 +632,15 @@ export function BacktestView({
             </div>
           ) : !loaded ? (
             <div className="flex flex-col items-center justify-center py-24 gap-6">
+              {errorMessage && (
+                <div className="rounded-xl px-4 py-3 max-w-2xl w-full"
+                  style={{ background: "#1a0a0a", border: "1px solid #7f1d1d66" }}>
+                  <p className="text-xs font-black text-red-400 uppercase tracking-widest mb-1">Action admin protégée</p>
+                  <p className="text-sm text-red-200">
+                    Ce backtest lourd nécessite une clé admin côté backend. L&apos;interface reste stable, mais le calcul n&apos;est pas autorisé ici.
+                  </p>
+                </div>
+              )}
               <div className="text-center">
                 <p className="text-4xl mb-3">📊</p>
                 <p className="text-white font-bold text-lg mb-1">{scope === "crypto" ? "Backtest crypto swing" : "Backtest sur 12 mois"}</p>
@@ -658,6 +681,15 @@ export function BacktestView({
             </div>
           ) : !cmpLoaded ? (
             <div className="flex flex-col items-center justify-center py-24 gap-6">
+              {errorMessage && (
+                <div className="rounded-xl px-4 py-3 max-w-2xl w-full"
+                  style={{ background: "#1a0a0a", border: "1px solid #7f1d1d66" }}>
+                  <p className="text-xs font-black text-red-400 uppercase tracking-widest mb-1">Action admin protégée</p>
+                  <p className="text-sm text-red-200">
+                    La comparaison complète nécessite une clé admin côté backend. L&apos;interface reste disponible sans bloquer le reste de l&apos;app.
+                  </p>
+                </div>
+              )}
               <div className="text-center">
                 <p className="text-4xl mb-3">⚖️</p>
                 <p className="text-white font-bold text-lg mb-1">Comparaison Standard vs Conservative</p>
