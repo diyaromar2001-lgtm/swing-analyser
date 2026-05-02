@@ -80,6 +80,7 @@ export function BestStrategyBadge({
   if (!name) return <span className="text-[10px] text-gray-700">—</span>;
   const c = color ?? "#6b7280";
   const short = name
+    .replace("Pullback Confirmed", "Pullback confirme")
     .replace("Pullback Trend", "Pullback")
     .replace("Breakout Quality", "Breakout")
     .replace("Relative Strength Leader", "Rel. Strength")

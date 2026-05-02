@@ -32,6 +32,10 @@ MIN_EXPECTANCY     = 0.0       # expectancy positive (même faible)
 OVERFIT_THRESHOLD  = 0.35      # dégradation PF > 35 % → overfitting
 PERIOD_MONTHS      = 24        # fenêtre backtest (24 mois)
 TRAIN_RATIO        = 0.75      # 75 % des trades pour le train
+PULLBACK_CONFIRMED_KEY = "pullback_confirmed"
+PULLBACK_CONFIRMED_MIN_TEST_PF = 1.05
+PULLBACK_CONFIRMED_MIN_TRADES = 15
+PULLBACK_CONFIRMED_MIN_STRONG_TEST_TRADES = 5
 
 # ── Cache 24 h ────────────────────────────────────────────────────────────────
 
@@ -145,6 +149,42 @@ def _classify_status(overall: Dict, train: Dict, test: Dict,
     return "NO_EDGE"
 
 
+def _apply_strategy_guardrails(
+    strategy_key: str,
+    status: str,
+    overall: Dict,
+    test: Dict,
+    overfit: bool,
+    period_months: int,
+) -> str:
+    """
+    Garde-fous ciblés pour éviter qu'une variante récente paraisse trop robuste
+    sur un échantillon encore fragile.
+    """
+    if strategy_key != PULLBACK_CONFIRMED_KEY:
+        return status
+
+    if overfit:
+        return "OVERFITTED" if status in ("STRONG_EDGE", "VALID_EDGE", "WEAK_EDGE") else status
+
+    total_trades = int(overall.get("n", 0) or 0)
+    expectancy = float(overall.get("expectancy", 0.0) or 0.0)
+    test_trades = int(test.get("n", 0) or 0)
+    test_pf = float(test.get("pf", 0.0) or 0.0) if test_trades > 0 else 0.0
+
+    if period_months >= 36 and total_trades < PULLBACK_CONFIRMED_MIN_TRADES:
+        return "NO_EDGE"
+
+    if status in ("STRONG_EDGE", "VALID_EDGE"):
+        if test_pf <= PULLBACK_CONFIRMED_MIN_TEST_PF or expectancy <= 0:
+            return "WEAK_EDGE" if overall.get("pf", 0.0) >= 1.1 else "NO_EDGE"
+
+    if status == "STRONG_EDGE" and test_trades < PULLBACK_CONFIRMED_MIN_STRONG_TEST_TRADES:
+        return "VALID_EDGE"
+
+    return status
+
+
 # ── Calcul principal ──────────────────────────────────────────────────────────
 
 def compute_ticker_edge(ticker: str, df: pd.DataFrame, period_months: int = PERIOD_MONTHS) -> Dict:
@@ -226,6 +266,14 @@ def compute_ticker_edge(ticker: str, df: pd.DataFrame, period_months: int = PERI
                 overfit_reasons.append("PF très élevé + drawdown élevé")
 
             status     = _classify_status(overall_m, train_m, test_m, overfit)
+            status     = _apply_strategy_guardrails(
+                strat["key"],
+                status,
+                overall_m,
+                test_m,
+                overfit,
+                period_months,
+            )
             edge_score = _edge_score_from(status, overall_m, test_m)
 
             strategy_results.append({

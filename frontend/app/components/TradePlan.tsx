@@ -136,6 +136,26 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
   const [showTakeModal, setShowTakeModal] = useState(false);
   const { isTickerActive } = useJournal();
   const alreadyTaken = isTickerActive(row.ticker);
+  const strategyName = row.best_strategy_name === "Pullback Confirmed"
+    ? "Pullback confirme"
+    : row.best_strategy_name ?? "Aucune";
+  const edgeLabel =
+    row.setup_grade === "REJECT" || row.setup_status === "INVALID"
+      ? "Setup invalide"
+      : row.ticker_edge_status === "STRONG_EDGE"
+        ? "Edge robuste"
+        : row.ticker_edge_status === "VALID_EDGE"
+          ? "Edge valide"
+          : row.ticker_edge_status === "WEAK_EDGE"
+            ? "Edge faible"
+            : row.ticker_edge_status === "OVERFITTED"
+              ? "Backtest suspect - eviter"
+              : "Edge non valide";
+  const edgeColor =
+    row.ticker_edge_status === "STRONG_EDGE" ? "#4ade80" :
+    row.ticker_edge_status === "VALID_EDGE"  ? "#86efac" :
+    row.ticker_edge_status === "WEAK_EDGE"   ? "#fde047" :
+    row.ticker_edge_status === "OVERFITTED"  ? "#f59e0b" : "#9ca3af";
 
   const gradeColors: Record<string, { bg: string; border: string }> = {
     "A+":    { bg: "#031a0d", border: "#16a34a" },
@@ -274,6 +294,21 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
               📋 Stratégie de Position
             </h3>
             <div className="rounded-xl p-4 space-y-3" style={{ background: "#0d0d18", border: "1px solid #1a1a28" }}>
+              <div
+                className="flex items-center justify-between gap-3 flex-wrap rounded-lg px-3 py-2"
+                style={{ background: "#111120", border: `1px solid ${edgeColor}33` }}
+              >
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-gray-600">StratÃ©gie Edge</p>
+                  <p className="text-sm font-semibold text-white">{strategyName}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[11px] font-black" style={{ color: edgeColor }}>{edgeLabel}</p>
+                  {row.overfit_warning && (
+                    <p className="text-[10px] text-amber-400">Backtest suspect - prudence</p>
+                  )}
+                </div>
+              </div>
               <div className="flex items-center gap-2">
                 <SetupGradeBadge grade={row.setup_grade} />
                 <span className="text-sm text-white font-medium">{row.position_size}</span>
