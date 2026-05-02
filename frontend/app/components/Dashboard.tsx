@@ -478,7 +478,6 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
         };
       }
       setEdgeOverlayCache(prev => ({ ...prev, [String(period)]: next }));
-      setEdgeOverlayNotice("Mode analyse avancée - horizon plus long, risque d'overfit à surveiller.");
     } catch {
       setEdgeOverlayNotice("Analyse Edge 36m indisponible pour le moment. Les valeurs 24m restent affichées.");
     } finally {
