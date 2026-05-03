@@ -1,49 +1,100 @@
 # Deployment
 
-## Official URLs
+## URLs officielles
 
-- Frontend (official): [https://swing-analyser-kappa.vercel.app](https://swing-analyser-kappa.vercel.app)
-- Backend API (official): [https://swing-analyser-production.up.railway.app](https://swing-analyser-production.up.railway.app)
-- GitHub repository: [https://github.com/diyaromar2001-lgtm/swing-analyser](https://github.com/diyaromar2001-lgtm/swing-analyser)
-- Branch used for production: `main`
+- Frontend officiel : [https://swing-analyser-kappa.vercel.app](https://swing-analyser-kappa.vercel.app)
+- Backend officiel : [https://swing-analyser-production.up.railway.app](https://swing-analyser-production.up.railway.app)
+- GitHub repository : [https://github.com/diyaromar2001-lgtm/swing-analyser](https://github.com/diyaromar2001-lgtm/swing-analyser)
+- Branche de production : `main`
 
-## Official Vercel project
+## Ce qu'il faut vérifier après chaque déploiement Railway
 
-The official Vercel deployment for the current app is the project that serves:
+1. Ouvrir le panneau `Admin` dans le frontend officiel.
+2. Tester la clé admin avec le bouton `Tester la clé`.
+3. Lancer `Warmup Actions complet 5 batchs`.
+4. Lancer `Warmup Crypto`.
+5. Cliquer `Vérifier cache`.
+6. Attendre l'état :
+   - `Actions OK`
+   - `Crypto OK`
 
-- `swing-analyser-kappa.vercel.app`
+Le bouton `Admin` est visible dans la barre supérieure du frontend officiel.
+La clé est stockée uniquement dans `localStorage` sous `admin_api_key`.
 
-This is the frontend that includes the current Actions UI updates, including:
+## Statuts à interpréter
 
-- Edge `24m / 36m` toggle in Advanced View
-- current Actions/Crypto switcher
-- latest deployment-linked UI fixes
+### Actions OK
 
-## Old Vercel URL
+Actions est considéré comme prêt lorsque les caches sont suffisamment chauds, typiquement :
+- `ohlcv_cache_count > 150`
+- `price_cache_count > 150`
+- `screener_results_count > 0`
 
-This older frontend should not be treated as production:
+### Crypto OK
+
+Crypto est considéré comme prêt lorsque :
+- `crypto_price_cache_count > 0`
+- `crypto_screener_cache_count > 0`
+- `crypto_regime_cache_status = warm`
+
+### Edge coverage
+
+La couverture Edge indique la part de l'univers pour laquelle un edge historique est disponible.
+- Sur Actions, le `Command Center` officiel reste basé sur l'horizon `24m`.
+- Le `36m` est réservé à l'analyse avancée.
+
+### Régimes défensifs
+
+- `CRYPTO_BEAR`
+- `CRYPTO_NO_TRADE`
+- `CRYPTO_HIGH_VOLATILITY`
+
+Dans ces cas, Crypto doit être lu comme une watchlist technique, pas comme une invitation à acheter.
+
+### Statuts de setup et edge
+
+- `REJECT` : setup technique insuffisant
+- `NO_EDGE` : edge historique absent ou trop faible
+- `OVERFITTED` : edge suspect, à éviter
+
+## Workflow de warmup recommandé
+
+### Actions
+
+1. `Warmup Actions batch 1`
+2. `Warmup Actions batch 2`
+3. `Warmup Actions batch 3`
+4. `Warmup Actions batch 4`
+5. `Warmup Actions batch 5`
+6. Optionnellement relancer `Vérifier cache`
+
+### Crypto
+
+1. `Warmup Crypto`
+2. `Vérifier cache`
+3. Vérifier que `Crypto OK` apparaît bien
+
+## Limites actuelles
+
+- Les caches Railway sont en mémoire.
+- Un redeploy peut vider les caches.
+- Le warmup admin est nécessaire après redeploy.
+- L'Edge Actions ne se recalcule pas automatiquement en continu.
+- Crypto reste défensif si les données BTC/ETH ou le régime ne sont pas fiables.
+
+## Ancienne URL Vercel
+
+L'ancienne URL suivante ne doit pas être considérée comme officielle :
 
 - `frontend-seven-snowy-63.vercel.app`
 
-It serves an outdated UI and can confuse users because it does not necessarily match the latest backend or current production frontend.
+Action recommandée :
+1. Ouvrir le projet Vercel qui sert cette URL.
+2. Le supprimer, l'archiver, ou configurer une redirection vers l'URL officielle.
+3. Garder uniquement [https://swing-analyser-kappa.vercel.app](https://swing-analyser-kappa.vercel.app) comme frontend de référence.
 
-## Recommended action for the old Vercel URL
+## Notes techniques
 
-Preferred action:
-
-1. Open the old Vercel project that owns `frontend-seven-snowy-63.vercel.app`
-2. Go to `Settings`
-3. Remove the custom/public domain if one is attached
-4. Archive or delete the old project if it is no longer needed
-
-If you want to keep the old project temporarily:
-
-1. Update that project to deploy the same GitHub repo and `main` branch
-2. Or add a redirect in that project so all traffic goes to:
-   - `https://swing-analyser-kappa.vercel.app`
-
-## Notes
-
-- The frontend uses Vercel rewrites to proxy `/api/*` to Railway.
-- Production decisions for the Actions Command Center remain based on the default `24m` edge horizon.
-- The `36m` edge horizon is for Advanced View analysis only.
+- Le frontend utilise des requêtes vers le backend Railway.
+- Les décisions de production Actions restent basées sur `24m`.
+- Le mode `36m` est une vue d'analyse avancée, pas la source de décision officielle.
