@@ -1031,7 +1031,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
                 setMinScore(0);
                 setView("table");
               }}
-                className="md:px-3 md:py-1.5 px-1.5 py-1 text-[11px] md:text-xs font-black uppercase tracking-widest transition-all"
+                className="md:px-3 md:py-1.5 px-2 py-1 text-xs font-black uppercase tracking-widest transition-all"
                 style={{
                   background: universe === u ? (u === "actions" ? "#041310" : "#101025") : "#0d0d18",
                   color: universe === u ? (u === "actions" ? "#10b981" : "#60a5fa") : "#4b5563",
@@ -1048,7 +1048,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
                 setUiMode(m);
                 localStorage.setItem("swing_ui_mode", m);
               }}
-                className="md:px-3 md:py-1.5 px-2 py-1 text-[11px] md:text-xs font-black uppercase tracking-widest transition-all"
+                className="md:px-3 md:py-1.5 px-2 py-1 text-xs font-black uppercase tracking-widest transition-all"
                 style={{
                   background: uiMode === m ? (m === "simple" ? "#041310" : "#1e1e3a") : "#0d0d18",
                   color:      uiMode === m ? (m === "simple" ? "#10b981" : "#818cf8") : "#4b5563",
@@ -1100,7 +1100,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
               <details className="relative">
                 <summary
-                  className="list-none cursor-pointer select-none md:px-3 md:py-1.5 px-2 py-1 rounded-lg text-[11px] md:text-xs font-black uppercase tracking-widest"
+                  className="list-none cursor-pointer select-none md:px-3 md:py-1.5 px-2 py-1 rounded-lg text-xs font-black uppercase tracking-widest"
                   style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#a78bfa" }}
                 >
                   Recherche
