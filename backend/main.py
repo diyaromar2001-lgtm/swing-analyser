@@ -2178,6 +2178,93 @@ def _warmup_actions(
     }
 
 
+def _warmup_missing_actions(
+    include_edge: bool,
+    limit: Optional[int],
+    warnings: List[str],
+    errors: List[str],
+) -> Dict[str, Any]:
+    default_results = _screener_cache.get(_default_screener_cache_key(), {}).get("data", [])
+    cached_tickers = {
+        str(getattr(row, "ticker", row.get("ticker"))).upper()
+        for row in default_results
+        if getattr(row, "ticker", None) or isinstance(row, dict) and row.get("ticker")
+    }
+    missing = [t for t in ALL_TICKERS if t not in cached_tickers]
+    if not missing:
+        return {
+            "actions_missing_count": 0,
+            "actions_missing_tickers": [],
+            "actions_missing_errors": [],
+            "actions_missing_warmed": 0,
+            "actions_cache": _actions_cache_snapshot(),
+        }
+
+    batch_limit = min(limit or 50, len(missing))
+    batch_tickers = missing[:batch_limit]
+    warmed: List[str] = []
+    batch_errors: List[str] = []
+    audit = Counter()
+    audit_lock = threading.Lock()
+
+    with ThreadPoolExecutor(max_workers=min(8, max(len(batch_tickers), 1))) as executor:
+        futures = {
+            executor.submit(analyze_ticker, t, "standard", False, True, True, True, False, audit, audit_lock): t
+            for t in batch_tickers
+        }
+        for future in as_completed(futures):
+            ticker = futures[future]
+            try:
+                res = future.result()
+                if res:
+                    warmed.append(str(getattr(res, "ticker", ticker)).upper())
+                    _merge_screener_cache_results(
+                        _default_screener_cache_key(),
+                        [res],
+                        meta={"source": "warmup-missing", "ticker": ticker},
+                    )
+            except Exception as exc:
+                batch_errors.append(f"actions_missing:{ticker}: {type(exc).__name__}: {str(exc)[:160]}")
+
+    if warmed:
+        _run_with_timeout(
+            "actions_prices_missing",
+            lambda: get_prices(",".join(warmed[: min(len(warmed), 40)])),
+            45,
+            warnings,
+            errors,
+        )
+
+    if include_edge and warmed:
+        for ticker in warmed:
+            df = _get_ohlcv(ticker, allow_download=True)
+            if df is None:
+                continue
+            try:
+                compute_ticker_edge(ticker, df, period_months=24)
+            except Exception as exc:
+                batch_errors.append(f"actions_missing_edge:{ticker}: {type(exc).__name__}: {str(exc)[:160]}")
+
+    _warmup_progress["actions"] = {
+        "total_tickers": len(ALL_TICKERS),
+        "warmed_tickers": len(_screener_cache.get(_default_screener_cache_key(), {}).get("data", [])),
+        "missing_tickers": max(len(ALL_TICKERS) - len(_screener_cache.get(_default_screener_cache_key(), {}).get("data", [])), 0),
+        "estimated_batches_remaining": None,
+        "last_batch": "missing",
+        "last_slice": ",".join(batch_tickers[:5]),
+        "errors": batch_errors[-10:],
+    }
+
+    return {
+        "actions_missing_count": len(missing),
+        "actions_missing_tickers": missing,
+        "actions_missing_batch_count": len(batch_tickers),
+        "actions_missing_warmed": len(warmed),
+        "actions_missing_errors": batch_errors,
+        "actions_cache": _actions_cache_snapshot(),
+    }
+
+
 def _warmup_crypto(include_edge: bool, limit: Optional[int], warnings: List[str], errors: List[str]) -> Dict[str, Any]:
     warmed_symbols: List[str] = []
     edge_computed = 0
@@ -2256,6 +2343,13 @@ def warmup(
                 start_index=start_index,
                 end_index=end_index,
             )
+        )
+    if normalized == "actions" and batch_size == 50 and batch == 1 and start_index is None and end_index is None:
+        payload["actions_missing"] = _warmup_missing_actions(
+            include_edge=include_edge,
+            limit=limit,
+            warnings=warnings,
+            errors=errors,
         )
     if normalized in {"crypto", "all"}:
         payload.update(_warmup_crypto(include_edge=include_edge, limit=limit, warnings=warnings, errors=errors))
