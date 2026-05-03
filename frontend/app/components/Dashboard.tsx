@@ -582,6 +582,26 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     }
   }, [data, pollPrices, fetchFreshness]);
 
+  const restoreFromCache = useCallback(() => {
+    const cached = loadScreenerCache(screenerScope);
+    if (cached?.data?.length) {
+      setData(cached.data);
+      dataLengthRef.current = cached.data.length;
+      setLastUpdate(new Date(cached.ts));
+      setLoading(false);
+      setScreenerNotice({
+        kind: "refresh-failed",
+        message: "Dernières données locales restaurées depuis le cache",
+      });
+      return;
+    }
+    setScreenerNotice({
+      kind: "empty-cache",
+      message: "Aucune donnée en cache. Lancez une analyse complète.",
+    });
+    setLoading(false);
+  }, [screenerScope]);
+
   // Lance + relance le polling quand `data` change
   useEffect(() => {
     if (data.length === 0) return;
@@ -1002,7 +1022,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
                 className="px-3 py-1.5 rounded-lg text-xs font-bold"
                 style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#818cf8" }}
               >
-                Réessayer
+                Réessayer depuis cache
               </button>
               <button
                 onClick={refreshPricesOnly}
@@ -1010,6 +1030,13 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
                 style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#10b981" }}
               >
                 Rafraîchir prix seulement
+              </button>
+              <button
+                onClick={restoreFromCache}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold"
+                style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#f59e0b" }}
+              >
+                Recharger depuis cache
               </button>
             </div>
           </div>
