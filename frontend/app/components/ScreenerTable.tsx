@@ -330,7 +330,7 @@ export function ScreenerTable({
                       <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">{row.sector}</td>
                       <td className="px-3 py-2.5 tabular-nums text-xs">
                         <span className="font-mono text-gray-200">${scope === "crypto" ? formatCryptoPrice(row.ticker, row.price) : row.price.toFixed(2)}</span>
-                        {row.change_pct !== undefined && (
+                        {row.change_pct != null && (
                           <span
                             className="ml-1.5 font-semibold"
                             style={{ color: row.change_pct > 0 ? "#10b981" : row.change_pct < 0 ? "#ef4444" : "#6b7280", fontSize: "10px" }}
@@ -521,9 +521,9 @@ export function ScreenerTable({
                       <td className="px-3 py-2.5"><PctCell val={row.risk_now_pct} good="negative" /></td>
                       <td className="px-3 py-2.5"><PctCell val={row.dist_entry_pct} good="neutral" /></td>
                       <td className="px-3 py-2.5 font-mono tabular-nums text-xs" style={{
-                        color: row.rsi_val > 70 ? "#ef4444" : row.rsi_val < 30 ? "#10b981" : row.rsi_val >= 50 && row.rsi_val <= 70 ? "#4ade80" : "#9ca3af"
+                        color: row.rsi_val == null ? "#4b5563" : row.rsi_val > 70 ? "#ef4444" : row.rsi_val < 30 ? "#10b981" : row.rsi_val >= 50 && row.rsi_val <= 70 ? "#4ade80" : "#9ca3af"
                       }}>
-                        {row.rsi_val.toFixed(1)}
+                        {row.rsi_val != null ? row.rsi_val.toFixed(1) : "—"}
                       </td>
                       <td className="px-3 py-2.5"><PctCell val={row.perf_3m} /></td>
                       <td className="px-3 py-2.5 text-center">
