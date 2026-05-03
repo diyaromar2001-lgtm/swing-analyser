@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import { LabStrategyResult, LabSummary, WalkForward, OptimizedParamSet, OptimizerResult } from "../types";
 import { Strategy } from "./Dashboard";
 import { EngineBanner } from "./BacktestView";
-import { ensureApiResponse, getApiUrl, isAdminProtectedError } from "../lib/api";
+import { ensureApiResponse, getAdminHeaders, getApiUrl, isAdminProtectedError } from "../lib/api";
 
 const API_URL = getApiUrl();
 
@@ -1205,7 +1205,10 @@ function OptimizerSection({
   const runOptimizer = useCallback(async () => {
     setOptLoading(true);
     try {
-      const res  = await fetch(`${API_URL}/api/optimizer?period=${period}`, { cache: "no-store" });
+      const res  = await fetch(`${API_URL}/api/optimizer?period=${period}`, {
+        cache: "no-store",
+        headers: getAdminHeaders(),
+      });
       await ensureApiResponse(res);
       const json = await res.json();
       setOptData(json);

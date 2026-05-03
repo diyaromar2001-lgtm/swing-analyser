@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { BacktestSummary, BacktestResult, BacktestTrade, PortfolioMetrics } from "../types";
 import { Strategy } from "./Dashboard";
-import { ensureApiResponse, getApiUrl, isAdminProtectedError } from "../lib/api";
+import { ensureApiResponse, getAdminHeaders, getApiUrl, isAdminProtectedError } from "../lib/api";
 
 const API_URL = getApiUrl();
 
@@ -535,7 +535,10 @@ export function BacktestView({
       const path = scope === "crypto"
         ? `${API_URL}/api/crypto/backtest?strategy=${s === "conservative" ? "btc_eth_trend_breakout" : "pullback_uptrend"}`
         : `${API_URL}/api/backtest?strategy=${s}`;
-      const res  = await fetch(path, { cache: "no-store" });
+      const res  = await fetch(path, {
+        cache: "no-store",
+        headers: getAdminHeaders(),
+      });
       await ensureApiResponse(res);
       const json = await res.json();
       setData(scope === "crypto" ? ({ ...json, results: json.results ?? [], global_total_trades: json.summary?.total_trades ?? 0, global_win_rate: json.summary?.win_rate ?? 0, global_expectancy: json.summary?.expectancy ?? 0, global_reliable_count: json.results?.length ?? 0, best_ticker: json.results?.[0]?.ticker ?? "—", worst_ticker: json.results?.[json.results?.length - 1]?.ticker ?? "—", portfolio: null } as BacktestSummary) : json);
@@ -556,11 +559,23 @@ export function BacktestView({
     setErrorMessage(null);
     try {
       const [stdRes, conRes] = await Promise.all(scope === "crypto" ? [
-        fetch(`${API_URL}/api/crypto/backtest?strategy=pullback_uptrend`, { cache: "no-store" }),
-        fetch(`${API_URL}/api/crypto/backtest?strategy=btc_eth_trend_breakout`, { cache: "no-store" }),
+        fetch(`${API_URL}/api/crypto/backtest?strategy=pullback_uptrend`, {
+          cache: "no-store",
+          headers: getAdminHeaders(),
+        }),
+        fetch(`${API_URL}/api/crypto/backtest?strategy=btc_eth_trend_breakout`, {
+          cache: "no-store",
+          headers: getAdminHeaders(),
+        }),
       ] : [
-        fetch(`${API_URL}/api/backtest?strategy=standard`, { cache: "no-store" }),
-        fetch(`${API_URL}/api/backtest?strategy=conservative`, { cache: "no-store" }),
+        fetch(`${API_URL}/api/backtest?strategy=standard`, {
+          cache: "no-store",
+          headers: getAdminHeaders(),
+        }),
+        fetch(`${API_URL}/api/backtest?strategy=conservative`, {
+          cache: "no-store",
+          headers: getAdminHeaders(),
+        }),
       ]);
       await ensureApiResponse(stdRes);
       await ensureApiResponse(conRes);
