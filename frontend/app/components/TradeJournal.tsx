@@ -39,6 +39,16 @@ function pnlColor(value?: number | null) {
   return value > 0 ? "#10b981" : value < 0 ? "#ef4444" : "#6b7280";
 }
 
+function normalizeNote(value?: string | null) {
+  return String(value ?? "").trim();
+}
+
+function previewNote(value?: string | null, maxLen = 80) {
+  const note = normalizeNote(value);
+  if (!note) return "";
+  return note.length > maxLen ? `${note.slice(0, maxLen).trimEnd()}...` : note;
+}
+
 function normalizeText(value?: unknown) {
   return String(value ?? "").trim().toUpperCase();
 }
@@ -103,10 +113,10 @@ function Section({
         <div className="py-8 text-center text-gray-600 text-sm">Aucun élément</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px] text-left border-collapse">
+          <table className="w-full min-w-[1320px] text-left border-collapse">
             <thead>
               <tr className="text-[10px] uppercase tracking-widest text-gray-500">
-                {["Universe", "Symbol", "Status", "Grade", "Edge", "Strategy", "Entry", "Stop", "TP1", "TP2", "Risk", "Qty", "PnL", "R", "Date", "Actions"].map(col => (
+                {["Universe", "Symbol", "Status", "Grade", "Edge", "Strategy", "Note", "Entry", "Stop", "TP1", "TP2", "Risk", "Qty", "PnL", "R", "Date", "Actions"].map(col => (
                   <th key={col} className="py-2 pr-3 border-b border-[#1a1a2e]">{col}</th>
                 ))}
               </tr>
@@ -119,16 +129,39 @@ function Section({
                 const openAllowed = canOpenTrade(trade);
                 const blockedReason = openBlockReason(trade);
                 const nonConformingOpen = isNonConformingOpen(trade);
+                const noteText = normalizeNote(trade.notes ?? trade.note_entry);
+                const notePreview = previewNote(noteText);
                 return (
                   <tr key={trade.id} className="align-top hover:bg-white/[0.02]">
                     <td className="py-3 pr-3 text-xs text-gray-400 border-b border-[#141425]">{trade.universe ?? "ACTIONS"}</td>
-                    <td className="py-3 pr-3 text-sm font-black text-white border-b border-[#141425]">{trade.symbol ?? trade.ticker}</td>
+                    <td className="py-3 pr-3 text-sm font-black text-white border-b border-[#141425]">
+                      <div className="space-y-1">
+                        <div>{trade.symbol ?? trade.ticker}</div>
+                        {notePreview ? (
+                          <div className="inline-flex max-w-[260px] items-center gap-2 rounded-full px-2 py-1 text-[10px] font-bold" style={{ background: "#111827", color: "#fcd34d", border: "1px solid #374151" }}>
+                            <span>Note</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="py-3 pr-3 border-b border-[#141425]">
                       <span className="px-2 py-1 rounded text-[10px] font-black" style={{ color: badge.color, background: badge.bg }}>{badge.label}</span>
                     </td>
                     <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{trade.setup_grade ?? "—"}</td>
                     <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{trade.edge_status ?? "—"}</td>
                     <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{(trade.strategy_name ?? trade.strategy ?? "—").replaceAll("_", " ")}</td>
+                    <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">
+                      {notePreview ? (
+                        <div className="space-y-1">
+                          <span className="inline-flex items-center rounded-full px-2 py-1 text-[10px] font-black" style={{ background: "#1f2937", color: "#f9fafb", border: "1px solid #374151" }}>
+                            Note
+                          </span>
+                          <p className="max-w-[320px] text-[11px] leading-4 text-gray-300">{notePreview}</p>
+                        </div>
+                      ) : (
+                        <span className="text-gray-600">—</span>
+                      )}
+                    </td>
                     <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{money(trade.entry_price ?? trade.entry_plan)}</td>
                     <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{money(trade.stop_loss)}</td>
                     <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{money(trade.tp1)}</td>
@@ -506,7 +539,7 @@ export function TradeJournal() {
           mode={editMode}
           onClose={() => setEditTrade(null)}
           onSave={updates => {
-            void updateTrade(editTrade.id, updates);
+            void updateTrade(editTrade.id, updates).then(() => void refreshJournal());
             setEditTrade(null);
           }}
         />
