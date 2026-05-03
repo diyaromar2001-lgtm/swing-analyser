@@ -151,6 +151,7 @@ _screener_cache: Dict[str, dict] = {}
 _SCREENER_TTL = 60
 _screener_warm_lock = threading.Lock()
 _screener_warming = False
+_warmup_progress: Dict[str, dict] = {}
 
 # ── Cache OHLCV historique (4h) — indicateurs stables sur la journée ─────────
 # SMA200, RSI, MACD, ATR… ne bougent pas significativement en intraday.
@@ -196,10 +197,14 @@ def _actions_cache_snapshot() -> Dict[str, Any]:
     regime_ts = _regime_engine_module._cache.get("ts", 0) or _market_regime_cache.get("ts", 0)
     market_context_ts = _mkt_ctx_cache.get("ts", 0) or _market_context_module._context_cache.get("ts", 0)
     edge_status = strategy_edge_status()
+    default_cache = _screener_cache.get(_default_screener_cache_key(), {})
+    default_results = default_cache.get("data", []) if isinstance(default_cache, dict) else []
+    warmup_state = _warmup_progress.get("actions", {})
     return {
         "ohlcv_cache_count": len(_ohlcv_cache),
         "price_cache_count": len(_price_cache),
         "screener_cache_count": len(_screener_cache),
+        "screener_results_count": len(default_results),
         "regime_cache_status": _cache_state(regime_ts, 3600),
         "market_context_cache_status": _cache_state(market_context_ts, _MKT_CTX_TTL),
         "edge_cache_coverage": edge_status.get("coverage_pct", 0.0),
@@ -208,6 +213,13 @@ def _actions_cache_snapshot() -> Dict[str, Any]:
         "last_regime_update": _ts_to_iso(regime_ts),
         "last_market_context_update": _ts_to_iso(market_context_ts),
         "last_edge_update": _ts_to_iso(edge_ts),
+        "warmup_progress": {
+            "total_tickers": warmup_state.get("total_tickers", len(ALL_TICKERS)),
+            "warmed_tickers": warmup_state.get("warmed_tickers", 0),
+            "missing_tickers": warmup_state.get("missing_tickers", max(len(ALL_TICKERS) - len(default_results), 0)),
+            "estimated_batches_remaining": warmup_state.get("estimated_batches_remaining"),
+        },
+        "warmup_errors": warmup_state.get("errors", []),
     }
 
 
@@ -408,6 +420,33 @@ def fetch_sp500_perf():
 
 def _default_screener_cache_key() -> str:
     return "standard|False|||"
+
+
+def _merge_screener_cache_results(base_key: str, results: List[object], *, ts: Optional[float] = None, meta: Optional[dict] = None) -> List[object]:
+    now = ts or _time.time()
+    existing = _screener_cache.get(base_key, {})
+    existing_data = existing.get("data", []) if isinstance(existing, dict) else []
+    merged: List[object] = []
+    seen = set()
+
+    for item in list(existing_data) + list(results):
+        ticker = getattr(item, "ticker", None)
+        if ticker is None and isinstance(item, dict):
+            ticker = item.get("ticker")
+        ticker_key = str(ticker).upper() if ticker else None
+        if ticker_key and ticker_key in seen:
+            continue
+        if ticker_key:
+            seen.add(ticker_key)
+        merged.append(item)
+
+    if merged:
+        _screener_cache[base_key] = {
+            "ts": now,
+            "data": merged,
+            "meta": meta or {},
+        }
+    return merged
 
 
 def _warm_default_screener_cache_async():
@@ -1152,6 +1191,7 @@ def clear_cache(
         _market_regime_cache.clear()
         _regime_engine_module._cache.clear()
         _market_context_module._context_cache.clear()
+        _warmup_progress.pop("actions", None)
 
     if normalized in {"crypto", "all"}:
         _crypto_regime_cache.clear()
@@ -1828,42 +1868,73 @@ def cache_status(scope: str = Query("all")):
     return payload
 
 
-def _warmup_actions(include_edge: bool, limit: Optional[int], warnings: List[str], errors: List[str]) -> Dict[str, Any]:
+def _warmup_actions(
+    include_edge: bool,
+    limit: Optional[int],
+    warnings: List[str],
+    errors: List[str],
+    batch_size: int = 50,
+    batch: int = 1,
+    start_index: Optional[int] = None,
+    end_index: Optional[int] = None,
+) -> Dict[str, Any]:
     warmed_tickers: List[str] = []
     edge_computed = 0
-    warmup_cache_key = "standard|False||0|"
+    total_tickers = len(ALL_TICKERS)
+    batch_size = max(1, min(int(batch_size or 50), 100))
+    batch = max(1, int(batch or 1))
+
+    if start_index is not None or end_index is not None:
+        start = max(0, int(start_index or 0))
+        stop = min(total_tickers, int(end_index) if end_index is not None else total_tickers)
+    else:
+        start = (batch - 1) * batch_size
+        stop = min(total_tickers, start + batch_size)
+    if start >= total_tickers:
+        start = total_tickers
+    if stop < start:
+        stop = start
+    slice_tickers = ALL_TICKERS[start:stop]
+    batch_label = f"{start}:{stop}"
 
     fetch_sp500_perf()
-    # Force a real recompute even if a previous public fast call cached an empty result.
-    _screener_cache.pop(warmup_cache_key, None)
     _run_with_timeout("actions_market_context", lambda: _get_market_ctx(allow_download=True), 45, warnings, errors)
     _run_with_timeout("actions_regime_engine", lambda: compute_regime_engine(fast=False), 45, warnings, errors)
     _run_with_timeout("actions_market_regime", lambda: market_regime(), 45, warnings, errors)
 
-    screener_run = _run_with_timeout(
-        "actions_screener",
-        lambda: screener(
-            sector=None,
-            min_score=0,
-            signal=None,
-            strategy="standard",
-            exclude_earnings=False,
-            fast=False,
-        ),
-        120,
-        warnings,
-        errors,
-    )
-    screener_results = screener_run["value"] if screener_run["ok"] and isinstance(screener_run["value"], list) else []
+    results: List[object] = []
+    audit = Counter()
+    audit_lock = threading.Lock()
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {
+            executor.submit(analyze_ticker, t, "standard", False, True, True, True, False, audit, audit_lock): t
+            for t in slice_tickers
+        }
+        for future in as_completed(futures):
+            ticker = futures[future]
+            try:
+                res = future.result()
+                if res:
+                    results.append(res)
+                    warmed_tickers.append(str(getattr(res, "ticker", ticker)).upper())
+            except Exception as exc:
+                errors.append(f"actions_warmup:{ticker}: {type(exc).__name__}: {str(exc)[:160]}")
 
-    if screener_results:
-        warmed_tickers = []
-        for row in screener_results:
-            ticker = row.get("ticker") if isinstance(row, dict) else getattr(row, "ticker", None)
-            if ticker:
-                warmed_tickers.append(str(ticker).upper())
-        if limit:
-            warmed_tickers = warmed_tickers[:limit]
+    if limit:
+        warmed_tickers = warmed_tickers[:limit]
+        results = [r for r in results if str(getattr(r, "ticker", "")).upper() in set(warmed_tickers)]
+
+    if results:
+        _merge_screener_cache_results(
+            _default_screener_cache_key(),
+            results,
+            meta={"source": "warmup", "batch": batch, "batch_size": batch_size, "slice": batch_label},
+        )
+        _screener_cache[f"warmup|batch={batch}|size={batch_size}|slice={batch_label}"] = {
+            "ts": _time.time(),
+            "data": results,
+            "meta": {"source": "warmup", "batch": batch, "batch_size": batch_size, "slice": batch_label},
+        }
         if warmed_tickers:
             _run_with_timeout(
                 "actions_prices",
@@ -1886,10 +1957,31 @@ def _warmup_actions(include_edge: bool, limit: Optional[int], warnings: List[str
             except Exception as exc:
                 errors.append(f"actions_edge:{ticker}: {type(exc).__name__}: {str(exc)[:160]}")
 
+    merged_results = _screener_cache.get(_default_screener_cache_key(), {}).get("data", [])
+    missing_tickers = max(total_tickers - len(merged_results), 0)
+    estimated_remaining = max((missing_tickers + batch_size - 1) // batch_size, 0)
+    _warmup_progress["actions"] = {
+        "total_tickers": total_tickers,
+        "warmed_tickers": len(merged_results),
+        "missing_tickers": missing_tickers,
+        "estimated_batches_remaining": estimated_remaining,
+        "last_batch": batch,
+        "last_slice": batch_label,
+        "errors": errors[-10:],
+    }
+
     return {
         "actions_count": len(warmed_tickers),
         "actions_edge_computed": edge_computed,
         "actions_cache": _actions_cache_snapshot(),
+        "warmup_batch": {
+            "batch": batch,
+            "batch_size": batch_size,
+            "start_index": start,
+            "end_index": stop,
+            "total_batches": max((total_tickers + batch_size - 1) // batch_size, 1),
+            "slice_count": len(slice_tickers),
+        },
     }
 
 
@@ -1938,6 +2030,10 @@ def warmup(
     scope: str = Query("all"),
     include_edge: bool = Query(False),
     limit: Optional[int] = Query(None, ge=1, le=100),
+    batch_size: int = Query(50, ge=1, le=200),
+    batch: int = Query(1, ge=1),
+    start_index: Optional[int] = Query(None, ge=0),
+    end_index: Optional[int] = Query(None, ge=0),
     _: None = Depends(require_admin_key),
 ):
     normalized = (scope or "all").strip().lower()
@@ -1955,7 +2051,18 @@ def warmup(
     }
 
     if normalized in {"actions", "all"}:
-        payload.update(_warmup_actions(include_edge=include_edge, limit=limit, warnings=warnings, errors=errors))
+        payload.update(
+            _warmup_actions(
+                include_edge=include_edge,
+                limit=limit,
+                warnings=warnings,
+                errors=errors,
+                batch_size=batch_size,
+                batch=batch,
+                start_index=start_index,
+                end_index=end_index,
+            )
+        )
     if normalized in {"crypto", "all"}:
         payload.update(_warmup_crypto(include_edge=include_edge, limit=limit, warnings=warnings, errors=errors))
 
@@ -1966,6 +2073,7 @@ def warmup(
         "actions": _actions_cache_snapshot() if normalized in {"actions", "all"} else None,
         "crypto": _crypto_cache_snapshot() if normalized in {"crypto", "all"} else None,
     }
+    payload["warmup_progress"] = _warmup_progress.get("actions") if normalized in {"actions", "all"} else None
     if errors:
         payload["status"] = "partial" if any(payload.get(k, 0) for k in ("actions_count", "crypto_count")) else "error"
     return payload
