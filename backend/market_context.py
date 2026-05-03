@@ -7,8 +7,24 @@ Cache : 5 min.
 import time
 import numpy as np
 import yfinance as yf
+import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 from indicators import sma, rsi, perf_pct
+
+
+def _yf_history_safe(ticker: str, period: str = "4mo", interval: str = "1d", timeout: int = 10) -> pd.DataFrame | None:
+    """
+    Robust yfinance history fetcher to avoid "Invalid Crumb" errors.
+    Uses yf.Ticker().history() instead of yf.download().
+    """
+    try:
+        ticker_obj = yf.Ticker(ticker)
+        df = ticker_obj.history(period=period, interval=interval, timeout=timeout, auto_adjust=True, progress=False)
+        if df is None or df.empty:
+            return None
+        return df
+    except Exception:
+        return None
 
 # ── Cache ─────────────────────────────────────────────────────────────────────
 _context_cache: dict = {}
@@ -42,8 +58,8 @@ BREADTH_TICKERS = [
 
 def _fetch_vix() -> float:
     try:
-        df = yf.download("^VIX", period="5d", interval="1d", progress=False, auto_adjust=True)
-        if not df.empty:
+        df = _yf_history_safe("^VIX", period="5d", interval="1d", timeout=10)
+        if df is not None and not df.empty:
             return round(float(df["Close"].squeeze().iloc[-1]), 1)
     except Exception:
         pass
@@ -52,8 +68,8 @@ def _fetch_vix() -> float:
 
 def _check_above_sma50(ticker: str) -> bool | None:
     try:
-        df = yf.download(ticker, period="4mo", interval="1d", progress=False, auto_adjust=True)
-        if df.empty or len(df) < 55:
+        df = _yf_history_safe(ticker, period="4mo", interval="1d", timeout=10)
+        if df is None or df.empty or len(df) < 55:
             return None
         c   = df["Close"].squeeze()
         s50 = float(sma(c, 50).iloc[-1])
@@ -75,8 +91,8 @@ def _fetch_sector_strength() -> dict[str, dict]:
     def _fetch_etf(item):
         sector, etf = item
         try:
-            df = yf.download(etf, period="3mo", interval="1d", progress=False, auto_adjust=True)
-            if df.empty or len(df) < 25:
+            df = _yf_history_safe(etf, period="3mo", interval="1d", timeout=10)
+            if df is None or df.empty or len(df) < 25:
                 return sector, None
             c = df["Close"].squeeze()
             perf_1m  = round((float(c.iloc[-1]) / float(c.iloc[-21]) - 1) * 100, 2)

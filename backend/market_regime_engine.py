@@ -28,6 +28,21 @@ import pandas as pd
 
 from indicators import sma, rsi, sma_slope
 
+
+def _yf_history_safe(ticker: str, period: str = "14mo", interval: str = "1d", timeout: int = 10) -> pd.DataFrame | None:
+    """
+    Robust yfinance history fetcher to avoid "Invalid Crumb" errors.
+    Uses yf.Ticker().history() instead of yf.download().
+    """
+    try:
+        ticker_obj = yf.Ticker(ticker)
+        df = ticker_obj.history(period=period, interval=interval, timeout=timeout, auto_adjust=True, progress=False)
+        if df is None or df.empty:
+            return None
+        return df
+    except Exception:
+        return None
+
 # ── Cache ──────────────────────────────────────────────────────────────────────
 _cache: dict = {}
 _lock  = threading.Lock()
@@ -217,9 +232,8 @@ def compute_regime_engine(fast: bool = False) -> dict:
 
     try:
         # ── Téléchargement SPY ────────────────────────────────────────────────
-        spy_df = yf.download("SPY", period="14mo", interval="1d",
-                             progress=False, auto_adjust=True)
-        if spy_df.empty or len(spy_df) < 210:
+        spy_df = _yf_history_safe("SPY", period="14mo", interval="1d", timeout=10)
+        if spy_df is None or spy_df.empty or len(spy_df) < 210:
             raise ValueError("SPY history insufficient")
 
         close       = spy_df["Close"].squeeze()
@@ -235,9 +249,8 @@ def compute_regime_engine(fast: bool = False) -> dict:
         # ── VIX ───────────────────────────────────────────────────────────────
         vix_val = 20.0
         try:
-            vix_df  = yf.download("^VIX", period="5d", interval="1d",
-                                  progress=False, auto_adjust=True)
-            if not vix_df.empty:
+            vix_df = _yf_history_safe("^VIX", period="5d", interval="1d", timeout=10)
+            if vix_df is not None and not vix_df.empty:
                 vix_val = float(vix_df["Close"].squeeze().iloc[-1])
         except Exception:
             pass

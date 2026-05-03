@@ -621,10 +621,38 @@ class TradeJournalPatchRequest(BaseModel):
     source_snapshot: Optional[Dict[str, Any]] = None
 
 
+def _yf_history_safe(
+    ticker: str,
+    period: str = "26mo",
+    interval: str = "1d",
+    timeout: int = 10,
+) -> Optional[pd.DataFrame]:
+    """
+    Fetches historical data using yf.Ticker().history() instead of yf.download().
+    More robust to "Invalid Crumb" errors that can occur after Railway restart.
+
+    Returns None silently on error (no exception raised) to allow batch processing to continue.
+    """
+    try:
+        ticker_obj = yf.Ticker(ticker)
+        df = ticker_obj.history(period=period, interval=interval, timeout=timeout, auto_adjust=True, progress=False)
+
+        if df is None or df.empty:
+            return None
+
+        # Ensure proper column names and structure
+        df = df.rename(columns=str.title) if not all(c.title() == c for c in df.columns) else df
+        return df
+    except Exception:
+        # Silently return None - let caller decide how to handle
+        return None
+
+
 def _get_ohlcv(ticker: str, allow_download: bool = True) -> Optional[object]:
     """
     Retourne le DataFrame OHLCV historique (26 mois, daily).
     Cache 4h — les indicateurs ne changent pas en intraday.
+    Utilise _yf_history_safe() pour éviter les erreurs "Invalid Crumb".
     """
     now   = _time.time()
     entry = _ohlcv_cache.get(ticker)
@@ -634,12 +662,10 @@ def _get_ohlcv(ticker: str, allow_download: bool = True) -> Optional[object]:
         return None
     try:
         def _download():
-            return yf.download(
+            return _yf_history_safe(
                 ticker,
                 period="26mo",
                 interval="1d",
-                progress=False,
-                auto_adjust=True,
                 timeout=_OHLCV_FETCH_TIMEOUT,
             )
 
@@ -692,18 +718,16 @@ def _fetch_price_info(ticker: str) -> Optional[dict]:
         _price_cache[ticker] = info
         return info
     except Exception:
-        # Fallback : dernière bougie intraday 2 min
+        # Fallback : dernière bougie intraday 2 min via _yf_history_safe
         try:
-            df = yf.download(ticker, period="1d", interval="2m",
-                             progress=False, auto_adjust=True)
-            if df.empty:
+            df = _yf_history_safe(ticker, period="1d", interval="2m", timeout=5)
+            if df is None or df.empty:
                 return None
             close = df["Close"].squeeze()
             price = float(close.iloc[-1])
             # prev_close via 5d daily
-            df5   = yf.download(ticker, period="5d", interval="1d",
-                                progress=False, auto_adjust=True)
-            prev  = float(df5["Close"].squeeze().iloc[-2]) if len(df5) >= 2 else price
+            df5 = _yf_history_safe(ticker, period="5d", interval="1d", timeout=5)
+            prev = float(df5["Close"].squeeze().iloc[-2]) if df5 is not None and len(df5) >= 2 else price
             if price <= 0:
                 return None
             info = {
@@ -768,8 +792,8 @@ def _get_market_ctx(allow_download: bool = True) -> dict:
 def fetch_sp500_perf():
     global _sp500_perf_3m, _sp500_perf_6m
     try:
-        df = yf.download("^GSPC", period="8mo", interval="1d", progress=False, auto_adjust=True)
-        if not df.empty:
+        df = _yf_history_safe("^GSPC", period="8mo", interval="1d", timeout=10)
+        if df is not None and not df.empty:
             close = df["Close"].squeeze()
             _sp500_perf_3m = perf_pct(close, 63)
             _sp500_perf_6m = perf_pct(close, 126)
@@ -853,8 +877,8 @@ _REGIME_EMPTY = {
 
 def _compute_market_regime() -> dict:
     try:
-        df = yf.download("SPY", period="14mo", interval="1d", progress=False, auto_adjust=True)
-        if df.empty or len(df) < 210:
+        df = _yf_history_safe("SPY", period="14mo", interval="1d", timeout=10)
+        if df is None or df.empty or len(df) < 210:
             return {**_REGIME_EMPTY, "data_warning": "SPY : historique insuffisant (< 210 barres)"}
 
         close     = df["Close"].squeeze()
@@ -1959,8 +1983,8 @@ def strategy_lab_endpoint(
 
     def _download(ticker: str):
         try:
-            df = yf.download(ticker, period=yf_period, interval="1d", progress=False, auto_adjust=True)
-            if not df.empty and len(df) >= min_bars:
+            df = _yf_history_safe(ticker, period=yf_period, interval="1d", timeout=10)
+            if df is not None and not df.empty and len(df) >= min_bars:
                 return ticker, df
         except Exception:
             pass
@@ -2059,8 +2083,8 @@ def setup_stats(
     min_bars  = 420   if period >= 24 else 210
 
     try:
-        df = yf.download(t, period=yf_period, interval="1d", progress=False, auto_adjust=True)
-        if df.empty or len(df) < min_bars:
+        df = _yf_history_safe(t, period=yf_period, interval="1d", timeout=10)
+        if df is None or df.empty or len(df) < min_bars:
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Données insuffisantes")
 
@@ -2098,8 +2122,8 @@ def optimizer_endpoint(
     if not _opt_data_cache:
         def _dl(ticker: str):
             try:
-                df = yf.download(ticker, period=yf_period, interval="1d", progress=False, auto_adjust=True)
-                if not df.empty and len(df) >= min_bars:
+                df = _yf_history_safe(ticker, period=yf_period, interval="1d", timeout=10)
+                if df is not None and not df.empty and len(df) >= min_bars:
                     return ticker, df
             except Exception:
                 pass

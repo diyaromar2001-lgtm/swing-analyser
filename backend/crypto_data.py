@@ -176,17 +176,27 @@ def _fetch_coingecko_ohlcv(symbol: str, days: int = 365) -> Optional[pd.DataFram
         return None
 
 
+def _yf_history_safe_crypto(ticker: str, period: str, interval: str) -> Optional[pd.DataFrame]:
+    """
+    Robust yfinance history fetcher for crypto that avoids "Invalid Crumb" errors.
+    Uses yf.Ticker().history() instead of yf.download() for better reliability.
+    """
+    try:
+        ticker_obj = yf.Ticker(ticker)
+        df = ticker_obj.history(period=period, interval=interval, timeout=10, auto_adjust=False, progress=False)
+        if df is None or df.empty:
+            return None
+        return df
+    except Exception:
+        return None
+
+
 def _fetch_yfinance_ohlcv(symbol: str, timeframe: str = "1d") -> Optional[pd.DataFrame]:
     ticker = _yahoo_symbol(symbol)
     started = _time.perf_counter()
     try:
-        kwargs = {
-            "progress": False,
-            "auto_adjust": False,
-            "threads": False,
-        }
         if timeframe == "4h":
-            raw = yf.download(ticker, period="60d", interval="1h", **kwargs)
+            raw = _yf_history_safe_crypto(ticker, period="60d", interval="1h")
             if raw is None or raw.empty:
                 ms = (_time.perf_counter() - started) * 1000
                 _log_source_event("FAIL", "yfinance", symbol, "ohlcv_4h", ms, "empty response", url=ticker, rows=0)
@@ -204,7 +214,7 @@ def _fetch_yfinance_ohlcv(symbol: str, timeframe: str = "1d") -> Optional[pd.Dat
             }).dropna()
             df["quote_volume"] = df["Volume"]
         else:
-            raw = yf.download(ticker, period="730d", interval="1d", **kwargs)
+            raw = _yf_history_safe_crypto(ticker, period="730d", interval="1d")
             if raw is None or raw.empty:
                 ms = (_time.perf_counter() - started) * 1000
                 _log_source_event("FAIL", "yfinance", symbol, "ohlcv_daily", ms, "empty response", url=ticker, rows=0)
@@ -293,7 +303,7 @@ def _fetch_yfinance_price(symbol: str) -> Optional[Dict]:
     ticker = _yahoo_symbol(symbol)
     started = _time.perf_counter()
     try:
-        hist = yf.download(ticker, period="7d", interval="1d", progress=False, auto_adjust=False, threads=False)
+        hist = _yf_history_safe_crypto(ticker, period="7d", interval="1d")
         if hist is None or hist.empty:
             raise ValueError("empty history")
         if isinstance(hist.columns, pd.MultiIndex):
