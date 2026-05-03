@@ -15,6 +15,35 @@ interface MarketStatus {
   day:     string;
 }
 
+interface CacheStatusScope {
+  ohlcv_cache_count?: number;
+  price_cache_count?: number;
+  screener_results_count?: number;
+  regime_cache_status?: string;
+  market_context_cache_status?: string;
+  edge_cache_coverage?: number;
+}
+
+interface CacheStatusAll {
+  actions?: CacheStatusScope;
+  crypto?: {
+    crypto_ohlcv_cache_count?: number;
+    crypto_ohlcv_4h_cache_count?: number;
+    crypto_price_cache_count?: number;
+    crypto_screener_cache_count?: number;
+    crypto_regime_cache_status?: string;
+    crypto_edge_cache_coverage?: number;
+  };
+}
+
+interface CryptoRegimeSummary {
+  crypto_regime?: string;
+  data_status?: string;
+  reasons?: string[];
+  btc_price?: number;
+  eth_price?: number;
+}
+
 const API_URL     = getApiUrl();
 const SIM_CAPITAL = 10_000;
 const RISK_PCT    = 0.01;
@@ -826,6 +855,201 @@ function RiskControlBlock({ tops, engine }: { tops: TickerResult[]; engine: Regi
   );
 }
 
+function PlanPill({
+  label,
+  value,
+  ok,
+  hint,
+}: {
+  label: string;
+  value: string;
+  ok: boolean;
+  hint?: string;
+}) {
+  const color = ok ? "#10b981" : "#f59e0b";
+  return (
+    <div className="rounded-xl p-3" style={{ background: "#07070f", border: `1px solid ${color}22` }}>
+      <p className="text-[9px] font-black uppercase tracking-widest mb-1" style={{ color }}>{label}</p>
+      <p className="text-sm font-black text-white">{value}</p>
+      {hint && <p className="text-[10px] text-gray-600 mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+function ChecklistItem({
+  ok,
+  label,
+  detail,
+}: {
+  ok: boolean;
+  label: string;
+  detail?: string;
+}) {
+  const color = ok ? "#10b981" : "#f59e0b";
+  return (
+    <li className="flex items-start gap-2 text-xs text-gray-400">
+      <span className="mt-px flex-shrink-0" style={{ color }}>{ok ? "✓" : "!"}</span>
+      <div>
+        <span style={{ color: ok ? "#d1fae5" : "#fde68a" }}>{label}</span>
+        {detail && <div className="text-[10px] text-gray-600 mt-0.5">{detail}</div>}
+      </div>
+    </li>
+  );
+}
+
+function DailyPlanBlock({
+  engine,
+  topOpps,
+  technicalWatchlist,
+  backtestStatus,
+  cacheStatus,
+  cryptoRegime,
+}: {
+  engine: RegimeEngine | null;
+  topOpps: TickerResult[];
+  technicalWatchlist: TickerResult[];
+  backtestStatus: TradableStatus;
+  cacheStatus: CacheStatusAll | null;
+  cryptoRegime: CryptoRegimeSummary | null;
+}) {
+  const tradeAuthorizedToday = topOpps.length > 0 && !!engine?.can_trade && backtestStatus !== "NON TRADABLE";
+  const actionDefensive = !engine?.can_trade || backtestStatus === "NON TRADABLE";
+  const cryptoDefensive =
+    !cryptoRegime ||
+    cryptoRegime.data_status === "MISSING" ||
+    cryptoRegime.crypto_regime === "CRYPTO_BEAR" ||
+    cryptoRegime.crypto_regime === "CRYPTO_NO_TRADE" ||
+    cryptoRegime.crypto_regime === "CRYPTO_HIGH_VOLATILITY";
+  const actionsOk =
+    (cacheStatus?.actions?.ohlcv_cache_count ?? 0) > 150 &&
+    (cacheStatus?.actions?.price_cache_count ?? 0) > 150 &&
+    (cacheStatus?.actions?.screener_results_count ?? 0) > 0;
+  const cryptoOk =
+    (cacheStatus?.crypto?.crypto_price_cache_count ?? 0) > 0 &&
+    (cacheStatus?.crypto?.crypto_screener_cache_count ?? 0) > 0 &&
+    cacheStatus?.crypto?.crypto_regime_cache_status === "warm";
+  const cachesOk = actionsOk && cryptoOk;
+
+  const noTradeReason =
+    !engine?.can_trade
+      ? `Marche Actions defensif : ${engine?.regime_label ?? "NO TRADE"}`
+      : backtestStatus === "NON TRADABLE"
+        ? "Trade non autorise : strategie non validee"
+        : topOpps.length === 0
+          ? "Aucun setup avec edge valide aujourd'hui"
+          : "Prix pas encore en zone d'entree";
+
+  const reference = topOpps[0] ?? technicalWatchlist[0] ?? null;
+
+  return (
+    <section className="rounded-2xl p-4" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div>
+          <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Plan du jour</p>
+          <p className="text-xs text-gray-500 mt-1">Routine rapide pour savoir quoi faire sans toucher a la logique metier.</p>
+        </div>
+        {!tradeAuthorizedToday && (
+          <span className="px-2.5 py-1 rounded-lg text-[10px] font-black" style={{ background: "#130404", color: "#ef4444", border: "1px solid #7f1d1d" }}>
+            Aujourd'hui : observation seulement
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <PlanPill
+          label="Marche Actions"
+          value={actionDefensive ? "defensif" : "favorable"}
+          ok={!actionDefensive}
+          hint={engine?.regime_label ?? "Regime courant"}
+        />
+        <PlanPill
+          label="Crypto"
+          value={cryptoDefensive ? "defensif" : "favorable"}
+          ok={!cryptoDefensive}
+          hint={cryptoRegime?.crypto_regime ?? cryptoRegime?.data_status ?? "Regime indisponible"}
+        />
+        <PlanPill
+          label="Caches"
+          value={cachesOk ? "OK" : "a verifier"}
+          ok={cachesOk}
+          hint={cachesOk ? "Caches chauds" : "Warmup a relancer"}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+        <PlanPill
+          label="Trade autorise aujourd'hui"
+          value={tradeAuthorizedToday ? "Oui" : "Non"}
+          ok={tradeAuthorizedToday}
+          hint={tradeAuthorizedToday ? `${topOpps.length} setups autorises` : noTradeReason}
+        />
+        <PlanPill
+          label="Setups en watchlist"
+          value={String(technicalWatchlist.length)}
+          ok={technicalWatchlist.length > 0}
+          hint={technicalWatchlist.length > 0 ? "Techniques mais non valides" : "Aucune watchlist"}
+        />
+        <PlanPill
+          label="Setups autorises"
+          value={String(topOpps.length)}
+          ok={topOpps.length > 0}
+          hint="Edge valide uniquement"
+        />
+      </div>
+
+      <div className="rounded-xl p-3 mb-4" style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
+        <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-2">Checklist avant prise de trade</p>
+        <ul className="space-y-2">
+          <ChecklistItem
+            ok={!!reference && hasValidatedEdge(reference)}
+            label="Edge valide"
+            detail={reference ? reference.ticker_edge_status ?? "edge absent" : "Aucun setup de reference"}
+          />
+          <ChecklistItem
+            ok={!!reference && reference.tradable === true && (reference.final_decision === "BUY" || reference.final_decision === "BUY NOW" || reference.final_decision === "BUY NEAR ENTRY")}
+            label="Trade Plan autorise"
+            detail={reference ? reference.final_decision ?? "WAIT" : "Attente"}
+          />
+          <ChecklistItem
+            ok={!!reference && reference.risk_filters_status !== "BLOCKED"}
+            label="Risque defini"
+            detail={reference ? reference.risk_filters_status ?? "OK" : "Non defini"}
+          />
+          <ChecklistItem
+            ok={!!reference && !reference.earnings_warning}
+            label="Pas d'earnings proches"
+            detail={reference?.earnings_warning ? `Resultats dans ${reference.earnings_days ?? "?"}j` : "Risque earnings faible"}
+          />
+          <ChecklistItem
+            ok={!!reference && reference.dist_entry_pct <= 1.5}
+            label="Prix proche de l'entree"
+            detail={reference ? `${reference.dist_entry_pct.toFixed(1)}% de l'entree` : "En attente"}
+          />
+          <ChecklistItem
+            ok={!!reference && typeof reference.stop_loss === "number"}
+            label="Stop loss visible"
+            detail={reference ? `$${reference.stop_loss.toFixed(2)}` : "Absent"}
+          />
+          <ChecklistItem
+            ok={!!reference && typeof reference.tp1 === "number" && typeof reference.tp2 === "number"}
+            label="TP1 / TP2 visibles"
+            detail={reference ? `$${reference.tp1.toFixed(2)} / $${reference.tp2.toFixed(2)}` : "Absents"}
+          />
+        </ul>
+      </div>
+
+      <div className="rounded-xl p-3" style={{ background: "#0d0400", border: "1px solid #92400e60" }}>
+        <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-2">Discipline du jour</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-gray-300">
+          <p>Ne pas trader un setup non autorise.</p>
+          <p>Un setup technique sans edge reste une watchlist.</p>
+          <p>Max 1-2 trades propres par jour.</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ─── Command Center ──────────────────────────────────────────────────────────
 
 export function CommandCenter({
@@ -849,6 +1073,8 @@ export function CommandCenter({
 }) {
   const [ms,          setMs]          = useState<MarketStatus | null>(null);
   const [engine,      setEngine]      = useState<RegimeEngine | null>(null);
+  const [cryptoRegime, setCryptoRegime] = useState<CryptoRegimeSummary | null>(null);
+  const [cacheStatus,  setCacheStatus]  = useState<CacheStatusAll | null>(null);
   const [selected,    setSelected]    = useState<TickerResult | null>(null);
   const [takingTrade, setTakingTrade] = useState<TickerResult | null>(null);
 
@@ -859,9 +1085,15 @@ export function CommandCenter({
       fetch(`${API_URL}/api/market-status`).then(r => r.json()).then(setMs).catch(() => null);
     const fetchEngine = () =>
       fetch(`${API_URL}/api/regime-engine`).then(r => r.json()).then(setEngine).catch(() => null);
+    const fetchCryptoRegime = () =>
+      fetch(`${API_URL}/api/crypto/regime`, { cache: "no-store" }).then(r => r.json()).then(setCryptoRegime).catch(() => null);
+    const fetchCacheStatus = () =>
+      fetch(`${API_URL}/api/cache-status?scope=all`, { cache: "no-store" }).then(r => r.json()).then(setCacheStatus).catch(() => null);
 
     fetchMs();
     fetchEngine();
+    fetchCryptoRegime();
+    fetchCacheStatus();
     const id = setInterval(fetchMs, 60_000);
     return () => clearInterval(id);
   }, []);
@@ -935,6 +1167,15 @@ export function CommandCenter({
         <ActiveStrategyBlock engine={engine} />
         <DailyDecisionBlock  decision={decision} />
       </div>
+
+      <DailyPlanBlock
+        engine={engine}
+        topOpps={topOpps}
+        technicalWatchlist={technicalWatchlist}
+        backtestStatus={backtestStatus}
+        cacheStatus={cacheStatus}
+        cryptoRegime={cryptoRegime}
+      />
 
       {/* D — Top Opportunities */}
       {topOpps.length > 0 && (
