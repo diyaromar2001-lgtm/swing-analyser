@@ -527,19 +527,39 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   }, [isCrypto]);
 
   // ── Refresh manuel : vide le cache prix puis recharge ────────────────────────
-  const refreshAnalysis = useCallback(async () => {
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm("Cette action peut prendre 1 à 3 minutes et vider le cache. Continuer ?");
-      if (!confirmed) return;
+  const repairCaches = useCallback(async () => {
+    if (!adminKeyPresent) {
+      setAdminNotice("Admin requis");
+      return;
     }
-    setAdminNotice(null);
+    setAdminNotice("Réparation des caches en cours…");
+    setScreenerNotice(null);
+    setLoading(true);
+    setScreenerRefreshing(true);
     try {
-      const clearRes = await fetch(`${API_URL}/api/clear-cache?scope=${screenerScope}`, {
+      for (const batch of [1, 2, 3, 4, 5]) {
+        setAdminNotice(`Réparation des caches… Actions batch ${batch}/5`);
+        const res = await fetch(`${API_URL}/api/warmup?scope=actions&batch=${batch}&batch_size=50&include_edge=false`, {
+          method: "POST",
+          headers: getAdminHeaders(),
+        });
+        await ensureApiResponse(res);
+      }
+      setAdminNotice("Réparation des caches… Warmup Crypto");
+      const cryptoRes = await fetch(`${API_URL}/api/warmup?scope=crypto&include_edge=false`, {
         method: "POST",
         headers: getAdminHeaders(),
       });
-      await ensureApiResponse(clearRes);
-      await fetchData({ fast: false, background: true });
+      await ensureApiResponse(cryptoRes);
+      setAdminNotice("Réparation des caches… vérification finale");
+      const statusRes = await fetch(`${API_URL}/api/cache-status?scope=all`, { cache: "no-store" });
+      await ensureApiResponse(statusRes);
+      const status = await statusRes.json();
+      setAdminNotice(
+        `Actions ${Number(status?.actions?.ohlcv_cache_count ?? 0) > 150 && Number(status?.actions?.price_cache_count ?? 0) > 150 && Number(status?.actions?.screener_results_count ?? 0) > 0 ? "OK" : "à vérifier"} · ` +
+        `Crypto ${Number(status?.crypto?.crypto_price_cache_count ?? 0) > 0 && Number(status?.crypto?.crypto_screener_cache_count ?? 0) > 0 && status?.crypto?.crypto_regime_cache_status === "warm" ? "OK" : "à vérifier"}`
+      );
+      await fetchData({ fast: true, background: true });
     } catch (error) {
       if (isAdminProtectedError(error)) {
         setAdminNotice("Action admin protégée");
@@ -547,9 +567,18 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           kind: "refresh-failed",
           message: "Action admin protégée",
         });
+      } else {
+        setAdminNotice("Warmup trop long ou interrompu. Vérifiez le cache-status.");
+        setScreenerNotice({
+          kind: "timeout",
+          message: "Warmup trop long ou interrompu. Vérifiez le cache-status.",
+        });
       }
+    } finally {
+      setScreenerRefreshing(false);
+      setLoading(false);
     }
-  }, [fetchData, screenerScope]);
+  }, [adminKeyPresent, fetchData]);
 
   // ── Polling prix léger toutes les 15 secondes ────────────────────────────────
   const pollPrices = useCallback(async (rows: TickerResult[]) => {
@@ -981,7 +1010,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
           {uiMode === "pro" && view !== "lab" && view !== "signals" && view !== "trades" && (
             <button
-              onClick={() => void refreshAnalysis()}
+              onClick={() => void repairCaches()}
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
               style={{ background: "#1e1e3a", border: "1px solid #2a2a4a", color: "#818cf8" }}
@@ -1018,11 +1047,12 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             </div>
             <div className="ml-auto flex items-center gap-2">
               <button
-                onClick={() => void fetchData({ fast: true, background: true })}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold"
-                style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#818cf8" }}
+                onClick={repairCaches}
+                disabled={!adminKeyPresent}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
+                style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: adminKeyPresent ? "#f59e0b" : "#6b7280" }}
               >
-                Réessayer depuis cache
+                {adminKeyPresent ? "Réparer les caches" : "Admin requis"}
               </button>
               <button
                 onClick={refreshPricesOnly}
@@ -1059,7 +1089,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
         <DataFreshnessPanel
           freshness={freshness}
-          onFullRefresh={() => void refreshAnalysis()}
+          onFullRefresh={() => void repairCaches()}
           onPriceRefresh={refreshPricesOnly}
           loading={loading || screenerRefreshing}
           priceRefreshing={priceRefreshing}
@@ -1071,7 +1101,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             data={dataWithLivePrices}
             loading={loading}
             screenerNotice={screenerNotice}
-            onRefresh={() => void refreshAnalysis()}
+            onRefresh={() => void repairCaches()}
             onRefreshPrices={refreshPricesOnly}
             onAdvancedView={() => {
               setUiMode("pro");
@@ -1089,7 +1119,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             regime={regime}
             backtestStatus={backtestStatus}
             loading={loading}
-            onRefresh={() => void refreshAnalysis()}
+            onRefresh={() => void repairCaches()}
             onRefreshPrices={refreshPricesOnly}
             onAdvancedView={() => {
               setUiMode("pro");

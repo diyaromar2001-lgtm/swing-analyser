@@ -201,6 +201,30 @@ export function AdminPanel({
     );
   }
 
+  async function runDangerClearCache() {
+    if (!window.confirm("Cette action vide les caches et peut rendre l'app lente. Continuer ?")) {
+      return;
+    }
+    setBusy("danger-clear-cache");
+    setMessage(null);
+    try {
+      const res = await fetch(`${apiUrl}/api/clear-cache?scope=all`, {
+        method: "POST",
+        headers: getAdminHeaders(),
+      });
+      await ensureApiResponse(res);
+      setMessage("Caches vidés. Lancez un warmup complet ensuite.");
+    } catch (error) {
+      if (isAdminProtectedError(error)) {
+        setMessage("Action admin protégée — clé absente ou invalide.");
+      } else {
+        setMessage("Vidage des caches impossible.");
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const adminActive = !!savedKeyState;
 
   const actionsOk = !!cacheStatus?.actions
@@ -300,6 +324,23 @@ export function AdminPanel({
               <div>Temps écoulé: <span className="text-white">{Math.floor(batchState.elapsedMs / 1000)}s</span></div>
               {busy && <div className="text-amber-300">Action en cours: {busy}</div>}
             </div>
+          </section>
+
+          <section className="p-4 rounded-xl border border-amber-900 bg-amber-950/20">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="font-bold text-amber-200">Danger zone</h3>
+              <span className="text-[10px] uppercase tracking-widest text-amber-300">Admin only</span>
+            </div>
+            <p className="text-xs text-amber-200/80 mb-3">
+              Cette action vide les caches et peut rendre l'app lente. Utilisez-la seulement si nécessaire.
+            </p>
+            <button
+              onClick={runDangerClearCache}
+              disabled={!adminActive || !!busy}
+              className="px-3 py-2 rounded-lg bg-amber-700 text-white text-xs font-semibold disabled:opacity-40"
+            >
+              Recalculer l&apos;analyse complète
+            </button>
           </section>
 
           <section className="p-4 rounded-xl border border-slate-800 bg-slate-950">
