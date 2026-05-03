@@ -418,8 +418,18 @@ def fetch_sp500_perf():
         pass
 
 
+def build_screener_cache_key(
+    strategy: str,
+    exclude_earnings: bool,
+    sector: Optional[str],
+    min_score: int,
+    signal: Optional[str],
+) -> str:
+    return f"{strategy}|{exclude_earnings}|{sector or ''}|{min_score}|{signal or ''}"
+
+
 def _default_screener_cache_key() -> str:
-    return "standard|False|||"
+    return build_screener_cache_key("standard", False, None, 0, None)
 
 
 def _merge_screener_cache_results(base_key: str, results: List[object], *, ts: Optional[float] = None, meta: Optional[dict] = None) -> List[object]:
@@ -987,7 +997,7 @@ def screener(
     exclude_earnings: bool          = Query(False),
     fast:             bool          = Query(False),
 ):
-    cache_key = f"{strategy}|{exclude_earnings}|{sector or ''}|{min_score}|{signal or ''}"
+    cache_key = build_screener_cache_key(strategy, exclude_earnings, sector, min_score, signal)
     now = _time.time()
     cached = _screener_cache.get(cache_key)
     if cached and ((now - cached.get("ts", 0)) < _SCREENER_TTL or fast):
@@ -1046,7 +1056,7 @@ def screener(
     )
 
     results.sort(key=lambda x: (x.score, x.confidence), reverse=True)
-    if fast:
+    if fast and results:
         _screener_cache[cache_key] = {"ts": _time.time(), "data": results}
         return results
 
@@ -1083,7 +1093,8 @@ def screener(
     except Exception:
         pass
 
-    _screener_cache[cache_key] = {"ts": _time.time(), "data": results}
+    if results:
+        _screener_cache[cache_key] = {"ts": _time.time(), "data": results}
     return results
 
 
