@@ -84,7 +84,7 @@ from trade_journal import (
     update_trade as trade_journal_update,
 )
 from edge_v2_research import build_edge_v2_research_rows
-from cache_persistence import load_state as load_cache_state, save_state as save_cache_state
+from cache_persistence import get_status as get_cache_persistence_status, load_state as load_cache_state, save_state as save_cache_state
 
 app = FastAPI(title="Swing Trading Screener Pro")
 trade_journal_init_db()
@@ -127,33 +127,46 @@ def _load_runtime_cache_state() -> None:
         actions = state.get("actions", {})
         crypto = state.get("crypto", {})
 
-        _ohlcv_cache.clear()
-        _ohlcv_cache.update(actions.get("_ohlcv_cache", {}))
-        _price_cache.clear()
-        _price_cache.update(actions.get("_price_cache", {}))
-        _screener_cache.clear()
-        _screener_cache.update(actions.get("_screener_cache", {}))
-        _market_regime_cache.clear()
-        _market_regime_cache.update(actions.get("_market_regime_cache", {}))
-        _mkt_ctx_cache.clear()
-        _mkt_ctx_cache.update(actions.get("_mkt_ctx_cache", {}))
-        _warmup_progress.clear()
-        _warmup_progress.update(actions.get("_warmup_progress", {}))
+        if isinstance(actions, dict) and any(actions.get(key) for key in ("_ohlcv_cache", "_price_cache", "_screener_cache", "_market_regime_cache", "_mkt_ctx_cache", "_warmup_progress")):
+            if actions.get("_ohlcv_cache"):
+                _ohlcv_cache.clear()
+                _ohlcv_cache.update(actions.get("_ohlcv_cache", {}))
+            if actions.get("_price_cache"):
+                _price_cache.clear()
+                _price_cache.update(actions.get("_price_cache", {}))
+            if actions.get("_screener_cache"):
+                _screener_cache.clear()
+                _screener_cache.update(actions.get("_screener_cache", {}))
+            if actions.get("_market_regime_cache"):
+                _market_regime_cache.clear()
+                _market_regime_cache.update(actions.get("_market_regime_cache", {}))
+            if actions.get("_mkt_ctx_cache"):
+                _mkt_ctx_cache.clear()
+                _mkt_ctx_cache.update(actions.get("_mkt_ctx_cache", {}))
+            if actions.get("_warmup_progress"):
+                _warmup_progress.clear()
+                _warmup_progress.update(actions.get("_warmup_progress", {}))
         if actions.get("last_actions_started") is not None:
             LAST_WARMUP_ACTIONS_STARTED = actions.get("last_actions_started")
         if actions.get("last_actions_finished") is not None:
             LAST_WARMUP_ACTIONS_FINISHED = actions.get("last_actions_finished")
 
-        _crypto_data_module._price_cache.clear()
-        _crypto_data_module._price_cache.update(crypto.get("_price_cache", {}))
-        _crypto_data_module._ohlcv_daily_cache.clear()
-        _crypto_data_module._ohlcv_daily_cache.update(crypto.get("_ohlcv_daily_cache", {}))
-        _crypto_data_module._ohlcv_4h_cache.clear()
-        _crypto_data_module._ohlcv_4h_cache.update(crypto.get("_ohlcv_4h_cache", {}))
-        _crypto_service_module._screener_cache.clear()
-        _crypto_service_module._screener_cache.update(crypto.get("_screener_cache", {}))
-        _crypto_regime_cache.clear()
-        _crypto_regime_cache.update(crypto.get("_crypto_regime_cache", {}))
+        if isinstance(crypto, dict) and any(crypto.get(key) for key in ("_price_cache", "_ohlcv_daily_cache", "_ohlcv_4h_cache", "_screener_cache", "_crypto_regime_cache")):
+            if crypto.get("_price_cache"):
+                _crypto_data_module._price_cache.clear()
+                _crypto_data_module._price_cache.update(crypto.get("_price_cache", {}))
+            if crypto.get("_ohlcv_daily_cache"):
+                _crypto_data_module._ohlcv_daily_cache.clear()
+                _crypto_data_module._ohlcv_daily_cache.update(crypto.get("_ohlcv_daily_cache", {}))
+            if crypto.get("_ohlcv_4h_cache"):
+                _crypto_data_module._ohlcv_4h_cache.clear()
+                _crypto_data_module._ohlcv_4h_cache.update(crypto.get("_ohlcv_4h_cache", {}))
+            if crypto.get("_screener_cache"):
+                _crypto_service_module._screener_cache.clear()
+                _crypto_service_module._screener_cache.update(crypto.get("_screener_cache", {}))
+            if crypto.get("_crypto_regime_cache"):
+                _crypto_regime_cache.clear()
+                _crypto_regime_cache.update(crypto.get("_crypto_regime_cache", {}))
         if crypto.get("last_crypto_started") is not None:
             LAST_WARMUP_CRYPTO_STARTED = crypto.get("last_crypto_started")
         if crypto.get("last_crypto_finished") is not None:
@@ -2320,6 +2333,7 @@ def warmup_status(scope: str = Query("all")):
         "last_restart_detected": _iso(load_cache_state().get("app_started_at") if load_cache_state() else None),
     }
     payload: Dict[str, Any] = {"status": "ok", "scope": normalized, "runtime": runtime}
+    payload["persistence"] = get_cache_persistence_status()
     if normalized in {"actions", "all"}:
         payload["actions"] = _actions_cache_snapshot()
         payload["actions_diagnostic"] = _warmup_progress.get("actions", {})
@@ -2445,7 +2459,7 @@ def _warmup_actions(
         if chunk_warmed:
             _run_with_timeout(
                 "actions_prices_chunk",
-                lambda: get_prices(",".join(chunk_warmed[: min(len(chunk_warmed), 20)])),
+                lambda: get_prices(",".join(chunk[: min(len(chunk), 20)])),
                 20,
                 warnings,
                 errors,
@@ -2602,7 +2616,7 @@ def _warmup_missing_actions(
         if chunk_warmed:
             _run_with_timeout(
                 "actions_prices_missing_chunk",
-                lambda: get_prices(",".join(chunk_warmed[: min(len(chunk_warmed), 20)])),
+                lambda: get_prices(",".join(chunk[: min(len(chunk), 20)])),
                 20,
                 warnings,
                 errors,
@@ -2672,20 +2686,35 @@ def _warmup_crypto(include_edge: bool, limit: Optional[int], warnings: List[str]
     LAST_WARMUP_CRYPTO_STARTED = _time.time()
     warmed_symbols: List[str] = []
     edge_computed = 0
+    previous_regime_cache = dict(_crypto_regime_cache) if isinstance(_crypto_regime_cache, dict) else {}
+    previous_regime = previous_regime_cache.get("data") if isinstance(previous_regime_cache, dict) else None
+    previous_regime_valid = isinstance(previous_regime, dict) and previous_regime.get("data_status") != "MISSING"
 
-    _invalidate_crypto_regime_cache()
-    regime_run = _run_with_timeout("crypto_regime", lambda: compute_crypto_regime(fast=False), 90, warnings, errors)
-    if not regime_run["ok"] and regime_run.get("value") is None:
-        warnings.append("crypto_regime: timeout ou indisponible")
-    _run_with_timeout("crypto_prices", lambda: crypto_prices(["BTC", "ETH", "SOL"]), 45, warnings, errors)
+    _run_with_timeout("crypto_prices", lambda: crypto_prices(["BTC", "ETH"]), 20, warnings, errors)
+
+    screener_fast = bool(getattr(_crypto_service_module, "_screener_cache", {}))
     screener_run = _run_with_timeout(
         "crypto_screener",
-        lambda: crypto_screener(fast=False),
-        120,
+        lambda: crypto_screener(fast=screener_fast),
+        45,
         warnings,
         errors,
     )
     screener_results = screener_run["value"] if screener_run["ok"] and isinstance(screener_run["value"], list) else []
+
+    regime_run = None
+    if previous_regime_valid:
+        regime_run = {"ok": True, "value": previous_regime, "duration_ms": 0}
+    else:
+        regime_run = _run_with_timeout("crypto_regime", lambda: compute_crypto_regime(fast=False), 45, warnings, errors)
+        if not regime_run["ok"] and regime_run.get("value") is None:
+            warnings.append("crypto_regime: timeout ou indisponible")
+        regime_value = regime_run.get("value")
+        regime_status = regime_value.get("data_status") if isinstance(regime_value, dict) else None
+        if regime_status == "MISSING" and previous_regime_valid:
+            _crypto_regime_cache.clear()
+            _crypto_regime_cache.update(previous_regime_cache)
+            regime_run = {"ok": True, "value": previous_regime, "duration_ms": regime_run.get("duration_ms", 0)}
 
     if screener_results:
         warmed_symbols = []
@@ -2712,6 +2741,8 @@ def _warmup_crypto(include_edge: bool, limit: Optional[int], warnings: List[str]
         "crypto_count": len(warmed_symbols),
         "crypto_edge_computed": edge_computed,
         "crypto_cache": _crypto_cache_snapshot(),
+        "crypto_regime_status": (regime_run.get("value") or {}).get("data_status") if isinstance(regime_run, dict) and isinstance(regime_run.get("value"), dict) else None,
+        "crypto_regime_reused": previous_regime_valid and regime_run and regime_run.get("value") is previous_regime,
     }
 
 
@@ -2743,28 +2774,49 @@ def warmup(
     }
 
     if normalized in {"actions", "all"}:
-        payload.update(
-            _warmup_actions(
+        try:
+            payload.update(
+                _warmup_actions(
+                    include_edge=include_edge,
+                    limit=limit,
+                    warnings=warnings,
+                    errors=errors,
+                    batch_size=batch_size,
+                    batch=batch,
+                    start_index=start_index,
+                    end_index=end_index,
+                    skip_existing=skip_existing,
+                )
+            )
+        except Exception as exc:
+            errors.append(f"actions_warmup: {type(exc).__name__}: {str(exc)[:180]}")
+            payload["status"] = "partial"
+    if normalized == "actions" and batch_size == 50 and batch == 1 and start_index is None and end_index is None and not skip_existing:
+        try:
+            payload["actions_missing"] = _warmup_missing_actions(
                 include_edge=include_edge,
                 limit=limit,
                 warnings=warnings,
                 errors=errors,
-                batch_size=batch_size,
-                batch=batch,
-                start_index=start_index,
-                end_index=end_index,
-                skip_existing=skip_existing,
             )
-        )
-    if normalized == "actions" and batch_size == 50 and batch == 1 and start_index is None and end_index is None and not skip_existing:
-        payload["actions_missing"] = _warmup_missing_actions(
-            include_edge=include_edge,
-            limit=limit,
-            warnings=warnings,
-            errors=errors,
-        )
+        except Exception as exc:
+            errors.append(f"actions_missing: {type(exc).__name__}: {str(exc)[:180]}")
+            payload["actions_missing"] = {
+                "actions_missing_count": 0,
+                "actions_missing_tickers": [],
+                "actions_missing_batch_count": 0,
+                "actions_missing_warmed": 0,
+                "actions_missing_failed": 0,
+                "actions_missing_remaining": 0,
+                "actions_missing_errors": [errors[-1]],
+                "actions_cache": _actions_cache_snapshot(),
+            }
     if normalized in {"crypto", "all"}:
-        payload.update(_warmup_crypto(include_edge=include_edge, limit=limit, warnings=warnings, errors=errors))
+        try:
+            payload.update(_warmup_crypto(include_edge=include_edge, limit=limit, warnings=warnings, errors=errors))
+        except Exception as exc:
+            errors.append(f"crypto_warmup: {type(exc).__name__}: {str(exc)[:180]}")
+            payload["status"] = "partial"
 
     payload["warnings"] = warnings
     payload["errors"] = errors
@@ -2807,7 +2859,19 @@ def warmup_actions_missing(
             "updated": _actions_cache_snapshot(),
         }
         return payload
-    payload = _warmup_missing_actions(include_edge=include_edge, limit=limit, warnings=warnings, errors=errors)
+    try:
+        payload = _warmup_missing_actions(include_edge=include_edge, limit=limit, warnings=warnings, errors=errors)
+    except Exception as exc:
+        payload = {
+            "actions_missing_count": 0,
+            "actions_missing_tickers": [],
+            "actions_missing_batch_count": 0,
+            "actions_missing_warmed": 0,
+            "actions_missing_failed": 1,
+            "actions_missing_remaining": 0,
+            "actions_missing_errors": [f"actions_missing: {type(exc).__name__}: {str(exc)[:180]}"],
+            "actions_cache": _actions_cache_snapshot(),
+        }
     payload["status"] = "ok" if not errors else "partial"
     payload["warnings"] = warnings
     payload["errors"] = errors
