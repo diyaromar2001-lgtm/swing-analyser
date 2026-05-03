@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ensureApiResponse, getAdminApiKey, getAdminHeaders, isAdminProtectedError } from "../lib/api";
+import { getActionsCacheStatus, getCryptoCacheStatus } from "../lib/cacheStatus";
 
 const ADMIN_API_KEY_STORAGE = "admin_api_key";
 
@@ -47,6 +48,7 @@ export function AdminPanel({
   const [message, setMessage] = useState<string | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
   const [repairNotice, setRepairNotice] = useState<string | null>(null);
+  const [infoNotice, setInfoNotice] = useState<string | null>(null);
   const [adminErrorNotice, setAdminErrorNotice] = useState<string | null>(null);
   const [dataErrorNotice, setDataErrorNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -78,6 +80,7 @@ export function AdminPanel({
     }
     setSuccessNotice(null);
     setRepairNotice(null);
+    setInfoNotice(null);
     setAdminErrorNotice(null);
     setDataErrorNotice(null);
     try {
@@ -95,6 +98,7 @@ export function AdminPanel({
   function clearKey() {
     setSuccessNotice(null);
     setRepairNotice(null);
+    setInfoNotice(null);
     setAdminErrorNotice(null);
     setDataErrorNotice(null);
     try {
@@ -114,6 +118,7 @@ export function AdminPanel({
     setMessage(null);
     setSuccessNotice(null);
     setRepairNotice(null);
+    setInfoNotice(null);
     setAdminErrorNotice(null);
     setDataErrorNotice(null);
     try {
@@ -147,6 +152,7 @@ export function AdminPanel({
     setMessage(null);
     setSuccessNotice(null);
     setRepairNotice(null);
+    setInfoNotice(null);
     setAdminErrorNotice(null);
     setDataErrorNotice(null);
     try {
@@ -154,18 +160,19 @@ export function AdminPanel({
       await ensureApiResponse(res);
       const json = await res.json();
       setCacheStatus(json);
-      const actionsOk = !!json?.actions
-        && Number(json.actions.ohlcv_cache_count ?? 0) > 150
-        && Number(json.actions.price_cache_count ?? 0) > 150
-        && Number(json.actions.screener_results_count ?? 0) > 0;
-      const cryptoOk = !!json?.crypto
-        && Number(json.crypto.crypto_price_cache_count ?? 0) > 0
-        && Number(json.crypto.crypto_screener_cache_count ?? 0) > 0
-        && json.crypto.crypto_regime_cache_status === "warm";
+      const actionsStatus = getActionsCacheStatus(json?.actions);
+      const cryptoStatus = getCryptoCacheStatus(json?.crypto);
+      const actionsOk = actionsStatus.ok;
+      const cryptoOk = cryptoStatus.ok;
       if (actionsOk && cryptoOk) {
         setSuccessNotice("Caches prêts : Actions OK · Crypto OK");
+        setRepairNotice(null);
+        setInfoNotice(null);
+        setAdminErrorNotice(null);
+        setDataErrorNotice(null);
       } else {
         setRepairNotice("Cache vérifié.");
+        setInfoNotice(`Actions ${actionsStatus.status} : ${actionsStatus.reasons.join(", ") || "OK"} ? Crypto ${cryptoStatus.status} : ${cryptoStatus.reasons.join(", ") || "OK"}`);
       }
     } catch (error) {
       if (isAdminProtectedError(error)) {
@@ -183,6 +190,7 @@ export function AdminPanel({
     setMessage(null);
     setSuccessNotice(null);
     setRepairNotice(null);
+    setInfoNotice(null);
     setAdminErrorNotice(null);
     setDataErrorNotice(null);
     try {
@@ -245,6 +253,7 @@ export function AdminPanel({
     setMessage(null);
     setSuccessNotice(null);
     setRepairNotice(null);
+    setInfoNotice(null);
     setAdminErrorNotice(null);
     setDataErrorNotice(null);
     try {
@@ -267,14 +276,10 @@ export function AdminPanel({
 
   const adminActive = !!savedKeyState;
 
-  const actionsOk = !!cacheStatus?.actions
-    && Number(cacheStatus.actions.ohlcv_cache_count ?? 0) > 150
-    && Number(cacheStatus.actions.price_cache_count ?? 0) > 150
-    && Number(cacheStatus.actions.screener_results_count ?? 0) > 0;
-  const cryptoOk = !!cacheStatus?.crypto
-    && Number(cacheStatus.crypto.crypto_price_cache_count ?? 0) > 0
-    && Number(cacheStatus.crypto.crypto_screener_cache_count ?? 0) > 0
-    && cacheStatus.crypto.crypto_regime_cache_status === "warm";
+  const actionsStatus = getActionsCacheStatus(cacheStatus?.actions);
+  const cryptoStatus = getCryptoCacheStatus(cacheStatus?.crypto);
+  const actionsOk = actionsStatus.ok;
+  const cryptoOk = cryptoStatus.ok;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex justify-end">
@@ -321,6 +326,7 @@ export function AdminPanel({
               {repairNotice && !successNotice && (
                 <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-slate-200">
                   {repairNotice}
+                  {infoNotice ? <div className="mt-1 text-xs text-slate-400">{infoNotice}</div> : null}
                 </div>
               )}
               {adminErrorNotice && (
@@ -412,15 +418,30 @@ export function AdminPanel({
               <h3 className="font-bold text-white">Cache status</h3>
               {cacheStatus && (
                 <div className="text-xs text-slate-400">
-                  Actions {actionsOk ? <span className="text-emerald-300">OK</span> : <span className="text-amber-300">à vérifier</span>} · Crypto {cryptoOk ? <span className="text-emerald-300">OK</span> : <span className="text-amber-300">à vérifier</span>}
+                  Actions {actionsOk ? <span className="text-emerald-300">OK</span> : <span className="text-amber-300">a verifier</span>} ? Crypto {cryptoOk ? <span className="text-emerald-300">OK</span> : <span className="text-amber-300">a verifier</span>}
                 </div>
               )}
             </div>
             <pre className="text-[11px] leading-5 whitespace-pre-wrap break-words text-slate-300 bg-black/40 border border-slate-800 rounded-lg p-3 overflow-x-auto">
-              {cacheStatus ? JSON.stringify(cacheStatus, null, 2) : "Cliquez sur 'Vérifier cache'."}
+              {cacheStatus ? JSON.stringify(cacheStatus, null, 2) : "Cliquez sur 'Verifier cache'."}
             </pre>
+            {cacheStatus && (!actionsOk || !cryptoOk) && (
+              <div className="mt-3 grid md:grid-cols-2 gap-3 text-xs">
+                <div className="rounded-lg border border-slate-800 bg-black/30 p-3">
+                  <div className="font-semibold text-white mb-1">Actions a verifier parce que :</div>
+                  <ul className="list-disc pl-4 space-y-1 text-slate-300">
+                    {actionsStatus.reasons.length ? actionsStatus.reasons.map((reason) => <li key={reason}>{reason}</li>) : <li>OK</li>}
+                  </ul>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-black/30 p-3">
+                  <div className="font-semibold text-white mb-1">Crypto a verifier parce que :</div>
+                  <ul className="list-disc pl-4 space-y-1 text-slate-300">
+                    {cryptoStatus.reasons.length ? cryptoStatus.reasons.map((reason) => <li key={reason}>{reason}</li>) : <li>OK</li>}
+                  </ul>
+                </div>
+              </div>
+            )}
           </section>
-
           <section className="p-4 rounded-xl border border-slate-800 bg-slate-950">
             <h3 className="font-bold text-white mb-3">Historique warmup</h3>
             <div className="space-y-1 text-[11px] text-slate-300">

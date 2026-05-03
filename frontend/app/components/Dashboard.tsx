@@ -15,6 +15,7 @@ import { TradeJournal } from "./TradeJournal";
 import { DataFreshnessPanel } from "./DataFreshnessPanel";
 import { AdminPanel } from "./AdminPanel";
 import { ensureApiResponse, getAdminApiKey, getAdminHeaders, getApiUrl, isAdminProtectedError } from "../lib/api";
+import { getActionsCacheStatus, getCryptoCacheStatus } from "../lib/cacheStatus";
 import { CryptoCommandCenter } from "./crypto/CryptoCommandCenter";
 import { formatCryptoPrice } from "../lib/cryptoFormat";
 
