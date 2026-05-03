@@ -31,12 +31,14 @@ export function DataFreshnessPanel({
   onPriceRefresh,
   loading,
   priceRefreshing,
+  adminActive = false,
 }: {
   freshness: DataFreshness | null;
   onFullRefresh: () => void;
   onPriceRefresh: () => void;
   loading: boolean;
   priceRefreshing: boolean;
+  adminActive?: boolean;
 }) {
   const rows = [
     {
@@ -96,12 +98,12 @@ export function DataFreshnessPanel({
             {priceRefreshing ? "Prix…" : "Rafraîchir prix seulement"}
           </button>
           <button
-            onClick={onFullRefresh}
-            disabled={loading}
+            onClick={adminActive ? onFullRefresh : undefined}
+            disabled={loading || !adminActive}
             className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-40"
-            style={{ background: "#1e1e3a", border: "1px solid #2a2a4a", color: "#818cf8" }}
+            style={{ background: "#1e1e3a", border: "1px solid #2a2a4a", color: adminActive ? "#818cf8" : "#6b7280" }}
           >
-            {loading ? "Analyse…" : "Recalculer l’analyse complète"}
+            {loading ? "Réparation…" : adminActive ? "Réparer les caches" : "Admin requis"}
           </button>
         </div>
       </div>

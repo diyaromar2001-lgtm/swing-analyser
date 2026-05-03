@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { TickerResult, MarketRegime, DataFreshness, UniverseScope, CryptoRegimeEngine } from "../types";
@@ -377,7 +377,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           dataLengthRef.current = 0;
           setScreenerNotice({
             kind: "empty-cache",
-            message: "Aucune donnée crypto en cache. Lancez une analyse complète.",
+            message: "Aucune donnée crypto en cache. Lancez une réparation des caches.",
           });
         }
       } else {
@@ -393,7 +393,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       setScreenerNotice({
         kind: timeout ? "timeout" : "refresh-failed",
         message: timeout
-          ? "Analyse complète trop longue. Les dernières données disponibles restent affichées."
+          ? "Réparation des caches trop longue. Les dernières données disponibles restent affichées."
           : "Données précédentes — refresh échoué",
       });
       const cached = loadScreenerCache(screenerScope);
@@ -626,7 +626,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     }
     setScreenerNotice({
       kind: "empty-cache",
-      message: "Aucune donnée en cache. Lancez une analyse complète.",
+      message: "Aucune donnée en cache. Lancez une réparation des caches.",
     });
     setLoading(false);
   }, [screenerScope]);
@@ -1093,6 +1093,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           onPriceRefresh={refreshPricesOnly}
           loading={loading || screenerRefreshing}
           priceRefreshing={priceRefreshing}
+          adminActive={adminKeyPresent}
         />
 
       {uiMode === "simple" && (
@@ -1377,3 +1378,4 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     </div>
   );
 }
+

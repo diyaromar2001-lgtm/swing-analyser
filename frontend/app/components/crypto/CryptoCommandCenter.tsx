@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { CryptoRegimeEngine, TickerResult } from "../../types";
@@ -101,7 +101,7 @@ export function CryptoCommandCenter({
   const hasPreviousData = screenerNotice?.kind === "refresh-failed" || screenerNotice?.kind === "timeout";
   const emptyCacheMessage = screenerNotice?.kind === "empty-cache"
     ? screenerNotice.message
-    : "Aucune donnée crypto en cache. Lancez une analyse complète.";
+    : "Aucune donnée crypto en cache. Lancez une réparation des caches.";
   const effectiveNoTrade = noTrade || missingBtcEth;
 
   if (!loading && data.length === 0) {
@@ -116,7 +116,7 @@ export function CryptoCommandCenter({
               Prix seulement
             </button>
             <button onClick={onRefresh} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-40" style={{ background: "#1a1a2e", border: "1px solid #2a2a4e", color: "#818cf8" }}>
-              {loading ? "Loading…" : "⟳ Analyse complète"}
+              {loading ? "Loading…" : "Réessayer depuis cache"}
             </button>
             <button onClick={onAdvancedView} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "#0c0c18", border: "1px solid #1a1a2e", color: "#4b5563" }}>
               Advanced →
@@ -129,11 +129,11 @@ export function CryptoCommandCenter({
             {emptyCacheMessage}
           </p>
           <p className="text-sm text-red-200">
-            Le fast screener Crypto n&apos;a pas renvoyé de liste exploitable. Vous pouvez lancer une analyse complète pour récupérer les dernières données disponibles.
+            Le fast screener Crypto n&apos;a pas renvoyé de liste exploitable. Vous pouvez lancer une réparation des caches pour récupérer les dernières données disponibles.
           </p>
           <div className="mt-4 flex items-center gap-2 flex-wrap">
             <button onClick={onRefresh} className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: "#2a1220", border: "1px solid #ef444455", color: "#fca5a5" }}>
-              Analyse complète
+              Réparer les caches
             </button>
             <button onClick={onRefreshPrices} className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: "#0c0c18", border: "1px solid #1a1a2e", color: "#10b981" }}>
               Rafraîchir prix seulement
@@ -160,7 +160,7 @@ export function CryptoCommandCenter({
             Prix seulement
           </button>
           <button onClick={onRefresh} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-40" style={{ background: "#1a1a2e", border: "1px solid #2a2a4e", color: "#818cf8" }}>
-            {loading ? "Loading…" : "⟳ Analyse complète"}
+            {loading ? "Loading…" : "Réessayer depuis cache"}
           </button>
           <button onClick={onAdvancedView} className="px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "#0c0c18", border: "1px solid #1a1a2e", color: "#4b5563" }}>
             Advanced →
@@ -342,3 +342,4 @@ export function CryptoCommandCenter({
     </div>
   );
 }
+
