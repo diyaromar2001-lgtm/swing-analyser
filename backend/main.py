@@ -14,7 +14,7 @@ import pandas as pd
 import numpy as np
 from typing import Any, List, Optional, Dict
 from pydantic import BaseModel
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 import threading
 from collections import Counter
@@ -335,6 +335,136 @@ def _actions_cache_snapshot() -> Dict[str, Any]:
         },
         "warmup_errors": warmup_state.get("errors", []),
     }
+
+
+def _actions_cache_is_ready(snapshot: Optional[Dict[str, Any]] = None) -> bool:
+    data = snapshot or _actions_cache_snapshot()
+    return (
+        data.get("ohlcv_cache_count", 0) > 150
+        and data.get("price_cache_count", 0) > 150
+        and data.get("screener_results_count", 0) > 0
+        and data.get("regime_cache_status") == "warm"
+    )
+
+
+def _record_actions_warmup_issue(
+    warnings: List[str],
+    errors: List[str],
+    *,
+    endpoint: str,
+    batch_label: str,
+    message: str,
+    batch_record: Optional[Dict[str, Any]] = None,
+) -> None:
+    warnings.append(message)
+    errors.append(message)
+    progress = _warmup_progress.setdefault("actions", {})
+    progress["last_failed_endpoint"] = endpoint
+    progress["last_failed_batch"] = batch_label
+    progress["last_error_message"] = message
+    progress["last_error_at"] = _iso(_time.time())
+    if batch_record is not None:
+        batch_record.setdefault("errors", []).append(message)
+
+
+def _warmup_actions_chunk(
+    tickers: List[str],
+    *,
+    include_edge: bool,
+    limit: Optional[int],
+    warnings: List[str],
+    errors: List[str],
+    audit: Counter,
+    audit_lock: threading.Lock,
+    batch_record: Dict[str, Any],
+    timeout_seconds: int = 15,
+) -> tuple[list[object], list[str], int]:
+    results: List[object] = []
+    warmed_tickers: List[str] = []
+    edge_computed = 0
+    if not tickers:
+        return results, warmed_tickers, edge_computed
+
+    with ThreadPoolExecutor(max_workers=min(4, max(len(tickers), 1))) as executor:
+        futures = {
+            executor.submit(
+                analyze_ticker,
+                t,
+                "standard",
+                False,
+                False,
+                False,
+                False,
+                False,
+                audit,
+                audit_lock,
+            ): t
+            for t in tickers
+        }
+        pending = set(futures.keys())
+        while pending:
+            done, not_done = wait(pending, timeout=timeout_seconds)
+            if not done:
+                for future in list(not_done):
+                    ticker = futures.get(future, "UNKNOWN")
+                    future.cancel()
+                    msg = f"actions_warmup:{ticker}: timeout after {timeout_seconds}s"
+                    _record_actions_warmup_issue(
+                        warnings,
+                        errors,
+                        endpoint="actions",
+                        batch_label=batch_record.get("slice", "unknown"),
+                        message=msg,
+                        batch_record=batch_record,
+                    )
+                break
+            for future in done:
+                ticker = futures[future]
+                try:
+                    res = future.result()
+                    if res:
+                        results.append(res)
+                        warmed_tickers.append(str(getattr(res, "ticker", ticker)).upper())
+                except Exception as exc:
+                    msg = f"actions_warmup:{ticker}: {type(exc).__name__}: {str(exc)[:160]}"
+                    _record_actions_warmup_issue(
+                        warnings,
+                        errors,
+                        endpoint="actions",
+                        batch_label=batch_record.get("slice", "unknown"),
+                        message=msg,
+                        batch_record=batch_record,
+                    )
+            pending = not_done
+
+    if limit:
+        warmed_tickers = warmed_tickers[:limit]
+        allowed = {str(getattr(r, "ticker", "")).upper() for r in results}
+        warmed_set = set(warmed_tickers)
+        results = [r for r in results if str(getattr(r, "ticker", "")).upper() in allowed and str(getattr(r, "ticker", "")).upper() in warmed_set]
+
+    if include_edge and warmed_tickers:
+        edge_targets = warmed_tickers[:limit] if limit else warmed_tickers
+        for ticker in edge_targets:
+            df = _get_ohlcv(ticker, allow_download=True)
+            if df is None:
+                warnings.append(f"actions_edge:{ticker}: OHLCV indisponible")
+                continue
+            try:
+                compute_ticker_edge(ticker, df, period_months=24)
+                edge_computed += 1
+            except Exception as exc:
+                msg = f"actions_edge:{ticker}: {type(exc).__name__}: {str(exc)[:160]}"
+                _record_actions_warmup_issue(
+                    warnings,
+                    errors,
+                    endpoint="actions",
+                    batch_label=batch_record.get("slice", "unknown"),
+                    message=msg,
+                    batch_record=batch_record,
+                )
+
+    return results, warmed_tickers, edge_computed
 
 
 def _crypto_cache_snapshot() -> Dict[str, Any]:
@@ -2192,6 +2322,7 @@ def warmup_status(scope: str = Query("all")):
     payload: Dict[str, Any] = {"status": "ok", "scope": normalized, "runtime": runtime}
     if normalized in {"actions", "all"}:
         payload["actions"] = _actions_cache_snapshot()
+        payload["actions_diagnostic"] = _warmup_progress.get("actions", {})
     if normalized in {"crypto", "all"}:
         payload["crypto"] = _crypto_cache_snapshot()
     if normalized in {"actions", "all"}:
@@ -2208,6 +2339,7 @@ def _warmup_actions(
     batch: int = 1,
     start_index: Optional[int] = None,
     end_index: Optional[int] = None,
+    skip_existing: bool = True,
 ) -> Dict[str, Any]:
     global LAST_WARMUP_ACTIONS_STARTED, LAST_WARMUP_ACTIONS_FINISHED
     LAST_WARMUP_ACTIONS_STARTED = _time.time()
@@ -2216,6 +2348,41 @@ def _warmup_actions(
     total_tickers = len(ALL_TICKERS)
     batch_size = max(1, min(int(batch_size or 50), 100))
     batch = max(1, int(batch or 1))
+    skip_existing = bool(skip_existing)
+
+    current_snapshot = _actions_cache_snapshot()
+    current_state = _warmup_progress.get("actions", {})
+    if skip_existing and _actions_cache_is_ready(current_snapshot):
+        LAST_WARMUP_ACTIONS_FINISHED = _time.time()
+        _warmup_progress["actions"] = {
+            **current_state,
+            "total_tickers": total_tickers,
+            "warmed_tickers": current_snapshot.get("screener_results_count", 0),
+            "missing_tickers": 0,
+            "estimated_batches_remaining": 0,
+            "last_batch": "skip_existing",
+            "last_slice": "ready",
+            "errors": current_state.get("errors", []),
+            "batch_history": current_state.get("batch_history", {}),
+            "last_failed_endpoint": current_state.get("last_failed_endpoint"),
+            "last_failed_batch": current_state.get("last_failed_batch"),
+            "last_error_message": current_state.get("last_error_message"),
+        }
+        _persist_runtime_cache_state()
+        return {
+            "actions_count": 0,
+            "actions_edge_computed": 0,
+            "actions_cache": current_snapshot,
+            "warmup_batch": {
+                "batch": batch,
+                "batch_size": batch_size,
+                "start_index": 0,
+                "end_index": 0,
+                "total_batches": max((total_tickers + batch_size - 1) // batch_size, 1),
+                "slice_count": 0,
+                "skipped_existing": True,
+            },
+        }
 
     if start_index is not None or end_index is not None:
         start = max(0, int(start_index or 0))
@@ -2249,26 +2416,52 @@ def _warmup_actions(
         "errors": [],
         "started_at": _iso(_time.time()),
     }
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = {
-            executor.submit(analyze_ticker, t, "standard", False, True, True, True, False, audit, audit_lock): t
-            for t in slice_tickers
-        }
-        for future in as_completed(futures):
-            ticker = futures[future]
-            try:
-                res = future.result()
-                if res:
-                    results.append(res)
-                    warmed_tickers.append(str(getattr(res, "ticker", ticker)).upper())
-            except Exception as exc:
-                msg = f"actions_warmup:{ticker}: {type(exc).__name__}: {str(exc)[:160]}"
-                errors.append(msg)
-                batch_record["errors"].append(msg)
 
-    if limit:
-        warmed_tickers = warmed_tickers[:limit]
-        results = [r for r in results if str(getattr(r, "ticker", "")).upper() in set(warmed_tickers)]
+    # Batch size interne plus petite pour éviter les 502 Railway.
+    chunk_size = max(5, min(10, batch_size if batch_size else 10))
+    chunk_timeout_seconds = 15
+    for chunk_index, chunk_start in enumerate(range(0, len(slice_tickers), chunk_size), start=1):
+        chunk = slice_tickers[chunk_start: chunk_start + chunk_size]
+        chunk_results, chunk_warmed, chunk_edge = _warmup_actions_chunk(
+            chunk,
+            include_edge=include_edge,
+            limit=limit,
+            warnings=warnings,
+            errors=errors,
+            audit=audit,
+            audit_lock=audit_lock,
+            batch_record=batch_record,
+            timeout_seconds=chunk_timeout_seconds,
+        )
+        if chunk_results:
+            results.extend(chunk_results)
+        if chunk_warmed:
+            warmed_tickers.extend(chunk_warmed)
+        edge_computed += chunk_edge
+        batch_record["chunk_count"] = chunk_index
+        batch_record["last_chunk_size"] = len(chunk)
+        batch_record["last_chunk_warmed"] = len(chunk_warmed)
+        batch_record["last_chunk_finished_at"] = _iso(_time.time())
+        if chunk_warmed:
+            _run_with_timeout(
+                "actions_prices_chunk",
+                lambda: get_prices(",".join(chunk_warmed[: min(len(chunk_warmed), 20)])),
+                20,
+                warnings,
+                errors,
+            )
+        _warmup_progress["actions"] = {
+            **_warmup_progress.get("actions", {}),
+            "total_tickers": total_tickers,
+            "warmed_tickers": len({str(getattr(r, "ticker", "")).upper() for r in results}) or len(_screener_cache.get(_default_screener_cache_key(), {}).get("data", [])),
+            "missing_tickers": max(total_tickers - len(_screener_cache.get(_default_screener_cache_key(), {}).get("data", [])), 0),
+            "estimated_batches_remaining": None,
+            "last_batch": batch,
+            "last_slice": batch_label,
+            "errors": errors[-10:],
+            "batch_history": {**_warmup_progress.get("actions", {}).get("batch_history", {}), str(batch): batch_record},
+        }
+        _persist_runtime_cache_state()
 
     if results:
         _merge_screener_cache_results(
@@ -2281,14 +2474,6 @@ def _warmup_actions(
             "data": results,
             "meta": {"source": "warmup", "batch": batch, "batch_size": batch_size, "slice": batch_label},
         }
-        if warmed_tickers:
-            _run_with_timeout(
-                "actions_prices",
-                lambda: get_prices(",".join(warmed_tickers[: min(len(warmed_tickers), 40)])),
-                45,
-                warnings,
-                errors,
-            )
 
     if include_edge and warmed_tickers:
         edge_targets = warmed_tickers[:limit] if limit else warmed_tickers
@@ -2302,16 +2487,23 @@ def _warmup_actions(
                 edge_computed += 1
             except Exception as exc:
                 msg = f"actions_edge:{ticker}: {type(exc).__name__}: {str(exc)[:160]}"
-                errors.append(msg)
-                batch_record["errors"].append(msg)
+                _record_actions_warmup_issue(
+                    warnings,
+                    errors,
+                    endpoint="actions",
+                    batch_label=batch_label,
+                    message=msg,
+                    batch_record=batch_record,
+                )
 
     merged_results = _screener_cache.get(_default_screener_cache_key(), {}).get("data", [])
     missing_tickers = max(total_tickers - len(merged_results), 0)
-    estimated_remaining = max((missing_tickers + batch_size - 1) // batch_size, 0)
+    estimated_remaining = max((missing_tickers + chunk_size - 1) // chunk_size, 0)
     batch_record["warmed"] = len(warmed_tickers)
     batch_record["finished_at"] = _iso(_time.time())
     batch_record["missing_tickers_after"] = missing_tickers
     batch_record["edge_computed"] = edge_computed
+    batch_record["status"] = "ok" if not batch_record.get("errors") else "partial"
     _warmup_progress["actions"] = {
         "total_tickers": total_tickers,
         "warmed_tickers": len(merged_results),
@@ -2320,6 +2512,9 @@ def _warmup_actions(
         "last_batch": batch,
         "last_slice": batch_label,
         "errors": errors[-10:],
+        "last_failed_endpoint": _warmup_progress.get("actions", {}).get("last_failed_endpoint"),
+        "last_failed_batch": _warmup_progress.get("actions", {}).get("last_failed_batch"),
+        "last_error_message": _warmup_progress.get("actions", {}).get("last_error_message"),
         "batch_history": {**_warmup_progress.get("actions", {}).get("batch_history", {}), str(batch): batch_record},
     }
     LAST_WARMUP_ACTIONS_FINISHED = _time.time()
@@ -2336,6 +2531,8 @@ def _warmup_actions(
             "end_index": stop,
             "total_batches": max((total_tickers + batch_size - 1) // batch_size, 1),
             "slice_count": len(slice_tickers),
+            "chunk_size": chunk_size,
+            "chunk_timeout_seconds": chunk_timeout_seconds,
         },
     }
 
@@ -2364,7 +2561,7 @@ def _warmup_missing_actions(
             "actions_cache": _actions_cache_snapshot(),
         }
 
-    batch_limit = min(limit or 50, len(missing))
+    batch_limit = min(limit or 20, len(missing))
     batch_tickers = missing[:batch_limit]
     warmed: List[str] = []
     batch_errors: List[str] = []
@@ -2377,37 +2574,58 @@ def _warmup_missing_actions(
         "errors": [],
         "started_at": _iso(_time.time()),
         "tickers": batch_tickers,
+        "chunk_size": max(5, min(10, len(batch_tickers) or 10)),
     }
 
-    with ThreadPoolExecutor(max_workers=min(8, max(len(batch_tickers), 1))) as executor:
-        futures = {
-            executor.submit(analyze_ticker, t, "standard", False, True, True, True, False, audit, audit_lock): t
-            for t in batch_tickers
-        }
-        for future in as_completed(futures):
-            ticker = futures[future]
-            try:
-                res = future.result()
-                if res:
-                    warmed.append(str(getattr(res, "ticker", ticker)).upper())
-                    _merge_screener_cache_results(
-                        _default_screener_cache_key(),
-                        [res],
-                        meta={"source": "warmup-missing", "ticker": ticker},
-                    )
-            except Exception as exc:
-                msg = f"actions_missing:{ticker}: {type(exc).__name__}: {str(exc)[:160]}"
-                batch_errors.append(msg)
-                batch_record["errors"].append(msg)
-
-    if warmed:
-        _run_with_timeout(
-            "actions_prices_missing",
-            lambda: get_prices(",".join(warmed[: min(len(warmed), 40)])),
-            45,
-            warnings,
-            errors,
+    chunk_size = batch_record["chunk_size"]
+    for chunk_index, chunk_start in enumerate(range(0, len(batch_tickers), chunk_size), start=1):
+        chunk = batch_tickers[chunk_start: chunk_start + chunk_size]
+        chunk_results, chunk_warmed, _ = _warmup_actions_chunk(
+            chunk,
+            include_edge=include_edge,
+            limit=limit,
+            warnings=warnings,
+            errors=errors,
+            audit=audit,
+            audit_lock=audit_lock,
+            batch_record=batch_record,
+            timeout_seconds=15,
         )
+        if chunk_results:
+            for res in chunk_results:
+                warmed.append(str(getattr(res, "ticker", "")).upper())
+            _merge_screener_cache_results(
+                _default_screener_cache_key(),
+                chunk_results,
+                meta={"source": "warmup-missing", "chunk": chunk_index},
+            )
+        if chunk_warmed:
+            _run_with_timeout(
+                "actions_prices_missing_chunk",
+                lambda: get_prices(",".join(chunk_warmed[: min(len(chunk_warmed), 20)])),
+                20,
+                warnings,
+                errors,
+            )
+        batch_record["chunk_count"] = chunk_index
+        batch_record["last_chunk_size"] = len(chunk)
+        batch_record["last_chunk_warmed"] = len(chunk_warmed)
+        batch_record["last_chunk_finished_at"] = _iso(_time.time())
+        _warmup_progress["actions"] = {
+            **_warmup_progress.get("actions", {}),
+            "total_tickers": len(ALL_TICKERS),
+            "warmed_tickers": len(_screener_cache.get(_default_screener_cache_key(), {}).get("data", [])),
+            "missing_tickers": max(len(ALL_TICKERS) - len(_screener_cache.get(_default_screener_cache_key(), {}).get("data", [])), 0),
+            "estimated_batches_remaining": None,
+            "last_batch": "missing",
+            "last_slice": ",".join(batch_tickers[:5]),
+            "errors": batch_errors[-10:],
+            "last_failed_endpoint": _warmup_progress.get("actions", {}).get("last_failed_endpoint"),
+            "last_failed_batch": _warmup_progress.get("actions", {}).get("last_failed_batch"),
+            "last_error_message": _warmup_progress.get("actions", {}).get("last_error_message"),
+            "batch_history": {**_warmup_progress.get("actions", {}).get("batch_history", {}), "missing": batch_record | {"warmed": len(warmed), "finished_at": _iso(_time.time())}},
+        }
+        _persist_runtime_cache_state()
 
     if include_edge and warmed:
         for ticker in warmed:
@@ -2429,6 +2647,9 @@ def _warmup_missing_actions(
         "last_batch": "missing",
         "last_slice": ",".join(batch_tickers[:5]),
         "errors": batch_errors[-10:],
+        "last_failed_endpoint": _warmup_progress.get("actions", {}).get("last_failed_endpoint"),
+        "last_failed_batch": _warmup_progress.get("actions", {}).get("last_failed_batch"),
+        "last_error_message": _warmup_progress.get("actions", {}).get("last_error_message"),
         "batch_history": {**_warmup_progress.get("actions", {}).get("batch_history", {}), "missing": batch_record | {"warmed": len(warmed), "finished_at": _iso(_time.time())}},
     }
     LAST_WARMUP_ACTIONS_FINISHED = _time.time()
@@ -2439,6 +2660,8 @@ def _warmup_missing_actions(
         "actions_missing_tickers": missing,
         "actions_missing_batch_count": len(batch_tickers),
         "actions_missing_warmed": len(warmed),
+        "actions_missing_failed": len(batch_errors),
+        "actions_missing_remaining": max(len(missing) - len(warmed), 0),
         "actions_missing_errors": batch_errors,
         "actions_cache": _actions_cache_snapshot(),
     }
@@ -2501,6 +2724,7 @@ def warmup(
     batch: int = Query(1, ge=1),
     start_index: Optional[int] = Query(None, ge=0),
     end_index: Optional[int] = Query(None, ge=0),
+    skip_existing: bool = Query(True),
     _: None = Depends(require_admin_key),
 ):
     normalized = (scope or "all").strip().lower()
@@ -2515,6 +2739,7 @@ def warmup(
         "scope": normalized,
         "include_edge": include_edge,
         "limit": limit,
+        "skip_existing": skip_existing,
     }
 
     if normalized in {"actions", "all"}:
@@ -2528,9 +2753,10 @@ def warmup(
                 batch=batch,
                 start_index=start_index,
                 end_index=end_index,
+                skip_existing=skip_existing,
             )
         )
-    if normalized == "actions" and batch_size == 50 and batch == 1 and start_index is None and end_index is None:
+    if normalized == "actions" and batch_size == 50 and batch == 1 and start_index is None and end_index is None and not skip_existing:
         payload["actions_missing"] = _warmup_missing_actions(
             include_edge=include_edge,
             limit=limit,
@@ -2557,12 +2783,30 @@ def warmup(
 @app.post("/api/warmup/actions-missing")
 def warmup_actions_missing(
     include_edge: bool = Query(False),
-    limit: Optional[int] = Query(None, ge=1, le=100),
+    limit: Optional[int] = Query(20, ge=1, le=100),
+    skip_existing: bool = Query(True),
     _: None = Depends(require_admin_key),
 ):
     warnings: List[str] = []
     errors: List[str] = []
     started = _time.perf_counter()
+    if skip_existing and _actions_cache_is_ready():
+        payload = {
+            "actions_missing_count": 0,
+            "actions_missing_tickers": [],
+            "actions_missing_batch_count": 0,
+            "actions_missing_warmed": 0,
+            "actions_missing_failed": 0,
+            "actions_missing_remaining": 0,
+            "actions_missing_errors": [],
+            "actions_cache": _actions_cache_snapshot(),
+            "status": "ok",
+            "warnings": warnings,
+            "errors": errors,
+            "duration_ms": round((_time.perf_counter() - started) * 1000, 1),
+            "updated": _actions_cache_snapshot(),
+        }
+        return payload
     payload = _warmup_missing_actions(include_edge=include_edge, limit=limit, warnings=warnings, errors=errors)
     payload["status"] = "ok" if not errors else "partial"
     payload["warnings"] = warnings
