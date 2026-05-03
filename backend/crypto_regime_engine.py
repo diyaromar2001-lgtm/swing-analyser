@@ -9,6 +9,7 @@ from typing import Dict, List
 
 import numpy as np
 
+from cache_persistence import save_state as _save_cache_state
 from crypto_data import (
     get_crypto_global_metrics,
     get_crypto_market_snapshots,
@@ -198,4 +199,12 @@ def compute_crypto_regime(fast: bool = False) -> Dict:
     }
     _cache.update({"ts": now, "data": data})
     _last_regime_update_ts = now
+    try:
+        _save_cache_state({
+            "crypto": {
+                "_crypto_regime_cache": _cache,
+            }
+        })
+    except Exception:
+        pass
     return data

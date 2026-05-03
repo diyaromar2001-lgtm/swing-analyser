@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 import threading
 from collections import Counter
+from datetime import datetime, timezone
 
 from indicators import (
     sma, rsi, macd, atr, perf_pct,
@@ -83,6 +84,7 @@ from trade_journal import (
     update_trade as trade_journal_update,
 )
 from edge_v2_research import build_edge_v2_research_rows
+from cache_persistence import load_state as load_cache_state, save_state as save_cache_state
 
 app = FastAPI(title="Swing Trading Screener Pro")
 trade_journal_init_db()
@@ -98,6 +100,95 @@ _ALLOWED_ORIGINS = [
 
 _ADMIN_API_KEY = _os.environ.get("ADMIN_API_KEY")
 _ADMIN_WARNING_EMITTED = False
+APP_STARTED_AT = _time.time()
+LAST_WARMUP_ACTIONS_STARTED: float | None = None
+LAST_WARMUP_ACTIONS_FINISHED: float | None = None
+LAST_WARMUP_CRYPTO_STARTED: float | None = None
+LAST_WARMUP_CRYPTO_FINISHED: float | None = None
+LAST_RESTART_DETECTED: float | None = None
+
+
+def _iso(ts: float | int | None) -> Optional[str]:
+    if not ts:
+        return None
+    try:
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
+    except Exception:
+        return None
+
+
+def _load_runtime_cache_state() -> None:
+    global LAST_RESTART_DETECTED, LAST_WARMUP_ACTIONS_STARTED, LAST_WARMUP_ACTIONS_FINISHED, LAST_WARMUP_CRYPTO_STARTED, LAST_WARMUP_CRYPTO_FINISHED
+    state = load_cache_state()
+    if not state:
+        return
+    try:
+        LAST_RESTART_DETECTED = state.get("app_started_at")
+        actions = state.get("actions", {})
+        crypto = state.get("crypto", {})
+
+        _ohlcv_cache.clear()
+        _ohlcv_cache.update(actions.get("_ohlcv_cache", {}))
+        _price_cache.clear()
+        _price_cache.update(actions.get("_price_cache", {}))
+        _screener_cache.clear()
+        _screener_cache.update(actions.get("_screener_cache", {}))
+        _market_regime_cache.clear()
+        _market_regime_cache.update(actions.get("_market_regime_cache", {}))
+        _mkt_ctx_cache.clear()
+        _mkt_ctx_cache.update(actions.get("_mkt_ctx_cache", {}))
+        _warmup_progress.clear()
+        _warmup_progress.update(actions.get("_warmup_progress", {}))
+        if actions.get("last_actions_started") is not None:
+            LAST_WARMUP_ACTIONS_STARTED = actions.get("last_actions_started")
+        if actions.get("last_actions_finished") is not None:
+            LAST_WARMUP_ACTIONS_FINISHED = actions.get("last_actions_finished")
+
+        _crypto_data_module._price_cache.clear()
+        _crypto_data_module._price_cache.update(crypto.get("_price_cache", {}))
+        _crypto_data_module._ohlcv_daily_cache.clear()
+        _crypto_data_module._ohlcv_daily_cache.update(crypto.get("_ohlcv_daily_cache", {}))
+        _crypto_data_module._ohlcv_4h_cache.clear()
+        _crypto_data_module._ohlcv_4h_cache.update(crypto.get("_ohlcv_4h_cache", {}))
+        _crypto_service_module._screener_cache.clear()
+        _crypto_service_module._screener_cache.update(crypto.get("_screener_cache", {}))
+        _crypto_regime_cache.clear()
+        _crypto_regime_cache.update(crypto.get("_crypto_regime_cache", {}))
+        if crypto.get("last_crypto_started") is not None:
+            LAST_WARMUP_CRYPTO_STARTED = crypto.get("last_crypto_started")
+        if crypto.get("last_crypto_finished") is not None:
+            LAST_WARMUP_CRYPTO_FINISHED = crypto.get("last_crypto_finished")
+    except Exception:
+        return
+
+
+def _persist_runtime_cache_state() -> None:
+    try:
+        save_cache_state({
+            "app_started_at": APP_STARTED_AT,
+            "last_saved_at": _time.time(),
+            "actions": {
+                "_ohlcv_cache": _ohlcv_cache,
+                "_price_cache": _price_cache,
+                "_screener_cache": _screener_cache,
+                "_market_regime_cache": _market_regime_cache,
+                "_mkt_ctx_cache": _mkt_ctx_cache,
+                "_warmup_progress": _warmup_progress,
+                "last_actions_started": LAST_WARMUP_ACTIONS_STARTED,
+                "last_actions_finished": LAST_WARMUP_ACTIONS_FINISHED,
+            },
+            "crypto": {
+                "_price_cache": _crypto_data_module._price_cache,
+                "_ohlcv_daily_cache": _crypto_data_module._ohlcv_daily_cache,
+                "_ohlcv_4h_cache": _crypto_data_module._ohlcv_4h_cache,
+                "_screener_cache": _crypto_service_module._screener_cache,
+                "_crypto_regime_cache": _crypto_regime_cache,
+                "last_crypto_started": LAST_WARMUP_CRYPTO_STARTED,
+                "last_crypto_finished": LAST_WARMUP_CRYPTO_FINISHED,
+            },
+        })
+    except Exception:
+        pass
 
 
 def require_admin_key(x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")):
@@ -117,6 +208,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_load_runtime_cache_state()
 
 # ── Health check (keep-alive pour Railway) ───────────────────────────────────
 @app.get("/health")
@@ -1107,6 +1200,7 @@ def analyze_ticker(
 def startup_event():
     fetch_sp500_perf()
     _warm_default_screener_cache_async()
+    _persist_runtime_cache_state()
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -1395,7 +1489,26 @@ def crypto_debug_data(_: None = Depends(require_admin_key)):
 # Scope: CRYPTO
 @app.get("/api/crypto/regime")
 def crypto_regime():
-    return compute_crypto_regime()
+    cached = _crypto_regime_cache.get("data") if isinstance(_crypto_regime_cache, dict) else None
+    cached_age = _time.time() - _crypto_regime_cache.get("ts", 0) if isinstance(_crypto_regime_cache, dict) and _crypto_regime_cache.get("ts") else None
+    if isinstance(cached, dict) and cached_age is not None and cached_age < 3600 and cached.get("data_status") == "OK":
+        return cached
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(compute_crypto_regime, False)
+            return future.result(timeout=20)
+    except Exception:
+        if isinstance(cached, dict):
+            degraded = dict(cached)
+            degraded.setdefault("status", "degraded")
+            degraded.setdefault("warnings", [])
+            degraded["warnings"] = list(degraded.get("warnings", [])) + ["Crypto regime returned cached fallback"]
+            return degraded
+        fallback = compute_crypto_regime(fast=True)
+        if isinstance(fallback, dict):
+            fallback["status"] = "degraded"
+            fallback["warnings"] = list(fallback.get("warnings", [])) + ["Crypto regime fallback after timeout"]
+        return fallback
 
 
 # Scope: CRYPTO
@@ -2061,6 +2174,31 @@ def cache_status(scope: str = Query("all")):
     return payload
 
 
+@app.get("/api/warmup/status")
+def warmup_status(scope: str = Query("all")):
+    normalized = (scope or "all").strip().lower()
+    if normalized not in {"actions", "crypto", "all"}:
+        normalized = "all"
+
+    runtime = {
+        "app_started_at": _iso(APP_STARTED_AT),
+        "uptime_seconds": round(_time.time() - APP_STARTED_AT, 1),
+        "last_warmup_actions_started": _iso(LAST_WARMUP_ACTIONS_STARTED),
+        "last_warmup_actions_finished": _iso(LAST_WARMUP_ACTIONS_FINISHED),
+        "last_warmup_crypto_started": _iso(LAST_WARMUP_CRYPTO_STARTED),
+        "last_warmup_crypto_finished": _iso(LAST_WARMUP_CRYPTO_FINISHED),
+        "last_restart_detected": _iso(load_cache_state().get("app_started_at") if load_cache_state() else None),
+    }
+    payload: Dict[str, Any] = {"status": "ok", "scope": normalized, "runtime": runtime}
+    if normalized in {"actions", "all"}:
+        payload["actions"] = _actions_cache_snapshot()
+    if normalized in {"crypto", "all"}:
+        payload["crypto"] = _crypto_cache_snapshot()
+    if normalized in {"actions", "all"}:
+        payload["actions_missing"] = _warmup_progress.get("actions", {})
+    return payload
+
+
 def _warmup_actions(
     include_edge: bool,
     limit: Optional[int],
@@ -2071,6 +2209,8 @@ def _warmup_actions(
     start_index: Optional[int] = None,
     end_index: Optional[int] = None,
 ) -> Dict[str, Any]:
+    global LAST_WARMUP_ACTIONS_STARTED, LAST_WARMUP_ACTIONS_FINISHED
+    LAST_WARMUP_ACTIONS_STARTED = _time.time()
     warmed_tickers: List[str] = []
     edge_computed = 0
     total_tickers = len(ALL_TICKERS)
@@ -2098,6 +2238,17 @@ def _warmup_actions(
     results: List[object] = []
     audit = Counter()
     audit_lock = threading.Lock()
+    batch_record = {
+        "batch": batch,
+        "batch_size": batch_size,
+        "slice": batch_label,
+        "start_index": start,
+        "end_index": stop,
+        "requested": len(slice_tickers),
+        "warmed": 0,
+        "errors": [],
+        "started_at": _iso(_time.time()),
+    }
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
             executor.submit(analyze_ticker, t, "standard", False, True, True, True, False, audit, audit_lock): t
@@ -2111,7 +2262,9 @@ def _warmup_actions(
                     results.append(res)
                     warmed_tickers.append(str(getattr(res, "ticker", ticker)).upper())
             except Exception as exc:
-                errors.append(f"actions_warmup:{ticker}: {type(exc).__name__}: {str(exc)[:160]}")
+                msg = f"actions_warmup:{ticker}: {type(exc).__name__}: {str(exc)[:160]}"
+                errors.append(msg)
+                batch_record["errors"].append(msg)
 
     if limit:
         warmed_tickers = warmed_tickers[:limit]
@@ -2148,11 +2301,17 @@ def _warmup_actions(
                 compute_ticker_edge(ticker, df, period_months=24)
                 edge_computed += 1
             except Exception as exc:
-                errors.append(f"actions_edge:{ticker}: {type(exc).__name__}: {str(exc)[:160]}")
+                msg = f"actions_edge:{ticker}: {type(exc).__name__}: {str(exc)[:160]}"
+                errors.append(msg)
+                batch_record["errors"].append(msg)
 
     merged_results = _screener_cache.get(_default_screener_cache_key(), {}).get("data", [])
     missing_tickers = max(total_tickers - len(merged_results), 0)
     estimated_remaining = max((missing_tickers + batch_size - 1) // batch_size, 0)
+    batch_record["warmed"] = len(warmed_tickers)
+    batch_record["finished_at"] = _iso(_time.time())
+    batch_record["missing_tickers_after"] = missing_tickers
+    batch_record["edge_computed"] = edge_computed
     _warmup_progress["actions"] = {
         "total_tickers": total_tickers,
         "warmed_tickers": len(merged_results),
@@ -2161,7 +2320,10 @@ def _warmup_actions(
         "last_batch": batch,
         "last_slice": batch_label,
         "errors": errors[-10:],
+        "batch_history": {**_warmup_progress.get("actions", {}).get("batch_history", {}), str(batch): batch_record},
     }
+    LAST_WARMUP_ACTIONS_FINISHED = _time.time()
+    _persist_runtime_cache_state()
 
     return {
         "actions_count": len(warmed_tickers),
@@ -2191,6 +2353,8 @@ def _warmup_missing_actions(
         if getattr(row, "ticker", None) or isinstance(row, dict) and row.get("ticker")
     }
     missing = [t for t in ALL_TICKERS if t not in cached_tickers]
+    global LAST_WARMUP_ACTIONS_STARTED, LAST_WARMUP_ACTIONS_FINISHED
+    LAST_WARMUP_ACTIONS_STARTED = LAST_WARMUP_ACTIONS_STARTED or _time.time()
     if not missing:
         return {
             "actions_missing_count": 0,
@@ -2206,6 +2370,14 @@ def _warmup_missing_actions(
     batch_errors: List[str] = []
     audit = Counter()
     audit_lock = threading.Lock()
+    batch_record = {
+        "batch": "missing",
+        "requested": len(batch_tickers),
+        "warmed": 0,
+        "errors": [],
+        "started_at": _iso(_time.time()),
+        "tickers": batch_tickers,
+    }
 
     with ThreadPoolExecutor(max_workers=min(8, max(len(batch_tickers), 1))) as executor:
         futures = {
@@ -2224,7 +2396,9 @@ def _warmup_missing_actions(
                         meta={"source": "warmup-missing", "ticker": ticker},
                     )
             except Exception as exc:
-                batch_errors.append(f"actions_missing:{ticker}: {type(exc).__name__}: {str(exc)[:160]}")
+                msg = f"actions_missing:{ticker}: {type(exc).__name__}: {str(exc)[:160]}"
+                batch_errors.append(msg)
+                batch_record["errors"].append(msg)
 
     if warmed:
         _run_with_timeout(
@@ -2243,7 +2417,9 @@ def _warmup_missing_actions(
             try:
                 compute_ticker_edge(ticker, df, period_months=24)
             except Exception as exc:
-                batch_errors.append(f"actions_missing_edge:{ticker}: {type(exc).__name__}: {str(exc)[:160]}")
+                msg = f"actions_missing_edge:{ticker}: {type(exc).__name__}: {str(exc)[:160]}"
+                batch_errors.append(msg)
+                batch_record["errors"].append(msg)
 
     _warmup_progress["actions"] = {
         "total_tickers": len(ALL_TICKERS),
@@ -2253,7 +2429,10 @@ def _warmup_missing_actions(
         "last_batch": "missing",
         "last_slice": ",".join(batch_tickers[:5]),
         "errors": batch_errors[-10:],
+        "batch_history": {**_warmup_progress.get("actions", {}).get("batch_history", {}), "missing": batch_record | {"warmed": len(warmed), "finished_at": _iso(_time.time())}},
     }
+    LAST_WARMUP_ACTIONS_FINISHED = _time.time()
+    _persist_runtime_cache_state()
 
     return {
         "actions_missing_count": len(missing),
@@ -2266,11 +2445,15 @@ def _warmup_missing_actions(
 
 
 def _warmup_crypto(include_edge: bool, limit: Optional[int], warnings: List[str], errors: List[str]) -> Dict[str, Any]:
+    global LAST_WARMUP_CRYPTO_STARTED, LAST_WARMUP_CRYPTO_FINISHED
+    LAST_WARMUP_CRYPTO_STARTED = _time.time()
     warmed_symbols: List[str] = []
     edge_computed = 0
 
     _invalidate_crypto_regime_cache()
-    _run_with_timeout("crypto_regime", lambda: compute_crypto_regime(fast=False), 90, warnings, errors)
+    regime_run = _run_with_timeout("crypto_regime", lambda: compute_crypto_regime(fast=False), 90, warnings, errors)
+    if not regime_run["ok"] and regime_run.get("value") is None:
+        warnings.append("crypto_regime: timeout ou indisponible")
     _run_with_timeout("crypto_prices", lambda: crypto_prices(["BTC", "ETH", "SOL"]), 45, warnings, errors)
     screener_run = _run_with_timeout(
         "crypto_screener",
@@ -2298,6 +2481,9 @@ def _warmup_crypto(include_edge: bool, limit: Optional[int], warnings: List[str]
                 edge_computed += 1
             except Exception as exc:
                 errors.append(f"crypto_edge:{symbol}: {type(exc).__name__}: {str(exc)[:160]}")
+
+    LAST_WARMUP_CRYPTO_FINISHED = _time.time()
+    _persist_runtime_cache_state()
 
     return {
         "crypto_count": len(warmed_symbols),
@@ -2364,6 +2550,26 @@ def warmup(
     payload["warmup_progress"] = _warmup_progress.get("actions") if normalized in {"actions", "all"} else None
     if errors:
         payload["status"] = "partial" if any(payload.get(k, 0) for k in ("actions_count", "crypto_count")) else "error"
+    _persist_runtime_cache_state()
+    return payload
+
+
+@app.post("/api/warmup/actions-missing")
+def warmup_actions_missing(
+    include_edge: bool = Query(False),
+    limit: Optional[int] = Query(None, ge=1, le=100),
+    _: None = Depends(require_admin_key),
+):
+    warnings: List[str] = []
+    errors: List[str] = []
+    started = _time.perf_counter()
+    payload = _warmup_missing_actions(include_edge=include_edge, limit=limit, warnings=warnings, errors=errors)
+    payload["status"] = "ok" if not errors else "partial"
+    payload["warnings"] = warnings
+    payload["errors"] = errors
+    payload["duration_ms"] = round((_time.perf_counter() - started) * 1000, 1)
+    payload["updated"] = _actions_cache_snapshot()
+    _persist_runtime_cache_state()
     return payload
 
 
