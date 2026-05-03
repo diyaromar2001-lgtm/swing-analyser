@@ -146,6 +146,15 @@ function getExecutionAuthorization(row: TickerResult) {
   };
 }
 
+function ChecklistItemRow({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <div className="flex items-start gap-2 py-1">
+      <span className={`text-xs font-black shrink-0 ${ok ? "text-emerald-400" : "text-orange-400"}`}>{ok ? "✓" : "✗"}</span>
+      <span className={`text-xs ${ok ? "text-emerald-100" : "text-orange-100"}`}>{label}</span>
+    </div>
+  );
+}
+
 // ── Row helper ────────────────────────────────────────────────────────────────
 
 function Row({ label, value, sub }: { label: string; value: React.ReactNode; sub?: string }) {
@@ -204,6 +213,39 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
     row.overfit_warning === true ||
     row.setup_grade === "REJECT";
   const watchlistEligible = !execAuth.authorized && !blockedForWatchlist;
+  const marketOk = Boolean(
+    row.score_detail.details.prix_above_sma200 &&
+    row.score_detail.details.sma50_above_sma200 &&
+    row.score_detail.details.sma50_slope_positive
+  );
+  const setupOk = row.setup_grade === "A+" || row.setup_grade === "A";
+  const edgeOk = row.ticker_edge_status === "STRONG_EDGE" || row.ticker_edge_status === "VALID_EDGE";
+  const decisionOk = ["BUY NOW", "BUY NEAR ENTRY", "BUY"].includes(row.final_decision ?? "");
+  const priceNear = typeof row.dist_entry_pct === "number" ? row.dist_entry_pct <= 3 : false;
+  const earningsOk = !(row.earnings_warning && (row.earnings_days ?? 99) <= 3);
+  const overfitOk = row.overfit_warning !== true;
+  const riskOk = row.risk_filters_status !== "BLOCKED";
+  const stopOk = Number.isFinite(row.stop_loss) && row.stop_loss > 0;
+  const tpOk = Number.isFinite(row.tp1) && row.tp1 > 0 && Number.isFinite(row.tp2) && row.tp2 > 0;
+  const readinessItems = [
+    { label: "Régime marché favorable", ok: marketOk },
+    { label: "Setup technique A/A+", ok: setupOk },
+    { label: "Edge validé", ok: edgeOk },
+    { label: "Décision BUY / BUY NEAR ENTRY / BUY NOW", ok: decisionOk },
+    { label: "Prix proche de l'entrée", ok: priceNear },
+    { label: "Pas d'earnings proches", ok: earningsOk },
+    { label: "Pas d'overfit", ok: overfitOk },
+    { label: "Risk filters OK", ok: riskOk },
+    { label: "Stop visible", ok: stopOk },
+    { label: "TP1 / TP2 visibles", ok: tpOk },
+  ];
+  const missingCount = readinessItems.filter(item => !item.ok).length;
+  const readinessConclusion =
+    !marketOk ? "Bloqué par régime" :
+    !edgeOk ? "Bloqué par edge" :
+    !decisionOk ? "Encore en watchlist" :
+    !setupOk ? "À éviter" :
+    missingCount <= 2 ? "Proche d’être autorisé" : "Encore en watchlist";
 
   return (
     <div
@@ -421,6 +463,16 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="rounded-xl p-4" style={{ background: "#0b1020", border: "1px solid #334155" }}>
+            <p className="text-[10px] font-black uppercase tracking-widest text-sky-300 mb-2">Ce qu&apos;il manque pour devenir autorisé</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+              {readinessItems.map(item => <ChecklistItemRow key={item.label} label={item.label} ok={item.ok} />)}
+            </div>
+            <p className={`text-xs font-bold mt-3 ${readinessConclusion === "Bloqué par régime" || readinessConclusion === "Bloqué par edge" || readinessConclusion === "À éviter" ? "text-orange-300" : "text-sky-300"}`}>
+              {readinessConclusion}
+            </p>
           </div>
 
           {/* ── Social Sentiment ── */}

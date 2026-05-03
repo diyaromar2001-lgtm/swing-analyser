@@ -25,6 +25,15 @@ function Row({ label, value, sub }: { label: string; value: React.ReactNode; sub
   );
 }
 
+function ChecklistItemRow({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <div className="flex items-start gap-2 py-1">
+      <span className={`text-xs font-black shrink-0 ${ok ? "text-emerald-400" : "text-orange-400"}`}>{ok ? "✓" : "✗"}</span>
+      <span className={`text-xs ${ok ? "text-emerald-100" : "text-orange-100"}`}>{label}</span>
+    </div>
+  );
+}
+
 export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: () => void }) {
   const { isTickerActive } = useJournal();
   const alreadyTaken = isTickerActive(row.ticker, row.asset_scope ?? "CRYPTO");
@@ -54,6 +63,37 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
     edgeOk &&
     row.overfit_warning !== true;
   const watchlistEligible = !execAuthorized && !regimeDefensive && row.setup_status !== "INVALID";
+  const regimeOk = !regimeDefensive;
+  const btcEthOk =
+    (row as any).crypto_regime !== "CRYPTO_BEAR" &&
+    (row as any).crypto_regime !== "CRYPTO_NO_TRADE" &&
+    (row as any).crypto_regime !== "CRYPTO_HIGH_VOLATILITY";
+  const setupOk = row.setup_grade === "A+" || row.setup_grade === "A";
+  const edgeChecklistOk = edgeOk;
+  const overfitChecklistOk = row.overfit_warning !== true;
+  const decisionChecklistOk = ["BUY NOW", "BUY NEAR ENTRY", "BUY"].includes(row.final_decision ?? "");
+  const priceNear = typeof row.dist_entry_pct === "number" ? row.dist_entry_pct <= 3 : false;
+  const stopOk = Number.isFinite(row.stop_loss) && row.stop_loss > 0;
+  const tpOk = Number.isFinite(row.tp1) && row.tp1 > 0 && Number.isFinite(row.tp2) && row.tp2 > 0;
+  const weekendOk = research?.weekendRisk !== "BLOCKED";
+  const readinessItems = [
+    { label: "Régime crypto favorable", ok: regimeOk },
+    { label: "BTC/ETH compatibles", ok: btcEthOk },
+    { label: "Setup technique valide", ok: setupOk },
+    { label: "Edge validé", ok: edgeChecklistOk },
+    { label: "Pas d'overfit", ok: overfitChecklistOk },
+    { label: "Décision BUY / BUY NEAR ENTRY / BUY NOW", ok: decisionChecklistOk },
+    { label: "Prix proche entrée", ok: priceNear },
+    { label: "Stop visible", ok: stopOk },
+    { label: "TP1 / TP2 visibles", ok: tpOk },
+    { label: "Week-end risk acceptable", ok: weekendOk },
+  ];
+  const missingCount = readinessItems.filter(item => !item.ok).length;
+  const readinessConclusion =
+    !regimeOk ? "Bloqué par régime" :
+    !edgeChecklistOk ? "Bloqué par edge" :
+    !decisionChecklistOk ? "Encore en watchlist" :
+    missingCount <= 2 ? "Proche d’être autorisé" : "Encore en watchlist";
 
   const execReasons: string[] = [];
   if (regimeDefensive) execReasons.push("Régime crypto défensif");
@@ -151,6 +191,16 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
                 <Row label="Durée moy. histo" value={safeFixed(row.avg_hold_days, 1, "j")} sub="Hold time moyen de la stratégie" />
               </div>
             </div>
+          </div>
+
+          <div className="rounded-xl p-4" style={{ background: "#0b1020", border: "1px solid #334155" }}>
+            <p className="text-[10px] font-black uppercase tracking-widest text-sky-300 mb-2">Ce qu&apos;il manque pour devenir autorisé</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4">
+              {readinessItems.map(item => <ChecklistItemRow key={item.label} label={item.label} ok={item.ok} />)}
+            </div>
+            <p className={`text-xs font-bold mt-3 ${readinessConclusion === "Bloqué par régime" || readinessConclusion === "Bloqué par edge" ? "text-orange-300" : "text-sky-300"}`}>
+              {readinessConclusion}
+            </p>
           </div>
 
           {research && (
