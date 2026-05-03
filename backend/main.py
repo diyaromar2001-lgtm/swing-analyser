@@ -52,6 +52,8 @@ from ticker_edge import compute_ticker_edge, get_cached_edge, invalidate_cache a
 import market_regime_engine as _regime_engine_module
 import market_context as _market_context_module
 import ticker_edge as _ticker_edge_module
+import crypto_data as _crypto_data_module
+import crypto_service as _crypto_service_module
 from crypto_data import clear_crypto_caches, crypto_sector, debug_crypto_sources
 from crypto_edge import _edge_cache as _crypto_edge_cache
 from crypto_edge import clear_crypto_edge_cache, compute_crypto_edge, get_cached_crypto_edge
@@ -175,6 +177,77 @@ def _ts_to_iso(ts: float | int | None) -> Optional[str]:
         return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
     except Exception:
         return None
+
+
+def _cache_state(ts: float | int | None, ttl_seconds: int) -> str:
+    if not ts:
+        return "empty"
+    try:
+        age = _time.time() - float(ts)
+    except Exception:
+        return "unknown"
+    return "warm" if age < ttl_seconds else "stale"
+
+
+def _actions_cache_snapshot() -> Dict[str, Any]:
+    screener_ts = max((v.get("ts", 0) for v in _screener_cache.values()), default=0)
+    price_ts = max((v.get("ts", 0) for v in _price_cache.values()), default=0)
+    edge_ts = max((v.get("ts", 0) for v in _ticker_edge_module._edge_cache.values()), default=0)
+    regime_ts = _regime_engine_module._cache.get("ts", 0) or _market_regime_cache.get("ts", 0)
+    market_context_ts = _mkt_ctx_cache.get("ts", 0) or _market_context_module._context_cache.get("ts", 0)
+    edge_status = strategy_edge_status()
+    return {
+        "ohlcv_cache_count": len(_ohlcv_cache),
+        "price_cache_count": len(_price_cache),
+        "screener_cache_count": len(_screener_cache),
+        "regime_cache_status": _cache_state(regime_ts, 3600),
+        "market_context_cache_status": _cache_state(market_context_ts, _MKT_CTX_TTL),
+        "edge_cache_coverage": edge_status.get("coverage_pct", 0.0),
+        "last_screener_update": _ts_to_iso(screener_ts),
+        "last_price_update": _ts_to_iso(price_ts),
+        "last_regime_update": _ts_to_iso(regime_ts),
+        "last_market_context_update": _ts_to_iso(market_context_ts),
+        "last_edge_update": _ts_to_iso(edge_ts),
+    }
+
+
+def _crypto_cache_snapshot() -> Dict[str, Any]:
+    crypto_freshness = crypto_data_freshness()
+    edge_status = crypto_edge_status()
+    daily_cache = getattr(_crypto_data_module, "_ohlcv_daily_cache", {})
+    h4_cache = getattr(_crypto_data_module, "_ohlcv_4h_cache", {})
+    price_cache = getattr(_crypto_data_module, "_price_cache", {})
+    screener_cache = getattr(_crypto_service_module, "_screener_cache", {})
+    regime_ts = getattr(_crypto_regime_cache, "get", lambda *_: 0)("ts", 0)
+    return {
+        "crypto_ohlcv_cache_count": len(daily_cache),
+        "crypto_ohlcv_4h_cache_count": len(h4_cache),
+        "crypto_price_cache_count": len(price_cache),
+        "crypto_screener_cache_count": len(screener_cache),
+        "crypto_regime_cache_status": _cache_state(regime_ts, 3600),
+        "crypto_edge_cache_coverage": edge_status.get("coverage_pct", 0.0),
+        "last_crypto_screener_update": _ts_to_iso(crypto_freshness["last_screener_update"]),
+        "last_crypto_price_update": _ts_to_iso(crypto_freshness["last_price_update"]),
+        "last_crypto_regime_update": _ts_to_iso(crypto_freshness["last_regime_update"]),
+        "last_crypto_edge_update": _ts_to_iso(crypto_freshness["last_edge_update"]),
+    }
+
+
+def _run_with_timeout(label: str, fn, timeout_seconds: int, warnings: List[str], errors: List[str]):
+    started = _time.perf_counter()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(fn)
+        try:
+            value = future.result(timeout=timeout_seconds)
+            duration_ms = round((_time.perf_counter() - started) * 1000, 1)
+            return {"ok": True, "value": value, "duration_ms": duration_ms}
+        except FuturesTimeoutError:
+            future.cancel()
+            warnings.append(f"{label}: timeout after {timeout_seconds}s")
+        except Exception as exc:
+            errors.append(f"{label}: {type(exc).__name__}: {str(exc)[:200]}")
+    duration_ms = round((_time.perf_counter() - started) * 1000, 1)
+    return {"ok": False, "value": None, "duration_ms": duration_ms}
 
 
 def _get_ohlcv(ticker: str, allow_download: bool = True) -> Optional[object]:
@@ -1739,3 +1812,157 @@ def clear_edge_cache(
     """Vide le cache edge (tout ou un ticker spécifique)."""
     _invalidate_edge_cache(ticker.upper() if ticker else None)
     return {"cleared": True, "ticker": ticker}
+
+
+@app.get("/api/cache-status")
+def cache_status(scope: str = Query("all")):
+    normalized = (scope or "all").strip().lower()
+    if normalized not in {"actions", "crypto", "all"}:
+        normalized = "all"
+
+    payload: Dict[str, Any] = {"scope": normalized}
+    if normalized in {"actions", "all"}:
+        payload["actions"] = _actions_cache_snapshot()
+    if normalized in {"crypto", "all"}:
+        payload["crypto"] = _crypto_cache_snapshot()
+    return payload
+
+
+def _warmup_actions(include_edge: bool, limit: Optional[int], warnings: List[str], errors: List[str]) -> Dict[str, Any]:
+    warmed_tickers: List[str] = []
+    edge_computed = 0
+
+    fetch_sp500_perf()
+    _run_with_timeout("actions_market_context", lambda: _get_market_ctx(allow_download=True), 45, warnings, errors)
+    _run_with_timeout("actions_regime_engine", lambda: compute_regime_engine(fast=False), 45, warnings, errors)
+    _run_with_timeout("actions_market_regime", lambda: market_regime(), 45, warnings, errors)
+
+    screener_run = _run_with_timeout(
+        "actions_screener",
+        lambda: screener(
+            sector=None,
+            min_score=0,
+            signal=None,
+            strategy="standard",
+            exclude_earnings=False,
+            fast=False,
+        ),
+        120,
+        warnings,
+        errors,
+    )
+    screener_results = screener_run["value"] if screener_run["ok"] and isinstance(screener_run["value"], list) else []
+
+    if screener_results:
+        warmed_tickers = []
+        for row in screener_results:
+            ticker = row.get("ticker") if isinstance(row, dict) else getattr(row, "ticker", None)
+            if ticker:
+                warmed_tickers.append(str(ticker).upper())
+        if limit:
+            warmed_tickers = warmed_tickers[:limit]
+        if warmed_tickers:
+            _run_with_timeout(
+                "actions_prices",
+                lambda: get_prices(",".join(warmed_tickers[: min(len(warmed_tickers), 40)])),
+                45,
+                warnings,
+                errors,
+            )
+
+    if include_edge and warmed_tickers:
+        edge_targets = warmed_tickers[:limit] if limit else warmed_tickers
+        for ticker in edge_targets:
+            df = _get_ohlcv(ticker, allow_download=True)
+            if df is None:
+                warnings.append(f"actions_edge:{ticker}: OHLCV indisponible")
+                continue
+            try:
+                compute_ticker_edge(ticker, df, period_months=24)
+                edge_computed += 1
+            except Exception as exc:
+                errors.append(f"actions_edge:{ticker}: {type(exc).__name__}: {str(exc)[:160]}")
+
+    return {
+        "actions_count": len(warmed_tickers),
+        "actions_edge_computed": edge_computed,
+        "actions_cache": _actions_cache_snapshot(),
+    }
+
+
+def _warmup_crypto(include_edge: bool, limit: Optional[int], warnings: List[str], errors: List[str]) -> Dict[str, Any]:
+    warmed_symbols: List[str] = []
+    edge_computed = 0
+
+    _run_with_timeout("crypto_regime", lambda: compute_crypto_regime(fast=False), 90, warnings, errors)
+    _run_with_timeout("crypto_prices", lambda: crypto_prices(["BTC", "ETH", "SOL"]), 45, warnings, errors)
+    screener_run = _run_with_timeout(
+        "crypto_screener",
+        lambda: crypto_screener(fast=False),
+        120,
+        warnings,
+        errors,
+    )
+    screener_results = screener_run["value"] if screener_run["ok"] and isinstance(screener_run["value"], list) else []
+
+    if screener_results:
+        warmed_symbols = []
+        for row in screener_results:
+            symbol = row.get("ticker") if isinstance(row, dict) else getattr(row, "ticker", None)
+            if symbol:
+                warmed_symbols.append(str(symbol).upper())
+        if limit:
+            warmed_symbols = warmed_symbols[:limit]
+
+    if include_edge and warmed_symbols:
+        edge_targets = warmed_symbols[:limit] if limit else warmed_symbols
+        for symbol in edge_targets:
+            try:
+                compute_crypto_edge(symbol)
+                edge_computed += 1
+            except Exception as exc:
+                errors.append(f"crypto_edge:{symbol}: {type(exc).__name__}: {str(exc)[:160]}")
+
+    return {
+        "crypto_count": len(warmed_symbols),
+        "crypto_edge_computed": edge_computed,
+        "crypto_cache": _crypto_cache_snapshot(),
+    }
+
+
+@app.post("/api/warmup")
+def warmup(
+    scope: str = Query("all"),
+    include_edge: bool = Query(False),
+    limit: Optional[int] = Query(None, ge=1, le=100),
+    _: None = Depends(require_admin_key),
+):
+    normalized = (scope or "all").strip().lower()
+    if normalized not in {"actions", "crypto", "all"}:
+        normalized = "all"
+
+    started = _time.perf_counter()
+    warnings: List[str] = []
+    errors: List[str] = []
+    payload: Dict[str, Any] = {
+        "status": "ok",
+        "scope": normalized,
+        "include_edge": include_edge,
+        "limit": limit,
+    }
+
+    if normalized in {"actions", "all"}:
+        payload.update(_warmup_actions(include_edge=include_edge, limit=limit, warnings=warnings, errors=errors))
+    if normalized in {"crypto", "all"}:
+        payload.update(_warmup_crypto(include_edge=include_edge, limit=limit, warnings=warnings, errors=errors))
+
+    payload["warnings"] = warnings
+    payload["errors"] = errors
+    payload["duration_ms"] = round((_time.perf_counter() - started) * 1000, 1)
+    payload["updated"] = {
+        "actions": _actions_cache_snapshot() if normalized in {"actions", "all"} else None,
+        "crypto": _crypto_cache_snapshot() if normalized in {"crypto", "all"} else None,
+    }
+    if errors:
+        payload["status"] = "partial" if any(payload.get(k, 0) for k in ("actions_count", "crypto_count")) else "error"
+    return payload
