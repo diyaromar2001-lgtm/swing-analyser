@@ -1062,51 +1062,123 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           {/* Toggle Stratégie screener */}
           {!isCrypto && uiMode === "pro" && view !== "lab" && view !== "signals" && view !== "trades" && (
             <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
-              {([["standard", "📊 Standard"], ["conservative", "🛡 Conservative"]] as [Strategy, string][]).map(([s, label]) => (
-                <button key={s} onClick={() => switchStrategy(s)}
-                  className="px-3 py-1.5 text-xs font-semibold transition-all"
-                  style={{
-                    background: strategy === s ? (s === "conservative" ? "#0f2a1a" : "#1e1e3a") : "#0d0d18",
-                    color:      strategy === s ? (s === "conservative" ? "#4ade80" : "#818cf8") : "#4b5563",
-                    borderRight: s === "standard" ? "1px solid #1e1e2a" : undefined,
-                  }}>
-                  {label}
-                </button>
-              ))}
+              <button
+                onClick={() => switchStrategy("standard")}
+                className="px-3 py-1.5 text-xs font-semibold transition-all"
+                style={{
+                  background: strategy === "standard" ? "#1e1e3a" : "#0d0d18",
+                  color: strategy === "standard" ? "#818cf8" : "#4b5563",
+                }}
+              >
+                📊 Standard
+              </button>
             </div>
           )}
 
           {/* Onglets vue — Pro seulement */}
-          {uiMode === "pro" && <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
-            {((isCrypto
-              ? ([
+          {uiMode === "pro" && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
+                {([
                   ["table", "📋 Tableau"],
-                  ["backtest", "🧪 Backtest"],
-                  ["lab", "🧬 Strategy Lab"],
-                ] as [typeof view, string][])
-              : ([
-                  ["table",    "📋 Tableau"],
-                  ["dynamic",  "⚡ Signaux"],
-                  ["signals",  "📈 Tracking"],
-                  ["backtest", "🧪 Backtest"],
-                  ["lab",      "🧬 Strategy Lab"],
-                  ["trades",   "📌 Trades"],
-                ] as [typeof view, string][]))).map(([v, label]) => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                className="px-3 py-1.5 text-xs font-medium transition-all"
-                style={{
-                  background: view === v ? "#1e1e3a" : "#0d0d18",
-                  color:      view === v ? "#818cf8" : "#4b5563",
-                  borderRight: (!isCrypto && v !== "trades") || (isCrypto && v !== "lab") ? "1px solid #1e1e2a" : undefined,
+                  ...(!isCrypto ? [["trades", "📌 Trades"]] as [typeof view, string][] : []),
+                ] as [typeof view, string][]).map(([v, label], idx, arr) => (
+                  <button
+                    key={v}
+                    onClick={() => setView(v)}
+                    className="px-3 py-1.5 text-xs font-medium transition-all"
+                    style={{
+                      background: view === v ? "#1e1e3a" : "#0d0d18",
+                      color: view === v ? "#818cf8" : "#4b5563",
+                      borderRight: idx < arr.length - 1 ? "1px solid #1e1e2a" : undefined,
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
 
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>}
+              <details className="relative">
+                <summary
+                  className="list-none cursor-pointer select-none px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest"
+                  style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#a78bfa" }}
+                >
+                  Recherche
+                </summary>
+                <div
+                  className="absolute right-0 mt-2 z-20 w-56 rounded-xl p-2 shadow-2xl"
+                  style={{ background: "#0b0b14", border: "1px solid #1e1e2a" }}
+                >
+                  <div className="px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gray-500">Menu</div>
+                  {(!isCrypto ? [
+                    ["dynamic", "⚡ Signaux"],
+                    ["signals", "📈 Tracking"],
+                    ["backtest", "🧪 Backtest"],
+                    ["lab", "🧬 Strategy Lab"],
+                    ["conservative", "🛡 Conservative"],
+                    ["24", "Edge 24m"],
+                    ["36", "Edge 36m"],
+                  ] : [
+                    ["backtest", "🧪 Backtest"],
+                    ["lab", "🧬 Strategy Lab"],
+                  ] as [string, string][]).map(([v, label]) => (
+                    <button
+                      key={v}
+                      onClick={() => {
+                        if (v === "24") {
+                          setEdgeHorizon(24);
+                          setView("table");
+                        } else if (v === "36") {
+                          setEdgeHorizon(36);
+                          setView("table");
+                        } else {
+                          setView(v as typeof view);
+                        }
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
+                      style={{ color: "#d1d5db" }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  {!isCrypto && (
+                    <button
+                      onClick={() => switchStrategy("conservative")}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
+                      style={{ color: strategy === "conservative" ? "#4ade80" : "#d1d5db" }}
+                    >
+                      Conservative
+                    </button>
+                  )}
+                  {!isCrypto && (
+                    <button
+                      onClick={() => setEdgeMode(edgeMode === "v2" ? "v1" : "v2")}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
+                      style={{ color: edgeMode === "v2" ? "#60a5fa" : "#d1d5db" }}
+                    >
+                      Edge v2 Research
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setShowApiStatus(true)}
+                    className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
+                    style={{ color: "#d1d5db" }}
+                  >
+                    API
+                  </button>
+                  {!isCrypto && (
+                    <button
+                      onClick={() => setView("table")}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
+                      style={{ color: "#d1d5db" }}
+                    >
+                      Edge ?
+                    </button>
+                  )}
+                </div>
+              </details>
+            </div>
+          )}
 
           <ApiStatusDot onClick={() => setShowApiStatus(true)} />
 
