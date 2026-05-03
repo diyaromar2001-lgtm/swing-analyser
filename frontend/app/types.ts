@@ -107,6 +107,20 @@ export interface TickerResult {
   edge_v2_allowed?:          boolean;
   edge_v2_reasons?:          string[];
   edge_v2_warnings?:         string[];
+  // Crypto Research V2 (advanced UI only)
+  crypto_research_v2_score?:        number;
+  crypto_research_v2_bucket?:        "CORE_WATCHLIST" | "PROMISING_RESEARCH" | "SPECULATIVE_WATCHLIST" | "AVOID_BLOCKED";
+  crypto_research_v2_best_strategy?: string | null;
+  crypto_research_v2_best_regime?:   string | null;
+  crypto_research_v2_timeframe?:     string | null;
+  crypto_research_v2_rs_vs_btc?:     number | null;
+  crypto_research_v2_rs_vs_eth?:     number | null;
+  crypto_research_v2_liquidity?:     number | null;
+  crypto_research_v2_weekend_risk?:  "REDUCED" | "BLOCKED";
+  crypto_research_v2_overfit_risk?:  boolean;
+  crypto_research_v2_sample_status?: "SAMPLED_OK" | "INSUFFICIENT_SAMPLE";
+  crypto_research_v2_status?:        "RESEARCH_ONLY" | "WATCHLIST_ONLY" | "BLOCKED_REGIME" | "INSUFFICIENT_SAMPLE" | "OVERFIT_RISK" | "AVOID";
+  crypto_research_v2_notes?:         string | null;
   // Final Score composite
   final_score?:         number;   // 0–100
   execution_quality?:   number;   // 0–100

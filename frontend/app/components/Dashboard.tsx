@@ -17,6 +17,8 @@ import { AdminPanel } from "./AdminPanel";
 import { ensureApiResponse, getAdminApiKey, getAdminHeaders, getApiUrl, isAdminProtectedError } from "../lib/api";
 import { getActionsCacheStatus, getCryptoCacheStatus } from "../lib/cacheStatus";
 import { CryptoCommandCenter } from "./crypto/CryptoCommandCenter";
+import { applyCryptoResearchV2Overlay } from "../lib/cryptoResearchV2";
+import { CryptoResearchV2Panel } from "./crypto/CryptoResearchV2Panel";
 import { formatCryptoPrice } from "../lib/cryptoFormat";
 
 const API_URL = getApiUrl();
@@ -435,6 +437,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [edgeV2Loading, setEdgeV2Loading] = useState(false);
   const [edgeV2Notice, setEdgeV2Notice] = useState<string | null>(null);
   const lastEdgeV2FetchKeyRef = useRef<string>("");
+  const [cryptoResearchMode, setCryptoResearchMode] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [adminKeyPresent, setAdminKeyPresent] = useState(() => !!getAdminApiKey());
 
@@ -480,6 +483,19 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       .then(j => setEdgeCoverage(j?.coverage_pct ?? 0))
       .catch(() => {});
   }, [isCrypto]);
+
+  useEffect(() => {
+    if (!isCrypto) {
+      setCryptoResearchMode(false);
+    }
+  }, [isCrypto]);
+
+  useEffect(() => {
+    if (!successNotice) return;
+    if (!successNotice.includes("Dernières données locales") && !successNotice.startsWith("Caches prêts")) return;
+    const timer = window.setTimeout(() => setSuccessNotice(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [successNotice]);
 
   const loadAdvancedEdgeOverlay = useCallback(async (period: EdgeHorizon, rows: TickerResult[]) => {
     if (isCrypto || period === 24 || rows.length === 0) return;
@@ -760,9 +776,18 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     });
   }, [advancedEdgeData, edgeMode, edgeV2OverlayCache, isCrypto]);
 
+  const cryptoResearchData = useMemo<TickerResult[]>(() => {
+    if (!isCrypto) return dataWithLivePrices;
+    return dataWithLivePrices.map(row => applyCryptoResearchV2Overlay(row));
+  }, [dataWithLivePrices, isCrypto]);
+
   const activeTableData = useMemo<TickerResult[]>(
-    () => (!isCrypto && uiMode === "pro" && view === "table" ? advancedResearchData : dataWithLivePrices),
-    [advancedResearchData, dataWithLivePrices, isCrypto, uiMode, view],
+    () => {
+      if (!isCrypto && uiMode === "pro" && view === "table") return advancedResearchData;
+      if (isCrypto && uiMode === "pro" && view === "table") return cryptoResearchData;
+      return dataWithLivePrices;
+    },
+    [advancedResearchData, cryptoResearchData, dataWithLivePrices, isCrypto, uiMode, view],
   );
 
   // Chargement initial + auto-refresh toutes les 60 secondes
@@ -1172,14 +1197,16 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
       {/* ── COMMAND CENTER ───────────────────────────────────────────────── */}
       {successNotice && (
-        <div className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap"
-          style={{ background: "#07140d", border: "1px solid #10b98155" }}>
+        <div
+          className="rounded-full px-3 py-2 mb-4 inline-flex items-center gap-2 max-w-full"
+          style={{ background: "#07140d", border: "1px solid #10b98155" }}
+        >
           <span className="text-sm">✅</span>
-          <div>
-            <p className="text-xs font-black uppercase tracking-widest text-emerald-300">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-300 truncate">
               {successNotice}
             </p>
-            <p className="text-[11px] text-emerald-100/70 mt-0.5">
+            <p className="text-[10px] text-emerald-100/70 truncate">
               Les données sont chaudes. L&apos;app est prête.
             </p>
           </div>
@@ -1431,6 +1458,41 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             </div>
           )}
 
+          {isCrypto && uiMode === "pro" && view === "table" && (
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
+                <button
+                  onClick={() => setCryptoResearchMode(false)}
+                  className="px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-all"
+                  style={{
+                    background: !cryptoResearchMode ? "#111120" : "#0d0d18",
+                    color: !cryptoResearchMode ? "#a5b4fc" : "#4b5563",
+                    borderRight: "1px solid #1e1e2a",
+                  }}
+                >
+                  Edge v1
+                </button>
+                <button
+                  onClick={() => setCryptoResearchMode(true)}
+                  className="px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-all"
+                  style={{
+                    background: cryptoResearchMode ? "#131f1a" : "#0d0d18",
+                    color: cryptoResearchMode ? "#60a5fa" : "#4b5563",
+                  }}
+                >
+                  Crypto Research V2
+                </button>
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                Recherche uniquement — n&apos;autorise aucun trade
+              </span>
+            </div>
+          )}
+
+          {isCrypto && uiMode === "pro" && view === "table" && (
+            <CryptoResearchV2Panel regime={cryptoRegime} />
+          )}
+
           <Top5Cards data={activeTableData} scope={isCrypto ? "crypto" : "actions"} cryptoRegime={cryptoRegime} />
 
           {/* FILTRES */}
@@ -1538,12 +1600,15 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
               Aucun résultat pour ces filtres.
             </div>
           ) : (
-            <ScreenerTable
-              data={filtered}
-              showEdge={true}
-              researchMode={!isCrypto && uiMode === "pro" && view === "table" && edgeMode === "v2"}
-              scope={isCrypto ? "crypto" : "actions"}
-            />
+          <ScreenerTable
+            data={filtered}
+            showEdge={true}
+            researchMode={
+              (!isCrypto && uiMode === "pro" && view === "table" && edgeMode === "v2") ||
+              (isCrypto && uiMode === "pro" && view === "table" && cryptoResearchMode)
+            }
+            scope={isCrypto ? "crypto" : "actions"}
+          />
           )}
         </>
       ) : view === "dynamic" ? (

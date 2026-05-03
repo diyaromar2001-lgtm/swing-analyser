@@ -14,7 +14,7 @@ import { SentimentCell } from "./SentimentPanel";
 import { EdgeStatusBadge, EdgeScoreBar, BestStrategyBadge, EdgeValidationNote } from "./EdgeBadge";
 import { CryptoTradePlan } from "./crypto/CryptoTradePlan";
 
-type SortKey = "score" | "rsi_val" | "perf_3m" | "perf_6m" | "dist_entry_pct" | "risk_now_pct" | "rr_ratio" | "confidence" | "edge_score" | "final_score" | "edge_train_pf" | "edge_test_pf" | "edge_v2_score";
+type SortKey = "score" | "rsi_val" | "perf_3m" | "perf_6m" | "dist_entry_pct" | "risk_now_pct" | "rr_ratio" | "confidence" | "edge_score" | "final_score" | "edge_train_pf" | "edge_test_pf" | "edge_v2_score" | "crypto_research_v2_score";
 
 function safeFixed(value?: number | null, digits = 1, suffix = "") {
   return typeof value === "number" && Number.isFinite(value)
@@ -36,6 +36,7 @@ function PctCell({ val, good = "positive" }: { val: number; good?: "positive" | 
 
 type EdgeFilter = "all" | "STRONG_EDGE" | "VALID_EDGE" | "no_no_edge";
 type ResearchFilter = "all" | "V2_STRONG_RESEARCH" | "V2_VALID_RESEARCH" | "V2_WATCHLIST" | "INSUFFICIENT_SAMPLE" | "V2_BLOCKED_SECTOR" | "V2_BLOCKED_REGIME";
+type CryptoResearchFilter = "all" | "CORE_WATCHLIST" | "PROMISING_RESEARCH" | "SPECULATIVE_WATCHLIST" | "AVOID_BLOCKED" | "daily_only" | "timing_4h" | "weekend_reduced" | "overfit_risk" | "insufficient_sample";
 
 export function ScreenerTable({
   data,
@@ -56,6 +57,7 @@ export function ScreenerTable({
   const [edgeFilter, setEdgeFilter] = useState<EdgeFilter>("all");
   const [hideOverfit, setHideOverfit] = useState(false);
   const [researchFilter, setResearchFilter] = useState<ResearchFilter>("all");
+  const [cryptoResearchFilter, setCryptoResearchFilter] = useState<CryptoResearchFilter>("all");
 
   useEffect(() => {
     fetch(`${API_URL}/api/status`)
@@ -71,14 +73,31 @@ export function ScreenerTable({
     if (edgeFilter === "no_no_edge"  && (r.ticker_edge_status === "NO_EDGE" || !r.ticker_edge_status)) return false;
     if (hideOverfit && r.overfit_warning) return false;
     if (researchMode) {
-      const status = r.edge_v2_status ?? "NO_EDGE_CONFIRMED";
-      if (researchFilter !== "all" && status !== researchFilter) return false;
-      if (researchFilter === "V2_STRONG_RESEARCH" && status !== "V2_STRONG_RESEARCH") return false;
-      if (researchFilter === "V2_VALID_RESEARCH" && status !== "V2_VALID_RESEARCH") return false;
-      if (researchFilter === "V2_WATCHLIST" && status !== "V2_WATCHLIST") return false;
-      if (researchFilter === "INSUFFICIENT_SAMPLE" && status !== "INSUFFICIENT_SAMPLE") return false;
-      if (researchFilter === "V2_BLOCKED_SECTOR" && status !== "V2_BLOCKED_SECTOR") return false;
-      if (researchFilter === "V2_BLOCKED_REGIME" && status !== "V2_BLOCKED_REGIME") return false;
+      if (scope === "crypto") {
+        const bucket = r.crypto_research_v2_bucket ?? "SPECULATIVE_WATCHLIST";
+        const timeframe = r.crypto_research_v2_timeframe ?? "";
+        const weekendRisk = r.crypto_research_v2_weekend_risk ?? "REDUCED";
+        const sampleStatus = r.crypto_research_v2_sample_status ?? "SAMPLED_OK";
+        if (cryptoResearchFilter !== "all" && bucket !== cryptoResearchFilter && cryptoResearchFilter !== "daily_only" && cryptoResearchFilter !== "timing_4h" && cryptoResearchFilter !== "weekend_reduced" && cryptoResearchFilter !== "overfit_risk" && cryptoResearchFilter !== "insufficient_sample") return false;
+        if (cryptoResearchFilter === "CORE_WATCHLIST" && bucket !== "CORE_WATCHLIST") return false;
+        if (cryptoResearchFilter === "PROMISING_RESEARCH" && bucket !== "PROMISING_RESEARCH") return false;
+        if (cryptoResearchFilter === "SPECULATIVE_WATCHLIST" && bucket !== "SPECULATIVE_WATCHLIST") return false;
+        if (cryptoResearchFilter === "AVOID_BLOCKED" && bucket !== "AVOID_BLOCKED") return false;
+        if (cryptoResearchFilter === "daily_only" && !timeframe.toLowerCase().includes("daily")) return false;
+        if (cryptoResearchFilter === "timing_4h" && !timeframe.includes("4H")) return false;
+        if (cryptoResearchFilter === "weekend_reduced" && weekendRisk !== "REDUCED") return false;
+        if (cryptoResearchFilter === "overfit_risk" && !r.crypto_research_v2_overfit_risk) return false;
+        if (cryptoResearchFilter === "insufficient_sample" && sampleStatus !== "INSUFFICIENT_SAMPLE") return false;
+      } else {
+        const status = r.edge_v2_status ?? "NO_EDGE_CONFIRMED";
+        if (researchFilter !== "all" && status !== researchFilter) return false;
+        if (researchFilter === "V2_STRONG_RESEARCH" && status !== "V2_STRONG_RESEARCH") return false;
+        if (researchFilter === "V2_VALID_RESEARCH" && status !== "V2_VALID_RESEARCH") return false;
+        if (researchFilter === "V2_WATCHLIST" && status !== "V2_WATCHLIST") return false;
+        if (researchFilter === "INSUFFICIENT_SAMPLE" && status !== "INSUFFICIENT_SAMPLE") return false;
+        if (researchFilter === "V2_BLOCKED_SECTOR" && status !== "V2_BLOCKED_SECTOR") return false;
+        if (researchFilter === "V2_BLOCKED_REGIME" && status !== "V2_BLOCKED_REGIME") return false;
+      }
     }
     return true;
   });
@@ -168,14 +187,73 @@ export function ScreenerTable({
 
       {researchMode && (
         <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <span className="text-[10px] font-bold text-sky-700 uppercase tracking-widest">Edge v2 Research :</span>
-          <ResearchFilterBtn label="V2 Strong" val="V2_STRONG_RESEARCH" />
-          <ResearchFilterBtn label="V2 Valid" val="V2_VALID_RESEARCH" />
-          <ResearchFilterBtn label="Watchlist" val="V2_WATCHLIST" />
-          <ResearchFilterBtn label="Insufficient Sample" val="INSUFFICIENT_SAMPLE" />
-          <ResearchFilterBtn label="Blocked Sector" val="V2_BLOCKED_SECTOR" />
-          <ResearchFilterBtn label="Blocked Regime" val="V2_BLOCKED_REGIME" />
-          <span className="text-[10px] text-sky-700 ml-2">{sorted.length} résultats</span>
+          {scope === "crypto" ? (
+            <>
+              <span className="text-[10px] font-bold text-cyan-700 uppercase tracking-widest">Crypto Research V2 :</span>
+              <button
+                onClick={() => setCryptoResearchFilter(cryptoResearchFilter === "CORE_WATCHLIST" ? "all" : "CORE_WATCHLIST")}
+                className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+                style={{ background: cryptoResearchFilter === "CORE_WATCHLIST" ? "#052e16" : "#0d0d18", border: `1px solid ${cryptoResearchFilter === "CORE_WATCHLIST" ? "#4ade80" : "#1e1e2a"}`, color: cryptoResearchFilter === "CORE_WATCHLIST" ? "#4ade80" : "#4b5563" }}
+              >Core</button>
+              <button
+                onClick={() => setCryptoResearchFilter(cryptoResearchFilter === "PROMISING_RESEARCH" ? "all" : "PROMISING_RESEARCH")}
+                className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+                style={{ background: cryptoResearchFilter === "PROMISING_RESEARCH" ? "#07131f" : "#0d0d18", border: `1px solid ${cryptoResearchFilter === "PROMISING_RESEARCH" ? "#38bdf8" : "#1e1e2a"}`, color: cryptoResearchFilter === "PROMISING_RESEARCH" ? "#7dd3fc" : "#4b5563" }}
+              >Promising</button>
+              <button
+                onClick={() => setCryptoResearchFilter(cryptoResearchFilter === "SPECULATIVE_WATCHLIST" ? "all" : "SPECULATIVE_WATCHLIST")}
+                className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+                style={{ background: cryptoResearchFilter === "SPECULATIVE_WATCHLIST" ? "#111827" : "#0d0d18", border: `1px solid ${cryptoResearchFilter === "SPECULATIVE_WATCHLIST" ? "#818cf8" : "#1e1e2a"}`, color: cryptoResearchFilter === "SPECULATIVE_WATCHLIST" ? "#c7d2fe" : "#4b5563" }}
+              >Speculative</button>
+              <button
+                onClick={() => setCryptoResearchFilter(cryptoResearchFilter === "AVOID_BLOCKED" ? "all" : "AVOID_BLOCKED")}
+                className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+                style={{ background: cryptoResearchFilter === "AVOID_BLOCKED" ? "#2a0d0d" : "#0d0d18", border: `1px solid ${cryptoResearchFilter === "AVOID_BLOCKED" ? "#f87171" : "#1e1e2a"}`, color: cryptoResearchFilter === "AVOID_BLOCKED" ? "#fca5a5" : "#4b5563" }}
+              >Avoid</button>
+              <button
+                onClick={() => setCryptoResearchFilter(cryptoResearchFilter === "daily_only" ? "all" : "daily_only")}
+                className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+                style={{ background: cryptoResearchFilter === "daily_only" ? "#052e16" : "#0d0d18", border: `1px solid ${cryptoResearchFilter === "daily_only" ? "#4ade80" : "#1e1e2a"}`, color: cryptoResearchFilter === "daily_only" ? "#4ade80" : "#4b5563" }}
+              >Daily only</button>
+              <button
+                onClick={() => setCryptoResearchFilter(cryptoResearchFilter === "timing_4h" ? "all" : "timing_4h")}
+                className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+                style={{ background: cryptoResearchFilter === "timing_4h" ? "#07131f" : "#0d0d18", border: `1px solid ${cryptoResearchFilter === "timing_4h" ? "#38bdf8" : "#1e1e2a"}`, color: cryptoResearchFilter === "timing_4h" ? "#7dd3fc" : "#4b5563" }}
+              >4H timing</button>
+              <button
+                onClick={() => setCryptoResearchFilter(cryptoResearchFilter === "weekend_reduced" ? "all" : "weekend_reduced")}
+                className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+                style={{ background: cryptoResearchFilter === "weekend_reduced" ? "#1c1917" : "#0d0d18", border: `1px solid ${cryptoResearchFilter === "weekend_reduced" ? "#f59e0b" : "#1e1e2a"}`, color: cryptoResearchFilter === "weekend_reduced" ? "#fcd34d" : "#4b5563" }}
+              >Weekend reduced</button>
+              <button
+                onClick={() => setCryptoResearchFilter(cryptoResearchFilter === "overfit_risk" ? "all" : "overfit_risk")}
+                className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+                style={{ background: cryptoResearchFilter === "overfit_risk" ? "#1c1000" : "#0d0d18", border: `1px solid ${cryptoResearchFilter === "overfit_risk" ? "#f59e0b" : "#1e1e2a"}`, color: cryptoResearchFilter === "overfit_risk" ? "#f59e0b" : "#4b5563" }}
+              >Overfit risk</button>
+              <button
+                onClick={() => setCryptoResearchFilter(cryptoResearchFilter === "insufficient_sample" ? "all" : "insufficient_sample")}
+                className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+                style={{ background: cryptoResearchFilter === "insufficient_sample" ? "#1c1917" : "#0d0d18", border: `1px solid ${cryptoResearchFilter === "insufficient_sample" ? "#fde047" : "#1e1e2a"}`, color: cryptoResearchFilter === "insufficient_sample" ? "#fde047" : "#4b5563" }}
+              >Insufficient sample</button>
+              <button
+                onClick={() => setCryptoResearchFilter("all")}
+                className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+                style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#4b5563" }}
+              >Reset</button>
+              <span className="text-[10px] text-cyan-700 ml-2">{sorted.length} résultats</span>
+            </>
+          ) : (
+            <>
+              <span className="text-[10px] font-bold text-sky-700 uppercase tracking-widest">Edge v2 Research :</span>
+              <ResearchFilterBtn label="V2 Strong" val="V2_STRONG_RESEARCH" />
+              <ResearchFilterBtn label="V2 Valid" val="V2_VALID_RESEARCH" />
+              <ResearchFilterBtn label="Watchlist" val="V2_WATCHLIST" />
+              <ResearchFilterBtn label="Insufficient Sample" val="INSUFFICIENT_SAMPLE" />
+              <ResearchFilterBtn label="Blocked Sector" val="V2_BLOCKED_SECTOR" />
+              <ResearchFilterBtn label="Blocked Regime" val="V2_BLOCKED_REGIME" />
+              <span className="text-[10px] text-sky-700 ml-2">{sorted.length} résultats</span>
+            </>
+          )}
         </div>
       )}
 
@@ -197,13 +275,26 @@ export function ScreenerTable({
                 {showEdge && <Th label="Train PF" k="edge_train_pf" />}
                 {showEdge && <Th label="Test PF" k="edge_test_pf" />}
                 {showEdge && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Overfit</th>}
-                {researchMode && <Th label="V2 Score" k="edge_v2_score" />}
-                {researchMode && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">V2 Status</th>}
-                {researchMode && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Strategy Edge</th>}
-                {researchMode && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Sector Edge</th>}
-                {researchMode && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Regime Edge</th>}
-                {researchMode && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Sample</th>}
-                {researchMode && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Reasons</th>}
+                {researchMode && scope === "actions" && <Th label="V2 Score" k="edge_v2_score" />}
+                {researchMode && scope === "actions" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">V2 Status</th>}
+                {researchMode && scope === "actions" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Strategy Edge</th>}
+                {researchMode && scope === "actions" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Sector Edge</th>}
+                {researchMode && scope === "actions" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Regime Edge</th>}
+                {researchMode && scope === "actions" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Sample</th>}
+                {researchMode && scope === "actions" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Reasons</th>}
+                {researchMode && scope === "crypto" && <Th label="Score V2" k="crypto_research_v2_score" />}
+                {researchMode && scope === "crypto" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Bucket</th>}
+                {researchMode && scope === "crypto" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Best Strategy</th>}
+                {researchMode && scope === "crypto" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Best Regime</th>}
+                {researchMode && scope === "crypto" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Timeframe</th>}
+                {researchMode && scope === "crypto" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">RS / BTC</th>}
+                {researchMode && scope === "crypto" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">RS / ETH</th>}
+                {researchMode && scope === "crypto" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Liquidity</th>}
+                {researchMode && scope === "crypto" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Weekend Risk</th>}
+                {researchMode && scope === "crypto" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Overfit Risk</th>}
+                {researchMode && scope === "crypto" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Sample Status</th>}
+                {researchMode && scope === "crypto" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Research Status</th>}
+                {researchMode && scope === "crypto" && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Notes</th>}
                 <Th label="Entree" />
                 <Th label="SL" />
                 <Th label="TP1" />
@@ -298,13 +389,13 @@ export function ScreenerTable({
                           }
                         </td>
                       )}
-                      {researchMode && (
+                      {researchMode && scope === "actions" && (
                         <td className="px-3 py-2.5 font-mono tabular-nums text-xs"
                           style={{ color: (row.edge_v2_score ?? 0) >= 80 ? "#4ade80" : (row.edge_v2_score ?? 0) >= 62 ? "#7dd3fc" : "#9ca3af" }}>
                           {safeFixed(row.edge_v2_score, 1)}
                         </td>
                       )}
-                      {researchMode && (
+                      {researchMode && scope === "actions" && (
                         <td className="px-3 py-2.5 text-xs">
                           <span className="px-2 py-0.5 rounded-full font-bold"
                             style={{
@@ -321,22 +412,22 @@ export function ScreenerTable({
                           </span>
                         </td>
                       )}
-                      {researchMode && (
+                      {researchMode && scope === "actions" && (
                         <td className="px-3 py-2.5 text-xs text-gray-400 max-w-[220px]">
                           {row.edge_v2_strategy_name ?? "—"}
                         </td>
                       )}
-                      {researchMode && (
+                      {researchMode && scope === "actions" && (
                         <td className="px-3 py-2.5 text-xs text-gray-400 max-w-[180px]">
                           {row.edge_v2_sector_edge !== undefined ? safeFixed(row.edge_v2_sector_edge, 1) : "—"}
                         </td>
                       )}
-                      {researchMode && (
+                      {researchMode && scope === "actions" && (
                         <td className="px-3 py-2.5 text-xs text-gray-400 max-w-[180px]">
                           {row.edge_v2_regime_edge !== undefined ? safeFixed(row.edge_v2_regime_edge, 1) : "—"}
                         </td>
                       )}
-                      {researchMode && (
+                      {researchMode && scope === "actions" && (
                         <td className="px-3 py-2.5 text-xs text-gray-400">
                           <div className="flex flex-col gap-0.5">
                             <span>{row.edge_v2_sample_status ?? "—"}</span>
@@ -344,7 +435,7 @@ export function ScreenerTable({
                           </div>
                         </td>
                       )}
-                      {researchMode && (
+                      {researchMode && scope === "actions" && (
                         <td className="px-3 py-2.5 text-xs text-gray-500 max-w-[280px]">
                           <div className="flex flex-col gap-0.5">
                             {(row.edge_v2_reasons ?? []).slice(0, 2).map((reason, idx) => (
@@ -353,6 +444,62 @@ export function ScreenerTable({
                             {(row.edge_v2_warnings ?? []).slice(0, 1).map((warning, idx) => (
                               <span key={`w-${idx}`} className="truncate text-amber-400">{warning}</span>
                             ))}
+                          </div>
+                        </td>
+                      )}
+                      {researchMode && scope === "crypto" && (
+                        <td className="px-3 py-2.5 font-mono tabular-nums text-xs"
+                          style={{ color: (row.crypto_research_v2_score ?? 0) >= 70 ? "#4ade80" : (row.crypto_research_v2_score ?? 0) >= 55 ? "#7dd3fc" : "#9ca3af" }}>
+                          {safeFixed(row.crypto_research_v2_score, 1)}
+                        </td>
+                      )}
+                      {researchMode && scope === "crypto" && (
+                        <td className="px-3 py-2.5 text-xs">
+                          <span className="px-2 py-0.5 rounded-full font-bold"
+                            style={{
+                              background: row.crypto_research_v2_bucket === "CORE_WATCHLIST" ? "#052e16" :
+                                row.crypto_research_v2_bucket === "PROMISING_RESEARCH" ? "#0f172a" :
+                                row.crypto_research_v2_bucket === "SPECULATIVE_WATCHLIST" ? "#1c1917" : "#2a0d0d",
+                              color: row.crypto_research_v2_bucket === "CORE_WATCHLIST" ? "#4ade80" :
+                                row.crypto_research_v2_bucket === "PROMISING_RESEARCH" ? "#7dd3fc" :
+                                row.crypto_research_v2_bucket === "SPECULATIVE_WATCHLIST" ? "#fde047" : "#f87171",
+                            }}>
+                            {row.crypto_research_v2_bucket ?? "—"}
+                          </span>
+                        </td>
+                      )}
+                      {researchMode && scope === "crypto" && <td className="px-3 py-2.5 text-xs text-gray-400 max-w-[220px]">{row.crypto_research_v2_best_strategy ?? "—"}</td>}
+                      {researchMode && scope === "crypto" && <td className="px-3 py-2.5 text-xs text-gray-400 max-w-[220px]">{row.crypto_research_v2_best_regime ?? "—"}</td>}
+                      {researchMode && scope === "crypto" && <td className="px-3 py-2.5 text-xs text-gray-400">{row.crypto_research_v2_timeframe ?? "—"}</td>}
+                      {researchMode && scope === "crypto" && <td className="px-3 py-2.5 text-xs text-gray-400">{row.crypto_research_v2_rs_vs_btc !== undefined && row.crypto_research_v2_rs_vs_btc !== null ? safeFixed(row.crypto_research_v2_rs_vs_btc * 100, 1, "%") : "—"}</td>}
+                      {researchMode && scope === "crypto" && <td className="px-3 py-2.5 text-xs text-gray-400">{row.crypto_research_v2_rs_vs_eth !== undefined && row.crypto_research_v2_rs_vs_eth !== null ? safeFixed(row.crypto_research_v2_rs_vs_eth * 100, 1, "%") : "—"}</td>}
+                      {researchMode && scope === "crypto" && <td className="px-3 py-2.5 text-xs text-gray-400">{row.crypto_research_v2_liquidity !== undefined && row.crypto_research_v2_liquidity !== null ? safeFixed(row.crypto_research_v2_liquidity, 0) : "—"}</td>}
+                      {researchMode && scope === "crypto" && (
+                        <td className="px-3 py-2.5 text-xs">
+                          <span className="px-2 py-0.5 rounded-full font-bold" style={{ background: row.crypto_research_v2_weekend_risk === "BLOCKED" ? "#2a0d0d" : "#111827", color: row.crypto_research_v2_weekend_risk === "BLOCKED" ? "#fca5a5" : "#fcd34d" }}>
+                            {row.crypto_research_v2_weekend_risk ?? "—"}
+                          </span>
+                        </td>
+                      )}
+                      {researchMode && scope === "crypto" && (
+                        <td className="px-3 py-2.5 text-xs">
+                          <span className="px-2 py-0.5 rounded-full font-bold" style={{ background: row.crypto_research_v2_overfit_risk ? "#2a0d0d" : "#052e16", color: row.crypto_research_v2_overfit_risk ? "#fca5a5" : "#4ade80" }}>
+                            {row.crypto_research_v2_overfit_risk ? "OVERFIT_RISK" : "OK"}
+                          </span>
+                        </td>
+                      )}
+                      {researchMode && scope === "crypto" && <td className="px-3 py-2.5 text-xs text-gray-400">{row.crypto_research_v2_sample_status ?? "—"}</td>}
+                      {researchMode && scope === "crypto" && (
+                        <td className="px-3 py-2.5 text-xs">
+                          <span className="px-2 py-0.5 rounded-full font-bold" style={{ background: row.crypto_research_v2_status === "RESEARCH_ONLY" ? "#052e16" : row.crypto_research_v2_status === "WATCHLIST_ONLY" ? "#111827" : row.crypto_research_v2_status === "AVOID" ? "#2a0d0d" : "#1c1917", color: row.crypto_research_v2_status === "RESEARCH_ONLY" ? "#4ade80" : row.crypto_research_v2_status === "WATCHLIST_ONLY" ? "#7dd3fc" : row.crypto_research_v2_status === "AVOID" ? "#fca5a5" : "#fde047" }}>
+                            {row.crypto_research_v2_status ?? "—"}
+                          </span>
+                        </td>
+                      )}
+                      {researchMode && scope === "crypto" && (
+                        <td className="px-3 py-2.5 text-xs text-gray-500 max-w-[280px]">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="truncate">{row.crypto_research_v2_notes ?? "—"}</span>
                           </div>
                         </td>
                       )}

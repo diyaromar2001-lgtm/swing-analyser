@@ -5,6 +5,7 @@ import { TickerResult } from "../../types";
 import { formatCryptoPrice } from "../../lib/cryptoFormat";
 import { useJournal } from "../../hooks/useJournal";
 import { TakeTradeModal } from "../TakeTradeModal";
+import { getCryptoResearchV2Row } from "../../lib/cryptoResearchV2";
 
 function safeFixed(value?: number | null, digits = 1, suffix = "") {
   return typeof value === "number" && Number.isFinite(value)
@@ -28,6 +29,7 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
   const { isTickerActive } = useJournal();
   const alreadyTaken = isTickerActive(row.ticker, row.asset_scope ?? "CRYPTO");
   const [journalIntent, setJournalIntent] = useState<"PLANNED" | "WATCHLIST" | null>(null);
+  const research = getCryptoResearchV2Row(row.ticker);
 
   const gradeColor =
     row.setup_grade === "A+" ? "#4ade80" :
@@ -150,6 +152,23 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
               </div>
             </div>
           </div>
+
+          {research && (
+            <div className="rounded-xl p-4" style={{ background: "#081018", border: "1px solid #1f3b5a" }}>
+              <p className="text-[10px] font-black uppercase tracking-widest text-cyan-300 mb-3">Crypto Research V2</p>
+              <p className="text-xs text-cyan-100/80 mb-3">Recherche uniquement — ne remplace pas l&apos;autorisation d&apos;exécution.</p>
+              <div className="space-y-2">
+                <Row label="Score" value={<span className="text-cyan-300">{research.score.toFixed(1)}/100</span>} sub={research.researchStatus} />
+                <Row label="Bucket" value={research.bucket} sub={research.notes} />
+                <Row label="Best strategy" value={research.bestStrategy} sub={research.bestRegime} />
+                <Row label="Timeframe" value={research.timeframe} sub={`Weekend ${research.weekendRisk.toLowerCase()}`} />
+                <Row label="RS vs BTC" value={research.rsVsBtc !== null ? `${research.rsVsBtc >= 0 ? "+" : ""}${(research.rsVsBtc * 100).toFixed(1)}%` : "—"} sub="Relative strength" />
+                <Row label="RS vs ETH" value={research.rsVsEth !== null ? `${research.rsVsEth >= 0 ? "+" : ""}${(research.rsVsEth * 100).toFixed(1)}%` : "—"} sub="Relative strength" />
+                <Row label="Liquidity" value={research.liquidity !== null ? research.liquidity.toFixed(0) : "—"} sub={research.sampleStatus} />
+                <Row label="Overfit / sample" value={research.overfitRisk ? "Overfit risk" : "OK"} sub={research.sampleStatus} />
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl p-4" style={{ background: "#120d00", border: "1px solid #92400e55" }}>
             <p className="text-xs font-bold text-amber-400 mb-2">Invalidation</p>
