@@ -58,7 +58,7 @@ from crypto_data import clear_crypto_caches, crypto_sector, debug_crypto_sources
 from crypto_edge import _edge_cache as _crypto_edge_cache
 from crypto_edge import clear_crypto_edge_cache, compute_crypto_edge, get_cached_crypto_edge
 from crypto_regime_engine import _cache as _crypto_regime_cache
-from crypto_regime_engine import compute_crypto_regime
+from crypto_regime_engine import compute_crypto_regime, invalidate_cache as _invalidate_crypto_regime_cache
 from crypto_service import (
     analyze_crypto_symbol,
     clear_crypto_screener_cache,
@@ -231,12 +231,16 @@ def _crypto_cache_snapshot() -> Dict[str, Any]:
     price_cache = getattr(_crypto_data_module, "_price_cache", {})
     screener_cache = getattr(_crypto_service_module, "_screener_cache", {})
     regime_ts = getattr(_crypto_regime_cache, "get", lambda *_: 0)("ts", 0)
+    regime_data = getattr(_crypto_regime_cache, "get", lambda *_: {})("data", {}) if _crypto_regime_cache else {}
+    regime_status = _cache_state(regime_ts, 3600)
+    if isinstance(regime_data, dict) and regime_data.get("data_status") == "MISSING":
+        regime_status = "missing"
     return {
         "crypto_ohlcv_cache_count": len(daily_cache),
         "crypto_ohlcv_4h_cache_count": len(h4_cache),
         "crypto_price_cache_count": len(price_cache),
         "crypto_screener_cache_count": len(screener_cache),
-        "crypto_regime_cache_status": _cache_state(regime_ts, 3600),
+        "crypto_regime_cache_status": regime_status,
         "crypto_edge_cache_coverage": edge_status.get("coverage_pct", 0.0),
         "last_crypto_screener_update": _ts_to_iso(crypto_freshness["last_screener_update"]),
         "last_crypto_price_update": _ts_to_iso(crypto_freshness["last_price_update"]),
@@ -2000,6 +2004,7 @@ def _warmup_crypto(include_edge: bool, limit: Optional[int], warnings: List[str]
     warmed_symbols: List[str] = []
     edge_computed = 0
 
+    _invalidate_crypto_regime_cache()
     _run_with_timeout("crypto_regime", lambda: compute_crypto_regime(fast=False), 90, warnings, errors)
     _run_with_timeout("crypto_prices", lambda: crypto_prices(["BTC", "ETH", "SOL"]), 45, warnings, errors)
     screener_run = _run_with_timeout(

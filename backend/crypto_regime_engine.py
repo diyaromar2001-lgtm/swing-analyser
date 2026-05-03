@@ -48,11 +48,22 @@ def _empty(error: str = "Crypto regime unavailable") -> Dict:
     }
 
 
+def invalidate_cache() -> None:
+    global _last_regime_update_ts
+    _cache.clear()
+    _last_regime_update_ts = 0.0
+
+
 def compute_crypto_regime(fast: bool = False) -> Dict:
     global _last_regime_update_ts
     now = _time.time()
-    if _cache and ((now - _cache.get("ts", 0)) < _CACHE_TTL or fast):
-        return _cache["data"]  # type: ignore[index]
+    cached = _cache.get("data")
+    cached_age = now - _cache.get("ts", 0) if _cache else None
+    if _cache and ((cached_age is not None and cached_age < _CACHE_TTL) or fast):
+        if not fast and isinstance(cached, dict) and cached.get("data_status") == "MISSING":
+            pass
+        else:
+            return _cache["data"]  # type: ignore[index]
     if fast and not _cache:
         return _empty("Crypto regime cache unavailable in fast mode")
 
