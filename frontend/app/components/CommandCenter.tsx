@@ -355,7 +355,7 @@ function TradePlanPanel({
   onClose:        () => void;
   isAlreadyTaken: boolean;
   activeCount:    number;
-  onTakeTrade:    () => void;
+  onTakeTrade:    (journalStatus: "PLANNED" | "WATCHLIST") => void;
 }) {
   const ps   = posSize(t);
   const exec = execBadge(t);
@@ -636,19 +636,22 @@ function TradePlanPanel({
               style={{ background: "#0c1a10", border: "1px solid #065f46", color: "#10b981" }}>
               ✅ Déjà en portefeuille
             </div>
+          ) : isBlocked ? (
+            <button
+              type="button"
+              disabled
+              className="w-full py-3 rounded-xl text-sm font-black transition-all opacity-90 cursor-not-allowed"
+              style={{ background: "#2a0d0d", border: "1px solid #7f1d1d", color: "#fca5a5" }}
+            >
+              ⛔ Trade non autorisé
+            </button>
           ) : (
             <button
-              onClick={onTakeTrade}
+              onClick={() => onTakeTrade("PLANNED")}
               className="w-full py-3 rounded-xl text-sm font-black transition-all hover:opacity-90 active:scale-95"
-              style={{
-                background: isBlocked
-                  ? "linear-gradient(135deg, #374151, #1f2937)"
-                  : "linear-gradient(135deg, #10b981, #059669)",
-                color: isBlocked ? "#9ca3af" : "#fff",
-                border: isBlocked ? "1px solid #4b5563" : "none",
-              }}
+              style={{ background: "linear-gradient(135deg, #10b981, #059669)", color: "#fff" }}
             >
-              {isBlocked ? "⚠️ Prendre quand même" : "✅ Prendre ce trade"}
+              ✅ Préparer ce trade
             </button>
           )}
         </div>
@@ -1076,7 +1079,7 @@ export function CommandCenter({
   const [cryptoRegime, setCryptoRegime] = useState<CryptoRegimeSummary | null>(null);
   const [cacheStatus,  setCacheStatus]  = useState<CacheStatusAll | null>(null);
   const [selected,    setSelected]    = useState<TickerResult | null>(null);
-  const [takingTrade, setTakingTrade] = useState<TickerResult | null>(null);
+  const [takingTrade, setTakingTrade] = useState<{ row: TickerResult; journalStatus: "PLANNED" | "WATCHLIST" } | null>(null);
 
   const { activeTrades, isTickerActive } = useJournal();
 
@@ -1284,14 +1287,16 @@ export function CommandCenter({
           onClose={() => setSelected(null)}
           isAlreadyTaken={isTickerActive(selected.ticker)}
           activeCount={activeTrades.length}
-          onTakeTrade={() => { setTakingTrade(selected); }}
+          onTakeTrade={(journalStatus) => { setTakingTrade({ row: selected, journalStatus }); }}
         />
       )}
 
       {takingTrade && (
         <TakeTradeModal
-          t={takingTrade}
+          t={takingTrade.row}
           engine={engine}
+          journalStatus={takingTrade.journalStatus}
+          submitLabel={takingTrade.journalStatus === "PLANNED" ? "✅ Préparer ce trade" : "🟠 Ajouter à la watchlist"}
           onClose={() => { setTakingTrade(null); setSelected(null); }}
         />
       )}

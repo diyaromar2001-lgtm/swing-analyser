@@ -420,28 +420,39 @@ export interface JournalTrade {
   id:            string;
   // Auto-filled from screener
   ticker:        string;
+  symbol?:       string;
+  universe?:     "ACTIONS" | "CRYPTO";
   strategy:      string;
+  strategy_name?: string;
   signal_type:   string;
   setup_grade:   string;
   score:         number;
   regime:        string;
   confidence:    number;
   sector:        string;
+  edge_status?:  string;
+  final_decision?: string;
+  execution_authorized?: boolean;
+  direction?:    string;
   // Planned levels
+  entry_plan?:   number;
   planned_entry: number;
+  entry_price?:  number;
   stop_loss:     number;
   tp1:           number;
   tp2:           number;
   rr_ratio:      number;
+  position_size?: string;
   // User input at entry
   date_entry:    string;
   price_entry:   number;
   quantity:      number;
-  fees:          number;
-  broker:        string;
+  fees?:         number;
+  broker?:       string;
   note_entry:    string;
+  notes?:        string;
   // Status
-  status:        "OPEN" | "TP1" | "TP2" | "SL" | "MANUAL";
+  status:        "WATCHLIST" | "PLANNED" | "OPEN" | "CLOSED" | "CANCELLED" | "TP1" | "TP2" | "SL" | "MANUAL";
   // Closure (filled when closed)
   date_exit?:    string;
   price_exit?:   number;
@@ -452,6 +463,18 @@ export interface JournalTrade {
   pnl_pct?:       number;
   r_multiple?:    number;
   duration_days?: number;
+  opened_at?:     string | null;
+  closed_at?:     string | null;
+  exit_price?:    number | null;
+  exit_reason?:   "TP1" | "TP2" | "SL" | "MANUAL" | null;
+  risk_amount?:   number;
+  risk_pct?:      number;
+  trailing_stop?: number;
+  source_snapshot_json?: unknown;
+  setup_status?:  "READY" | "WAIT" | "INVALID";
+  category?: string;
+  error?: string;
+  pnl_amount?:    number | null;
 }
 
 // ── Market Regime ─────────────────────────────────────────────────────────────

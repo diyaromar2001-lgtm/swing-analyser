@@ -68,8 +68,23 @@ from crypto_service import (
 )
 from crypto_strategy_lab import compute_crypto_strategy_lab, evaluate_crypto_strategy_for_symbol
 from crypto_universe import CRYPTO_SECTORS, CRYPTO_SYMBOLS
+from trade_journal import (
+    add_event as trade_journal_add_event,
+    cancel_trade as trade_journal_cancel,
+    close_trade as trade_journal_close,
+    create_trade as trade_journal_create,
+    delete_trade as trade_journal_delete,
+    get_trade as trade_journal_get,
+    init_db as trade_journal_init_db,
+    list_events as trade_journal_list_events,
+    list_trades as trade_journal_list,
+    open_trade as trade_journal_open,
+    stats as trade_journal_stats,
+    update_trade as trade_journal_update,
+)
 
 app = FastAPI(title="Swing Trading Screener Pro")
+trade_journal_init_db()
 
 import os as _os
 _FRONTEND_URL = _os.environ.get("FRONTEND_URL", "http://localhost:3000")
@@ -269,6 +284,104 @@ def _run_with_timeout(label: str, fn, timeout_seconds: int, warnings: List[str],
             errors.append(f"{label}: {type(exc).__name__}: {str(exc)[:200]}")
     duration_ms = round((_time.perf_counter() - started) * 1000, 1)
     return {"ok": False, "value": None, "duration_ms": duration_ms}
+
+
+class TradeJournalCreateRequest(BaseModel):
+    id: Optional[str] = None
+    universe: Optional[str] = None
+    symbol: Optional[str] = None
+    sector: Optional[str] = None
+    setup_grade: Optional[str] = None
+    signal_type: Optional[str] = None
+    strategy_name: Optional[str] = None
+    edge_status: Optional[str] = None
+    final_decision: Optional[str] = None
+    execution_authorized: bool = False
+    status: str = "WATCHLIST"
+    direction: str = "LONG"
+    entry_plan: Optional[float] = None
+    entry_price: Optional[float] = None
+    stop_loss: Optional[float] = None
+    tp1: Optional[float] = None
+    tp2: Optional[float] = None
+    trailing_stop: Optional[float] = None
+    position_size: Optional[str] = None
+    risk_amount: Optional[float] = None
+    risk_pct: Optional[float] = None
+    quantity: Optional[float] = None
+    opened_at: Optional[str] = None
+    closed_at: Optional[str] = None
+    exit_price: Optional[float] = None
+    exit_reason: Optional[str] = None
+    pnl_amount: Optional[float] = None
+    pnl_pct: Optional[float] = None
+    r_multiple: Optional[float] = None
+    notes: Optional[str] = None
+    source_snapshot: Optional[Dict[str, Any]] = None
+
+
+class TradeJournalUpdateRequest(BaseModel):
+    status: Optional[str] = None
+    universe: Optional[str] = None
+    symbol: Optional[str] = None
+    sector: Optional[str] = None
+    setup_grade: Optional[str] = None
+    signal_type: Optional[str] = None
+    strategy_name: Optional[str] = None
+    edge_status: Optional[str] = None
+    final_decision: Optional[str] = None
+    execution_authorized: Optional[bool] = None
+    direction: Optional[str] = None
+    entry_plan: Optional[float] = None
+    entry_price: Optional[float] = None
+    stop_loss: Optional[float] = None
+    tp1: Optional[float] = None
+    tp2: Optional[float] = None
+    trailing_stop: Optional[float] = None
+    position_size: Optional[str] = None
+    risk_amount: Optional[float] = None
+    risk_pct: Optional[float] = None
+    quantity: Optional[float] = None
+    opened_at: Optional[str] = None
+    closed_at: Optional[str] = None
+    exit_price: Optional[float] = None
+    exit_reason: Optional[str] = None
+    pnl_amount: Optional[float] = None
+    pnl_pct: Optional[float] = None
+    r_multiple: Optional[float] = None
+    notes: Optional[str] = None
+    source_snapshot: Optional[Dict[str, Any]] = None
+
+
+class TradeJournalCloseRequest(BaseModel):
+    closed_at: Optional[str] = None
+    exit_price: float
+    exit_reason: str = "MANUAL"
+    notes: Optional[str] = None
+
+
+class TradeJournalOpenRequest(BaseModel):
+    opened_at: Optional[str] = None
+    entry_price: Optional[float] = None
+    quantity: Optional[float] = None
+    risk_amount: Optional[float] = None
+    risk_pct: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class TradeJournalPatchRequest(BaseModel):
+    status: Optional[str] = None
+    notes: Optional[str] = None
+    stop_loss: Optional[float] = None
+    tp1: Optional[float] = None
+    tp2: Optional[float] = None
+    trailing_stop: Optional[float] = None
+    entry_plan: Optional[float] = None
+    entry_price: Optional[float] = None
+    quantity: Optional[float] = None
+    risk_amount: Optional[float] = None
+    risk_pct: Optional[float] = None
+    source_snapshot: Optional[Dict[str, Any]] = None
 
 
 def _get_ohlcv(ticker: str, allow_download: bool = True) -> Optional[object]:
@@ -2098,3 +2211,84 @@ def warmup(
     if errors:
         payload["status"] = "partial" if any(payload.get(k, 0) for k in ("actions_count", "crypto_count")) else "error"
     return payload
+
+
+# ── Trade Journal persisté ─────────────────────────────────────────────────
+
+@app.get("/api/trade-journal")
+def get_trade_journal(
+    universe: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    symbol: Optional[str] = Query(None),
+    _: None = Depends(require_admin_key),
+):
+    trades = trade_journal_list(universe=universe, status=status, symbol=symbol)
+    return {"trades": trades}
+
+
+@app.get("/api/trade-journal/{trade_id}")
+def get_trade_journal_item(
+    trade_id: str,
+    _: None = Depends(require_admin_key),
+):
+    trade = trade_journal_get(trade_id)
+    if not trade:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Trade not found")
+    trade["events"] = trade_journal_list_events(trade_id)
+    return trade
+
+
+@app.post("/api/trade-journal")
+def create_trade_journal(
+    payload: TradeJournalCreateRequest,
+    _: None = Depends(require_admin_key),
+):
+    trade = trade_journal_create(payload.model_dump(exclude_none=True))
+    return {"trade": trade}
+
+
+@app.patch("/api/trade-journal/{trade_id}")
+def patch_trade_journal(
+    trade_id: str,
+    payload: TradeJournalUpdateRequest,
+    _: None = Depends(require_admin_key),
+):
+    trade = trade_journal_update(trade_id, payload.model_dump(exclude_none=True))
+    return {"trade": trade}
+
+
+@app.post("/api/trade-journal/{trade_id}/open")
+def open_trade_journal(
+    trade_id: str,
+    payload: TradeJournalOpenRequest,
+    _: None = Depends(require_admin_key),
+):
+    trade = trade_journal_open(trade_id, payload.model_dump(exclude_none=True))
+    return {"trade": trade}
+
+
+@app.post("/api/trade-journal/{trade_id}/close")
+def close_trade_journal(
+    trade_id: str,
+    payload: TradeJournalCloseRequest,
+    _: None = Depends(require_admin_key),
+):
+    trade = trade_journal_close(trade_id, payload.model_dump(exclude_none=True))
+    return {"trade": trade}
+
+
+@app.delete("/api/trade-journal/{trade_id}")
+def delete_trade_journal(
+    trade_id: str,
+    _: None = Depends(require_admin_key),
+):
+    trade = trade_journal_delete(trade_id)
+    return {"trade": trade}
+
+
+@app.get("/api/trade-journal/stats")
+def trade_journal_statistics(
+    _: None = Depends(require_admin_key),
+):
+    return trade_journal_stats()

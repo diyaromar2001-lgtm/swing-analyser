@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { TickerResult } from "../../types";
 import { formatCryptoPrice } from "../../lib/cryptoFormat";
+import { useJournal } from "../../hooks/useJournal";
+import { TakeTradeModal } from "../TakeTradeModal";
 
 function safeFixed(value?: number | null, digits = 1, suffix = "") {
   return typeof value === "number" && Number.isFinite(value)
@@ -22,10 +25,15 @@ function Row({ label, value, sub }: { label: string; value: React.ReactNode; sub
 }
 
 export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: () => void }) {
+  const { isTickerActive } = useJournal();
+  const alreadyTaken = isTickerActive(row.ticker, row.asset_scope ?? "CRYPTO");
+  const [journalIntent, setJournalIntent] = useState<"PLANNED" | "WATCHLIST" | null>(null);
+
   const gradeColor =
     row.setup_grade === "A+" ? "#4ade80" :
     row.setup_grade === "A" ? "#bef264" :
     row.setup_grade === "B" ? "#f59e0b" : "#ef4444";
+
   const nonTradeWarning =
     row.ticker_edge_status === "NO_EDGE" ||
     row.ticker_edge_status === "WEAK_EDGE" ||
@@ -43,6 +51,8 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
     !nonTradeWarning &&
     edgeOk &&
     row.overfit_warning !== true;
+  const watchlistEligible = !execAuthorized && !regimeDefensive && row.setup_status !== "INVALID";
+
   const execReasons: string[] = [];
   if (regimeDefensive) execReasons.push("Régime crypto défensif");
   if (row.tradable === false) execReasons.push("tradable = false");
@@ -51,12 +61,11 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
   if (row.setup_status === "INVALID") execReasons.push("Setup invalide");
   if (["SKIP", "WAIT", "NO_TRADE"].includes(row.final_decision ?? "")) execReasons.push(`Décision finale : ${row.final_decision}`);
 
-
   const ctaText = execAuthorized
-    ? "Prendre ce trade"
-    : (regimeDefensive || !edgeOk || row.overfit_warning || row.setup_status === "INVALID")
-      ? "Trade non autorisé"
-      : "Ajouter à la watchlist";
+    ? "Préparer ce trade"
+    : watchlistEligible
+      ? "Ajouter à la watchlist"
+      : "Trade non autorisé";
 
   return (
     <div
@@ -179,17 +188,30 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
 
           <button
             type="button"
-            disabled={!execAuthorized}
+            disabled={alreadyTaken || (!execAuthorized && !watchlistEligible)}
+            onClick={() => setJournalIntent(execAuthorized ? "PLANNED" : "WATCHLIST")}
             className="w-full py-3 rounded-xl text-sm font-black transition-all disabled:cursor-not-allowed disabled:opacity-90"
             style={{
-              background: execAuthorized ? "#0f5132" : (regimeDefensive || row.overfit_warning || row.setup_status === "INVALID") ? "#2a0d0d" : "#2a220d",
-              border: `1px solid ${execAuthorized ? "#22c55e" : (regimeDefensive || row.overfit_warning || row.setup_status === "INVALID") ? "#7f1d1d" : "#a16207"}`,
-              color: execAuthorized ? "#86efac" : (regimeDefensive || row.overfit_warning || row.setup_status === "INVALID") ? "#fca5a5" : "#fcd34d",
+              background: execAuthorized ? "#0f5132" : watchlistEligible ? "#2a220d" : "#2a0d0d",
+              border: `1px solid ${execAuthorized ? "#22c55e" : watchlistEligible ? "#a16207" : "#7f1d1d"}`,
+              color: execAuthorized ? "#86efac" : watchlistEligible ? "#fcd34d" : "#fca5a5",
             }}
           >
             {ctaText}
           </button>
+          {alreadyTaken && (
+            <p className="text-[10px] text-emerald-400 mt-2">Déjà présent dans le journal.</p>
+          )}
         </div>
+
+        {journalIntent && (
+          <TakeTradeModal
+            t={row}
+            journalStatus={journalIntent}
+            submitLabel={journalIntent === "PLANNED" ? "✅ Préparer ce trade" : "🟠 Ajouter à la watchlist"}
+            onClose={() => setJournalIntent(null)}
+          />
+        )}
       </div>
     </div>
   );

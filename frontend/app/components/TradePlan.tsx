@@ -165,9 +165,9 @@ function Row({ label, value, sub }: { label: string; value: React.ReactNode; sub
 export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => void }) {
   const reason     = buildReason(row);
   const scoreColor = row.score >= 80 ? "#10b981" : row.score >= 65 ? "#f59e0b" : "#ef4444";
-  const [showTakeModal, setShowTakeModal] = useState(false);
+  const [journalIntent, setJournalIntent] = useState<"PLANNED" | "WATCHLIST" | null>(null);
   const { isTickerActive } = useJournal();
-  const alreadyTaken = isTickerActive(row.ticker);
+  const alreadyTaken = isTickerActive(row.ticker, row.asset_scope);
   const execAuth = getExecutionAuthorization(row);
   const strategyName = row.best_strategy_name === "Pullback Confirmed"
     ? "Pullback confirme"
@@ -197,6 +197,13 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
     "REJECT":{ bg: "#100a0a", border: "#7f1d1d" },
   };
   const gc = gradeColors[row.setup_grade] ?? gradeColors["REJECT"];
+  const blockedForWatchlist =
+    row.tradable === false ||
+    ["SKIP", "WAIT", "NO_TRADE"].includes(row.final_decision ?? "") ||
+    row.setup_status === "INVALID" ||
+    row.overfit_warning === true ||
+    row.setup_grade === "REJECT";
+  const watchlistEligible = !execAuth.authorized && !blockedForWatchlist;
 
   return (
     <div
@@ -433,22 +440,28 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
             </div>
           ) : execAuth.authorized ? (
             <button
-              onClick={() => setShowTakeModal(true)}
+              onClick={() => setJournalIntent("PLANNED")}
               className="w-full py-3 rounded-xl text-sm font-black transition-all hover:opacity-90 active:scale-95"
               style={{ background: "linear-gradient(135deg, #10b981, #059669)", color: "#fff" }}
             >
-              ✅ Prendre ce trade
+              ✅ Préparer ce trade
+            </button>
+          ) : watchlistEligible ? (
+            <button
+              onClick={() => setJournalIntent("WATCHLIST")}
+              className="w-full py-3 rounded-xl text-sm font-black transition-all hover:opacity-90 active:scale-95"
+              style={{ background: "#2a220d", border: "1px solid #a16207", color: "#fcd34d" }}
+            >
+              🟠 Ajouter à la watchlist
             </button>
           ) : (
             <button
               type="button"
               disabled
-              className="w-full py-3 rounded-xl text-sm font-black transition-all opacity-90"
-              style={{ background: execAuth.reasons.some(r => r.includes("Edge")) ? "#2a1220" : "#2a220d", border: "1px solid #4b5563", color: execAuth.reasons.some(r => r.includes("Edge")) ? "#fca5a5" : "#fcd34d" }}
+              className="w-full py-3 rounded-xl text-sm font-black transition-all opacity-90 cursor-not-allowed"
+              style={{ background: "#2a1220", border: "1px solid #7f1d1d", color: "#fca5a5" }}
             >
-              {execAuth.reasons.includes("tradable = false") || execAuth.reasons.includes("Décision finale : WAIT / SKIP") || execAuth.reasons.includes("Décision finale : SKIP")
-                ? "Trade non autorisé"
-                : "Ajouter à la watchlist"}
+              ⛔ Trade non autorisé
             </button>
           )}
         </div>
@@ -482,8 +495,13 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
           </div>
         </div>
 
-        {showTakeModal && (
-          <TakeTradeModal t={row} onClose={() => setShowTakeModal(false)} />
+        {journalIntent && (
+          <TakeTradeModal
+            t={row}
+            journalStatus={journalIntent}
+            submitLabel={journalIntent === "PLANNED" ? "✅ Préparer ce trade" : "🟠 Ajouter à la watchlist"}
+            onClose={() => setJournalIntent(null)}
+          />
         )}
       </div>
     </div>

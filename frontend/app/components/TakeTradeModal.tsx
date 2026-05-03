@@ -16,14 +16,18 @@ function posSize(t: TickerResult) {
 export function TakeTradeModal({
   t,
   engine,
+  journalStatus = "PLANNED",
+  submitLabel,
   onClose,
 }: {
   t:       TickerResult;
   engine?: RegimeEngine | null;
+  journalStatus?: "PLANNED" | "WATCHLIST";
+  submitLabel?: string;
   onClose: () => void;
 }) {
   const { addTrade, isTickerActive } = useJournal();
-  const alreadyTaken = isTickerActive(t.ticker);
+  const alreadyTaken = isTickerActive(t.ticker, t.asset_scope);
 
   const today = new Date().toISOString().split("T")[0];
   const [form, setForm] = useState({
@@ -32,8 +36,8 @@ export function TakeTradeModal({
     quantity:    posSize(t),
     fees:        0,
     broker:      "IBKR",
-    note_entry:  "",
-  });
+      note_entry:  "",
+    });
 
   const set = (k: string, v: string | number) => setForm(f => ({ ...f, [k]: v }));
 
@@ -41,32 +45,41 @@ export function TakeTradeModal({
   const capitalUsd = form.price_entry * form.quantity;
 
   const handleSave = () => {
-    const trade: JournalTrade = {
-      id:            `${t.ticker}_${Date.now()}`,
-      ticker:        t.ticker,
-      strategy:      engine?.active_strategy ?? "UNKNOWN",
-      signal_type:   t.signal_type ?? "",
-      setup_grade:   t.setup_grade,
-      score:         t.score,
-      regime:        engine?.regime ?? "UNKNOWN",
-      confidence:    t.confidence,
-      sector:        t.sector,
-      planned_entry: t.entry,
-      stop_loss:     t.stop_loss,
-      tp1:           t.tp1,
-      tp2:           t.tp2,
-      rr_ratio:      t.rr_ratio,
-      date_entry:    form.date_entry,
-      price_entry:   form.price_entry,
-      quantity:      form.quantity,
-      fees:          form.fees,
-      broker:        form.broker,
-      note_entry:    form.note_entry,
-      status:        "OPEN",
+      const trade: JournalTrade = {
+        id:            `${t.ticker}_${Date.now()}`,
+        ticker:        t.ticker,
+        symbol:        t.ticker,
+        universe:      (t.asset_scope ?? "ACTIONS") as "ACTIONS" | "CRYPTO",
+        strategy:      engine?.active_strategy ?? "UNKNOWN",
+        strategy_name: engine?.strategy_name ?? engine?.active_strategy ?? "UNKNOWN",
+        signal_type:   t.signal_type ?? "",
+        setup_grade:   t.setup_grade,
+        score:         t.score,
+        regime:        engine?.regime ?? "UNKNOWN",
+        confidence:    t.confidence,
+        sector:        t.sector,
+        edge_status:   t.ticker_edge_status ?? "NO_EDGE",
+        final_decision: t.final_decision ?? "WAIT",
+        execution_authorized: journalStatus === "PLANNED",
+        planned_entry: t.entry,
+        entry_plan:    t.entry,
+        stop_loss:     t.stop_loss,
+        tp1:           t.tp1,
+        tp2:           t.tp2,
+        rr_ratio:      t.rr_ratio,
+        date_entry:    form.date_entry,
+        price_entry:   form.price_entry,
+        quantity:      form.quantity,
+        fees:          form.fees,
+        broker:        form.broker,
+        note_entry:    form.note_entry,
+        notes:         form.note_entry,
+        status:        journalStatus,
+        opened_at:     journalStatus === "PLANNED" ? null : form.date_entry,
+      };
+      addTrade(trade);
+      onClose();
     };
-    addTrade(trade);
-    onClose();
-  };
 
   return (
     <div
@@ -82,7 +95,9 @@ export function TakeTradeModal({
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[9px] text-gray-600 uppercase tracking-widest">Prendre ce trade</p>
+            <p className="text-[9px] text-gray-600 uppercase tracking-widest">
+              {journalStatus === "PLANNED" ? "Préparer ce trade" : "Ajouter à la watchlist"}
+            </p>
             <p className="text-xl font-black text-white">
               {t.ticker}
               <span className="text-sm text-gray-500 ml-2">{t.signal_type}</span>
@@ -190,7 +205,7 @@ export function TakeTradeModal({
           className="w-full py-3 rounded-xl text-sm font-black transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
           style={{ background: "linear-gradient(135deg, #10b981, #059669)", color: "#fff" }}
         >
-          ✅ Confirmer le trade
+          {submitLabel ?? (journalStatus === "PLANNED" ? "✅ Préparer ce trade" : "🟠 Ajouter à la watchlist")}
         </button>
       </div>
     </div>

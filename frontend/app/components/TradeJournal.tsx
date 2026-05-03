@@ -1,152 +1,339 @@
 "use client";
 
-import { useState } from "react";
-import { JournalTrade } from "../types";
+import { useMemo, useState } from "react";
 import { useJournal } from "../hooks/useJournal";
+import { JournalTrade } from "../types";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const SIM_CAPITAL = 10_000;
+const DEFAULT_RISK_PCT = 0.01;
 
-function fmt(v: number, decimals = 2) {
-  return v.toFixed(decimals);
+function fmt(value?: number | null, digits = 2) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return value.toFixed(digits);
 }
 
-function pnlColor(v: number) {
-  return v > 0 ? "#10b981" : v < 0 ? "#ef4444" : "#6b7280";
+function money(value?: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `$${Math.abs(value).toFixed(2)}`;
 }
 
-function gradeColor(g: string) {
-  return g === "A+" ? "#10b981" : g === "A" ? "#a3e635" : g === "B" ? "#f59e0b" : "#6b7280";
+function statusLabel(status: JournalTrade["status"]) {
+  switch (status) {
+    case "OPEN":
+      return { label: "OPEN", color: "#10b981", bg: "#041310" };
+    case "PLANNED":
+      return { label: "PLANNED", color: "#818cf8", bg: "#0b1020" };
+    case "WATCHLIST":
+      return { label: "WATCHLIST", color: "#f59e0b", bg: "#20150a" };
+    case "CLOSED":
+      return { label: "CLOSED", color: "#6b7280", bg: "#0f0f1a" };
+    case "CANCELLED":
+      return { label: "CANCELLED", color: "#ef4444", bg: "#1a0d0d" };
+    default:
+      return { label: status, color: "#9ca3af", bg: "#111118" };
+  }
 }
 
-function reasonColor(r: string) {
-  if (r === "TP1" || r === "TP2") return "#10b981";
-  if (r === "SL") return "#ef4444";
-  return "#6b7280";
+function pnlColor(value?: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "#9ca3af";
+  return value > 0 ? "#10b981" : value < 0 ? "#ef4444" : "#6b7280";
 }
 
-function daysAgo(dateStr: string) {
-  const diff = Math.round((Date.now() - new Date(dateStr).getTime()) / 86_400_000);
-  if (diff === 0) return "Aujourd'hui";
-  if (diff === 1) return "Hier";
-  return `${diff}j`;
-}
-
-// ─── Close Trade Modal ────────────────────────────────────────────────────────
-
-function CloseModal({
-  trade, onClose, onConfirm,
+function Section({
+  title,
+  items,
+  onEdit,
+  onOpen,
+  onCloseTrade,
+  onCancel,
+  onAddNote,
 }: {
-  trade:     JournalTrade;
-  onClose:   () => void;
-  onConfirm: (data: { date_exit: string; price_exit: number; reason_exit: "TP1" | "TP2" | "SL" | "MANUAL"; note_exit?: string }) => void;
+  title: string;
+  items: JournalTrade[];
+  onEdit: (trade: JournalTrade) => void;
+  onOpen: (trade: JournalTrade) => void;
+  onCloseTrade: (trade: JournalTrade) => void;
+  onCancel: (trade: JournalTrade) => void;
+  onAddNote: (trade: JournalTrade) => void;
 }) {
-  const today = new Date().toISOString().split("T")[0];
-  const [form, setForm] = useState({
-    date_exit:   today,
-    price_exit:  trade.tp1,
-    reason_exit: "TP1" as "TP1" | "TP2" | "SL" | "MANUAL",
-    note_exit:   "",
-  });
+  return (
+    <div className="rounded-2xl p-4 space-y-3" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[10px] text-gray-600 uppercase tracking-widest">{title}</p>
+          <p className="text-xs text-gray-500">{items.length} trade{items.length > 1 ? "s" : ""}</p>
+        </div>
+      </div>
 
-  // Live preview
-  const pnlUsd = (form.price_exit - trade.price_entry) * trade.quantity - trade.fees;
-  const pnlPct = ((form.price_exit - trade.price_entry) / trade.price_entry) * 100;
-  const riskPerShare = trade.price_entry - trade.stop_loss;
-  const rMultiple = riskPerShare > 0 ? pnlUsd / (riskPerShare * trade.quantity) : 0;
+      {items.length === 0 ? (
+        <div className="py-8 text-center text-gray-600 text-sm">Aucun élément</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1200px] text-left border-collapse">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-widest text-gray-500">
+                {["Universe", "Symbol", "Status", "Grade", "Edge", "Strategy", "Entry", "Stop", "TP1", "TP2", "Risk", "Qty", "PnL", "R", "Date", "Actions"].map(col => (
+                  <th key={col} className="py-2 pr-3 border-b border-[#1a1a2e]">{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(trade => {
+                const badge = statusLabel(trade.status);
+                const pnl = trade.pnl_usd ?? 0;
+                const riskPct = trade.risk_pct ?? DEFAULT_RISK_PCT * 100;
+                return (
+                  <tr key={trade.id} className="align-top hover:bg-white/[0.02]">
+                    <td className="py-3 pr-3 text-xs text-gray-400 border-b border-[#141425]">{trade.universe ?? "ACTIONS"}</td>
+                    <td className="py-3 pr-3 text-sm font-black text-white border-b border-[#141425]">{trade.symbol ?? trade.ticker}</td>
+                    <td className="py-3 pr-3 border-b border-[#141425]">
+                      <span className="px-2 py-1 rounded text-[10px] font-black" style={{ color: badge.color, background: badge.bg }}>{badge.label}</span>
+                    </td>
+                    <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{trade.setup_grade ?? "—"}</td>
+                    <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{trade.edge_status ?? "—"}</td>
+                    <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{(trade.strategy_name ?? trade.strategy ?? "—").replaceAll("_", " ")}</td>
+                    <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{money(trade.entry_price ?? trade.entry_plan)}</td>
+                    <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{money(trade.stop_loss)}</td>
+                    <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{money(trade.tp1)}</td>
+                    <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{money(trade.tp2)}</td>
+                    <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">
+                      {money(trade.risk_amount)} <span className="text-gray-600">({fmt(riskPct, 1)}%)</span>
+                    </td>
+                    <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{fmt(trade.quantity, 4)}</td>
+                    <td className="py-3 pr-3 text-xs font-black border-b border-[#141425]" style={{ color: pnlColor(pnl) }}>
+                      {pnl >= 0 ? "+" : ""}{money(pnl)}
+                    </td>
+                    <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{trade.r_multiple != null ? `${trade.r_multiple >= 0 ? "+" : ""}${fmt(trade.r_multiple, 2)}R` : "—"}</td>
+                    <td className="py-3 pr-3 text-xs text-gray-400 border-b border-[#141425]">{trade.date_entry ?? trade.opened_at ?? "—"}</td>
+                    <td className="py-3 pr-3 text-xs border-b border-[#141425]">
+                      <div className="flex flex-wrap gap-1">
+                        {(trade.status === "PLANNED" || trade.status === "WATCHLIST") && (
+                          <button onClick={() => onOpen(trade)} className="px-2 py-1 rounded text-[10px] font-black" style={{ background: "#041310", color: "#10b981", border: "1px solid #065f46" }}>
+                            Ouvrir
+                          </button>
+                        )}
+                        {trade.status === "OPEN" && (
+                          <button onClick={() => onCloseTrade(trade)} className="px-2 py-1 rounded text-[10px] font-black" style={{ background: "#0b1020", color: "#818cf8", border: "1px solid #3b82f6" }}>
+                            Fermer
+                          </button>
+                        )}
+                        <button onClick={() => onEdit(trade)} className="px-2 py-1 rounded text-[10px] font-black" style={{ background: "#0c0c18", color: "#f59e0b", border: "1px solid #a16207" }}>
+                          Modifier
+                        </button>
+                        <button onClick={() => onAddNote(trade)} className="px-2 py-1 rounded text-[10px] font-black" style={{ background: "#0c0c18", color: "#cbd5e1", border: "1px solid #1f2937" }}>
+                          Ajouter note
+                        </button>
+                        <button onClick={() => onCancel(trade)} className="px-2 py-1 rounded text-[10px] font-black" style={{ background: "#1a0d0d", color: "#fca5a5", border: "1px solid #7f1d1d" }}>
+                          Annuler
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
-  const set = (k: string, v: string | number) => setForm(f => ({ ...f, [k]: v }));
-
-  // When reason changes, auto-fill price
-  const setReason = (r: typeof form.reason_exit) => {
-    const prices: Record<string, number> = {
-      TP1: trade.tp1, TP2: trade.tp2, SL: trade.stop_loss, MANUAL: trade.price_entry,
-    };
-    setForm(f => ({ ...f, reason_exit: r, price_exit: prices[r] ?? f.price_exit }));
-  };
+function PortfolioRiskCard({ openTrades, plannedTrades, watchlistTrades, stats }: {
+  openTrades: JournalTrade[];
+  plannedTrades: JournalTrade[];
+  watchlistTrades: JournalTrade[];
+  stats: ReturnType<typeof useJournal>["stats"];
+}) {
+  const riskOpenTotal = stats?.risk_open_total ?? openTrades.reduce((sum, t) => sum + (t.risk_amount ?? 0), 0);
+  const exposure = stats?.exposure_current ?? openTrades.reduce((sum, t) => sum + (t.entry_price ?? t.entry_plan ?? 0) * (t.quantity ?? 0), 0);
+  const openCount = openTrades.length;
+  const pctRisk = (riskOpenTotal / SIM_CAPITAL) * 100;
+  const riskColor = pctRisk > 5 ? "#ef4444" : pctRisk > 3 ? "#f59e0b" : "#10b981";
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,.85)" }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="w-full max-w-sm rounded-2xl p-6 space-y-4"
-        style={{ background: "#0e0e1c", border: "1px solid #2a2a4e" }}>
-
-        <div className="flex items-center justify-between">
-          <p className="font-black text-white">Clôturer {trade.ticker}</p>
-          <button onClick={onClose} className="text-gray-600 hover:text-white">✕</button>
-        </div>
-
-        {/* Reason buttons */}
+    <div className="rounded-2xl p-4 space-y-3" style={{ background: "#0c0c18", border: `1px solid ${riskColor}33` }}>
+      <div className="flex items-center justify-between">
         <div>
-          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1.5">Raison</p>
-          <div className="grid grid-cols-4 gap-1.5">
-            {(["TP1", "TP2", "SL", "MANUAL"] as const).map(r => (
-              <button key={r} onClick={() => setReason(r)}
-                className="py-1.5 rounded-lg text-xs font-black transition-all"
-                style={{
-                  background: form.reason_exit === r ? (r === "SL" ? "#130404" : "#041310") : "#0c0c18",
-                  color:      form.reason_exit === r ? reasonColor(r) : "#4b5563",
-                  border:     `1px solid ${form.reason_exit === r ? reasonColor(r) + "60" : "#1a1a2e"}`,
-                }}>
-                {r}
-              </button>
+          <p className="text-[10px] text-gray-600 uppercase tracking-widest">Portfolio Risk</p>
+          <p className="text-xs text-gray-500">Capital simulé: ${SIM_CAPITAL.toLocaleString()}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-gray-500">Risque ouvert</p>
+          <p className="text-lg font-black" style={{ color: riskColor }}>{fmt(pctRisk, 1)}%</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+        <div className="rounded-xl p-3" style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
+          <p className="text-gray-500">Trades ouverts</p>
+          <p className="text-lg font-black text-white">{openCount}</p>
+        </div>
+        <div className="rounded-xl p-3" style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
+          <p className="text-gray-500">Planifiés</p>
+          <p className="text-lg font-black text-white">{plannedTrades.length}</p>
+        </div>
+        <div className="rounded-xl p-3" style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
+          <p className="text-gray-500">Watchlist</p>
+          <p className="text-lg font-black text-white">{watchlistTrades.length}</p>
+        </div>
+        <div className="rounded-xl p-3" style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
+          <p className="text-gray-500">Exposition estimée</p>
+          <p className="text-lg font-black text-white">${Math.round(exposure).toLocaleString()}</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+        <div className="rounded-xl p-3" style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
+          <p className="text-gray-500">Risque ouvert total</p>
+          <p className="text-lg font-black text-white">${riskOpenTotal.toFixed(2)}</p>
+        </div>
+        <div className="rounded-xl p-3" style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
+          <p className="text-gray-500">PnL réalisé</p>
+          <p className="text-lg font-black text-white">${(stats?.total_pnl ?? 0).toFixed(2)}</p>
+        </div>
+        <div className="rounded-xl p-3" style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
+          <p className="text-gray-500">R moyen</p>
+          <p className="text-lg font-black text-white">{fmt(stats?.average_r ?? 0, 2)}R</p>
+        </div>
+        <div className="rounded-xl p-3" style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
+          <p className="text-gray-500">Max positions</p>
+          <p className="text-lg font-black text-white">A {stats?.max_positions_actions ?? 5} / C {stats?.max_positions_crypto ?? 3}</p>
+        </div>
+      </div>
+      {pctRisk > 5 && (
+        <div className="rounded-xl px-3 py-2 text-sm font-bold" style={{ background: "#2a0d0d", border: "1px solid #7f1d1d", color: "#fca5a5" }}>
+          Risque total supérieur à 5% : réduire l&apos;exposition.
+        </div>
+      )}
+      {pctRisk > 3 && pctRisk <= 5 && (
+        <div className="rounded-xl px-3 py-2 text-sm font-bold" style={{ background: "#2a220d", border: "1px solid #a16207", color: "#fcd34d" }}>
+          Risque total supérieur à 3% : surveiller le portefeuille.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TradeEditor({
+  trade,
+  mode,
+  onClose,
+  onSave,
+}: {
+  trade: JournalTrade | null;
+  mode: "EDIT" | "NOTE" | "OPEN";
+  onClose: () => void;
+  onSave: (updates: Partial<JournalTrade>) => void;
+}) {
+  const [form, setForm] = useState({
+    status: trade?.status ?? "WATCHLIST",
+    entry_price: trade?.entry_price ?? trade?.planned_entry ?? 0,
+    stop_loss: trade?.stop_loss ?? 0,
+    tp1: trade?.tp1 ?? 0,
+    tp2: trade?.tp2 ?? 0,
+    quantity: trade?.quantity ?? 0,
+    risk_amount: trade?.risk_amount ?? 0,
+    notes: trade?.notes ?? trade?.note_entry ?? "",
+    final_decision: trade?.final_decision ?? "WAIT",
+    edge_status: trade?.edge_status ?? "NO_EDGE",
+  });
+
+  if (!trade) return null;
+
+  const set = (key: string, value: string | number) => setForm(prev => ({ ...prev, [key]: value }));
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(0,0,0,.85)" }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-xl rounded-2xl p-6 space-y-4" style={{ background: "#0e0e1c", border: "1px solid #2a2a4e" }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-gray-600 uppercase tracking-widest">{mode === "NOTE" ? "Ajouter une note" : "Modifier le trade"}</p>
+            <p className="text-xl font-black text-white">{trade.symbol ?? trade.ticker}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white">✕</button>
+        </div>
+        {mode !== "NOTE" && (
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: "Status", key: "status", type: "text", value: form.status },
+              { label: "Entry", key: "entry_price", type: "number", value: form.entry_price },
+              { label: "Stop", key: "stop_loss", type: "number", value: form.stop_loss },
+              { label: "TP1", key: "tp1", type: "number", value: form.tp1 },
+              { label: "TP2", key: "tp2", type: "number", value: form.tp2 },
+              { label: "Qty", key: "quantity", type: "number", value: form.quantity },
+              { label: "Risk $", key: "risk_amount", type: "number", value: form.risk_amount },
+              { label: "Edge", key: "edge_status", type: "text", value: form.edge_status },
+            ].map(field => (
+              <div key={field.key}>
+                <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">{field.label}</p>
+                <input
+                  type={field.type}
+                  value={field.value as any}
+                  step={field.type === "number" ? "0.01" : undefined}
+                  className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none"
+                  style={{ background: "#07070f", border: "1px solid #1a1a2e" }}
+                  onChange={e => set(field.key, field.type === "number" ? parseFloat(e.target.value) || 0 : e.target.value)}
+                />
+              </div>
             ))}
           </div>
-        </div>
-
-        {/* Fields */}
-        {[
-          { label: "Date sortie", key: "date_exit", type: "date", value: form.date_exit },
-          { label: "Prix sortie ($)", key: "price_exit", type: "number", value: form.price_exit },
-        ].map(f => (
-          <div key={f.key}>
-            <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">{f.label}</p>
-            <input
-              type={f.type}
-              value={f.value}
-              step={f.type === "number" ? "0.01" : undefined}
-              onChange={e => set(f.key, f.type === "number" ? parseFloat(e.target.value) || 0 : e.target.value)}
-              className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none"
-              style={{ background: "#07070f", border: "1px solid #1a1a2e" }}
-            />
-          </div>
-        ))}
-
-        {/* Note */}
+        )}
         <div>
-          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">Note (optionnelle)</p>
-          <input
-            type="text"
-            value={form.note_exit}
-            onChange={e => set("note_exit", e.target.value)}
-            placeholder="Ex: target atteint en préouverture"
-            className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none"
+          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">Note</p>
+          <textarea
+            value={form.notes}
+            onChange={e => set("notes", e.target.value)}
+            rows={4}
+            className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none resize-none"
             style={{ background: "#07070f", border: "1px solid #1a1a2e" }}
           />
         </div>
-
-        {/* Live P&L preview */}
-        <div className="rounded-xl p-3 grid grid-cols-3 gap-2 text-center"
-          style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
-          {[
-            { label: "P&L $", value: `${pnlUsd >= 0 ? "+" : ""}$${fmt(pnlUsd)}` },
-            { label: "P&L %", value: `${pnlPct >= 0 ? "+" : ""}${fmt(pnlPct)}%` },
-            { label: "R Multiple", value: `${rMultiple >= 0 ? "+" : ""}${fmt(rMultiple, 1)}R` },
-          ].map(s => (
-            <div key={s.label}>
-              <p className="text-[8px] text-gray-700 uppercase tracking-widest mb-0.5">{s.label}</p>
-              <p className="text-sm font-black" style={{ color: pnlColor(pnlUsd) }}>{s.value}</p>
-            </div>
-          ))}
-        </div>
-
         <button
-          onClick={() => onConfirm(form)}
-          className="w-full py-2.5 rounded-xl text-sm font-black transition-all"
+          onClick={() => onSave(form)}
+          className="w-full py-3 rounded-xl text-sm font-black"
           style={{ background: "#10b981", color: "#fff" }}
         >
+          Enregistrer
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CloseModal({
+  trade,
+  onClose,
+  onConfirm,
+}: {
+  trade: JournalTrade | null;
+  onClose: () => void;
+  onConfirm: (payload: { exit_price: number; exit_reason: string; notes?: string; closed_at?: string }) => void;
+}) {
+  const [exitPrice, setExitPrice] = useState(trade?.entry_price ?? trade?.planned_entry ?? 0);
+  const [reason, setReason] = useState("MANUAL");
+  const [notes, setNotes] = useState("");
+  if (!trade) return null;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: "rgba(0,0,0,.85)" }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-sm rounded-2xl p-6 space-y-4" style={{ background: "#0e0e1c", border: "1px solid #2a2a4e" }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <p className="font-black text-white">Fermer {trade.symbol ?? trade.ticker}</p>
+          <button onClick={onClose} className="text-gray-500 hover:text-white">✕</button>
+        </div>
+        <div>
+          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">Prix de sortie</p>
+          <input value={exitPrice} onChange={e => setExitPrice(parseFloat(e.target.value) || 0)} type="number" step="0.01" className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none" style={{ background: "#07070f", border: "1px solid #1a1a2e" }} />
+        </div>
+        <div>
+          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">Raison</p>
+          <select value={reason} onChange={e => setReason(e.target.value)} className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none" style={{ background: "#07070f", border: "1px solid #1a1a2e" }}>
+            {["TP1", "TP2", "SL", "MANUAL"].map(item => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </div>
+        <div>
+          <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">Note</p>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full px-3 py-2 rounded-lg text-sm text-white outline-none resize-none" style={{ background: "#07070f", border: "1px solid #1a1a2e" }} />
+        </div>
+        <button onClick={() => onConfirm({ exit_price: exitPrice, exit_reason: reason, notes, closed_at: new Date().toISOString() })} className="w-full py-3 rounded-xl text-sm font-black" style={{ background: "#10b981", color: "#fff" }}>
           Confirmer la clôture
         </button>
       </div>
@@ -154,309 +341,139 @@ function CloseModal({
   );
 }
 
-// ─── Delete Confirm ───────────────────────────────────────────────────────────
-
-function DeleteConfirm({
-  ticker, onCancel, onConfirm,
-}: { ticker: string; onCancel: () => void; onConfirm: () => void }) {
-  return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,.85)" }}
-      onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
-    >
-      <div className="rounded-2xl p-6 space-y-4 max-w-xs w-full"
-        style={{ background: "#0e0e1c", border: "1px solid #7f1d1d" }}>
-        <p className="font-black text-white">Supprimer {ticker} ?</p>
-        <p className="text-xs text-gray-500">Ce trade ne comptera pas dans les statistiques.</p>
-        <div className="flex gap-2">
-          <button onClick={onCancel} className="flex-1 py-2 rounded-lg text-xs text-gray-500"
-            style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>Annuler</button>
-          <button onClick={onConfirm} className="flex-1 py-2 rounded-lg text-xs font-black text-white"
-            style={{ background: "#7f1d1d" }}>Supprimer</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Stats Panel ──────────────────────────────────────────────────────────────
-
-function StatsPanel({ closed }: { closed: JournalTrade[] }) {
-  if (closed.length === 0) return null;
-
-  const wins      = closed.filter(t => (t.pnl_usd ?? 0) > 0);
-  const losses    = closed.filter(t => (t.pnl_usd ?? 0) <= 0);
-  const winRate   = closed.length ? (wins.length / closed.length) * 100 : 0;
-  const totalPnl  = closed.reduce((s, t) => s + (t.pnl_usd ?? 0), 0);
-  const avgGain   = wins.length ? wins.reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / wins.length : 0;
-  const avgLoss   = losses.length ? Math.abs(losses.reduce((s, t) => s + (t.pnl_usd ?? 0), 0) / losses.length) : 0;
-  const pf        = avgLoss > 0 ? (avgGain * wins.length) / (avgLoss * losses.length) : 0;
-  const avgR      = closed.reduce((s, t) => s + (t.r_multiple ?? 0), 0) / closed.length;
-
-  const byStrategy: Record<string, { wins: number; total: number; pnl: number }> = {};
-  closed.forEach(t => {
-    if (!byStrategy[t.strategy]) byStrategy[t.strategy] = { wins: 0, total: 0, pnl: 0 };
-    byStrategy[t.strategy].total++;
-    byStrategy[t.strategy].pnl += t.pnl_usd ?? 0;
-    if ((t.pnl_usd ?? 0) > 0) byStrategy[t.strategy].wins++;
-  });
-
-  const bestStrat = Object.entries(byStrategy).sort((a, b) => b[1].pnl - a[1].pnl)[0];
-
-  return (
-    <div className="rounded-2xl p-5 space-y-4" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
-      <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">📊 Statistiques Réelles</p>
-
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: "Win Rate",      value: `${winRate.toFixed(0)}%`,   color: winRate >= 50 ? "#10b981" : "#ef4444" },
-          { label: "P&L Total",     value: `${totalPnl >= 0 ? "+" : ""}$${fmt(totalPnl)}`, color: pnlColor(totalPnl) },
-          { label: "Profit Factor", value: pf > 0 ? fmt(pf, 1) : "—", color: pf >= 1.5 ? "#10b981" : pf >= 1 ? "#f59e0b" : "#ef4444" },
-          { label: "R Moyen",       value: `${avgR >= 0 ? "+" : ""}${fmt(avgR, 1)}R`,      color: pnlColor(avgR) },
-        ].map(s => (
-          <div key={s.label} className="rounded-xl p-3 text-center" style={{ background: "#07070f", border: `1px solid ${s.color}20` }}>
-            <p className="text-[9px] uppercase tracking-widest mb-1" style={{ color: s.color }}>{s.label}</p>
-            <p className="text-xl font-black text-white">{s.value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 text-[10px] text-gray-600">
-        <span>Gains moy. <strong className="text-emerald-400">+${fmt(avgGain)}</strong></span>
-        <span>Pertes moy. <strong className="text-red-400">-${fmt(avgLoss)}</strong></span>
-        {bestStrat && (
-          <span>Meilleure strat. <strong className="text-gray-300">{bestStrat[0].replace("_", " ")}</strong></span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Active Trade Row ────────────────────────────────────────────────────────
-
-function ActiveRow({
-  trade, onClose, onDelete,
-}: {
-  trade:    JournalTrade;
-  onClose:  (t: JournalTrade) => void;
-  onDelete: (t: JournalTrade) => void;
-}) {
-  const entryTotal = trade.price_entry * trade.quantity;
-  return (
-    <div className="rounded-xl p-4 space-y-3" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-lg font-black text-white">{trade.ticker}</span>
-          <span className="px-1.5 py-0.5 rounded text-[9px] font-black"
-            style={{ background: gradeColor(trade.setup_grade) + "18", color: gradeColor(trade.setup_grade) }}>
-            {trade.setup_grade}
-          </span>
-          <span className="text-[10px] text-gray-600">{trade.strategy.replace("_", " ")}</span>
-          <span className="px-1.5 py-0.5 rounded text-[9px] animate-pulse"
-            style={{ background: "#041310", color: "#10b981", border: "1px solid #065f46" }}>
-            OPEN
-          </span>
-        </div>
-        <span className="text-[10px] text-gray-700 flex-shrink-0">{daysAgo(trade.date_entry)}</span>
-      </div>
-
-      {/* Levels */}
-      <div className="grid grid-cols-5 gap-1.5 text-center">
-        {[
-          { label: "ENTRÉE",  value: `$${fmt(trade.price_entry)}`, color: "#6366f1" },
-          { label: "STOP",    value: `$${fmt(trade.stop_loss)}`,   color: "#ef4444" },
-          { label: "TP1",     value: `$${fmt(trade.tp1)}`,          color: "#10b981" },
-          { label: "TP2",     value: `$${fmt(trade.tp2)}`,          color: "#34d399" },
-          { label: "QTÉ",     value: `${trade.quantity}`,           color: "#f59e0b" },
-        ].map(l => (
-          <div key={l.label} className="rounded-lg p-1.5" style={{ background: "#07070f", border: `1px solid ${l.color}15` }}>
-            <p className="text-[7px] uppercase tracking-widest mb-0.5" style={{ color: l.color }}>{l.label}</p>
-            <p className="text-xs font-black text-white">{l.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Meta + actions */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-[10px] text-gray-700">Capital: <strong className="text-gray-500">${Math.round(entryTotal).toLocaleString()}</strong></span>
-        <span className="text-[10px] text-gray-700">Broker: <strong className="text-gray-500">{trade.broker}</strong></span>
-        {trade.note_entry && (
-          <span className="text-[10px] text-gray-600 italic">{trade.note_entry}</span>
-        )}
-        <div className="ml-auto flex gap-1.5">
-          <button
-            onClick={() => onClose(trade)}
-            className="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all"
-            style={{ background: "#041310", color: "#10b981", border: "1px solid #065f46" }}
-          >
-            Clôturer
-          </button>
-          <button
-            onClick={() => onDelete(trade)}
-            className="px-2 py-1 rounded-lg text-[10px] text-gray-600 hover:text-red-400 transition-colors"
-            style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Closed Trade Row ─────────────────────────────────────────────────────────
-
-function ClosedRow({
-  trade, onDelete,
-}: {
-  trade:    JournalTrade;
-  onDelete: (t: JournalTrade) => void;
-}) {
-  const pnl = trade.pnl_usd ?? 0;
-  const pc  = pnlColor(pnl);
-  return (
-    <div className="rounded-xl p-4" style={{ background: "#0c0c18", border: `1px solid ${pc}18` }}>
-      <div className="flex items-center gap-3 flex-wrap">
-        {/* Ticker + grade */}
-        <span className="text-base font-black text-white w-14">{trade.ticker}</span>
-        <span className="px-1.5 py-0.5 rounded text-[9px] font-black"
-          style={{ background: gradeColor(trade.setup_grade) + "18", color: gradeColor(trade.setup_grade) }}>
-          {trade.setup_grade}
-        </span>
-        {/* Reason badge */}
-        <span className="px-1.5 py-0.5 rounded text-[9px] font-black"
-          style={{ background: reasonColor(trade.reason_exit ?? "MANUAL") + "18", color: reasonColor(trade.reason_exit ?? "MANUAL") }}>
-          {trade.reason_exit ?? "MANUAL"}
-        </span>
-        {/* Strategy */}
-        <span className="text-[10px] text-gray-600">{trade.strategy.replace("_", " ")}</span>
-
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        {/* Prices */}
-        <span className="text-[10px] text-gray-600">
-          ${fmt(trade.price_entry)} → ${fmt(trade.price_exit ?? 0)}
-        </span>
-        {/* P&L */}
-        <span className="text-sm font-black" style={{ color: pc }}>
-          {pnl >= 0 ? "+" : ""}${fmt(pnl)}
-        </span>
-        <span className="text-[10px] font-black" style={{ color: pc }}>
-          {(trade.pnl_pct ?? 0) >= 0 ? "+" : ""}{fmt(trade.pnl_pct ?? 0)}%
-        </span>
-        {/* R */}
-        <span className="text-[10px] font-black px-1.5 py-0.5 rounded"
-          style={{ background: pc + "18", color: pc }}>
-          {(trade.r_multiple ?? 0) >= 0 ? "+" : ""}{fmt(trade.r_multiple ?? 0, 1)}R
-        </span>
-        {/* Duration */}
-        <span className="text-[10px] text-gray-600">{trade.duration_days}j</span>
-        {/* Delete */}
-        <button onClick={() => onDelete(trade)}
-          className="text-[10px] text-gray-700 hover:text-red-400 transition-colors px-1">✕</button>
-      </div>
-      {trade.note_exit && (
-        <p className="text-[9px] text-gray-600 italic mt-1.5 ml-1">📝 {trade.note_exit}</p>
-      )}
-    </div>
-  );
-}
-
-// ─── Main Journal Component ───────────────────────────────────────────────────
-
 export function TradeJournal() {
-  const { activeTrades, closedTrades, closeTrade, deleteTrade } = useJournal();
+  const { trades, stats, openTrade, closeTrade, deleteTrade, updateTrade, refreshJournal, isSyncing, lastSyncError } = useJournal();
+  const [editTrade, setEditTrade] = useState<JournalTrade | null>(null);
+  const [editMode, setEditMode] = useState<"EDIT" | "NOTE" | "OPEN">("EDIT");
+  const [closeTradeItem, setCloseTradeItem] = useState<JournalTrade | null>(null);
 
-  const [tab,          setTab]          = useState<"active" | "closed">("active");
-  const [toClose,      setToClose]      = useState<JournalTrade | null>(null);
-  const [toDelete,     setToDelete]     = useState<{ trade: JournalTrade; fromActive: boolean } | null>(null);
+  const openTrades = useMemo(() => trades.filter(t => t.status === "OPEN"), [trades]);
+  const plannedTrades = useMemo(() => trades.filter(t => t.status === "PLANNED"), [trades]);
+  const watchlistTrades = useMemo(() => trades.filter(t => t.status === "WATCHLIST"), [trades]);
+  const closedTrades = useMemo(() => trades.filter(t => t.status === "CLOSED"), [trades]);
 
   return (
     <div className="space-y-4">
-
-      {/* Stats panel (from closed trades only) */}
-      <StatsPanel closed={closedTrades} />
-
-      {/* Tab bar */}
-      <div className="flex rounded-xl overflow-hidden" style={{ border: "1px solid #1a1a2e", display: "inline-flex" }}>
-        {([["active", `📌 En cours (${activeTrades.length})`], ["closed", `✅ Historique (${closedTrades.length})`]] as const).map(([k, label]) => (
-          <button key={k} onClick={() => setTab(k)}
-            className="px-4 py-2 text-xs font-black uppercase tracking-widest transition-all"
-            style={{
-              background: tab === k ? (k === "active" ? "#041a10" : "#0a0a1e") : "#0c0c18",
-              color:      tab === k ? (k === "active" ? "#10b981" : "#818cf8") : "#4b5563",
-              borderRight: k === "active" ? "1px solid #1a1a2e" : undefined,
-            }}>
-            {label}
-          </button>
-        ))}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-[10px] text-gray-600 uppercase tracking-widest">Trade Journal</p>
+          <p className="text-xs text-gray-500">Journal persistant Actions / Crypto</p>
+        </div>
+        <button
+          onClick={() => void refreshJournal()}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+          style={{ background: "#0c0c18", border: "1px solid #1a1a2e", color: "#818cf8" }}
+        >
+          {isSyncing ? "Synchronisation…" : "Rafraîchir"}
+        </button>
       </div>
 
-      {/* Active trades */}
-      {tab === "active" && (
-        <div className="space-y-3">
-          {activeTrades.length === 0 ? (
-            <div className="text-center py-16 text-gray-600 text-sm">
-              Aucun trade en cours — prenez un trade depuis le Command Center ⚡
-            </div>
-          ) : (
-            activeTrades.map(t => (
-              <ActiveRow
-                key={t.id}
-                trade={t}
-                onClose={setToClose}
-                onDelete={tr => setToDelete({ trade: tr, fromActive: true })}
-              />
-            ))
-          )}
+      {lastSyncError && (
+        <div className="rounded-xl px-4 py-3 text-sm" style={{ background: "#130404", border: "1px solid #7f1d1d", color: "#fca5a5" }}>
+          Synchronisation journal: {lastSyncError}
         </div>
       )}
 
-      {/* Closed trades */}
-      {tab === "closed" && (
-        <div className="space-y-2">
-          {closedTrades.length === 0 ? (
-            <div className="text-center py-16 text-gray-600 text-sm">
-              Aucun trade clôturé pour l'instant.
-            </div>
-          ) : (
-            closedTrades.map(t => (
-              <ClosedRow
-                key={t.id}
-                trade={t}
-                onDelete={tr => setToDelete({ trade: tr, fromActive: false })}
-              />
-            ))
-          )}
-        </div>
+      <PortfolioRiskCard openTrades={openTrades} plannedTrades={plannedTrades} watchlistTrades={watchlistTrades} stats={stats} />
+
+      <Section
+        title="Positions ouvertes"
+        items={openTrades}
+        onEdit={trade => { setEditMode("EDIT"); setEditTrade(trade); }}
+        onOpen={trade => {
+          void openTrade(trade.id, {
+            entry_price: trade.entry_price ?? trade.planned_entry,
+            quantity: trade.quantity,
+            risk_amount: trade.risk_amount,
+            opened_at: new Date().toISOString(),
+            notes: trade.notes ?? trade.note_entry,
+          });
+        }}
+        onCloseTrade={trade => setCloseTradeItem(trade)}
+        onCancel={trade => void deleteTrade(trade.id)}
+        onAddNote={trade => { setEditMode("NOTE"); setEditTrade(trade); }}
+      />
+
+      <Section
+        title="Trades planifiés"
+        items={plannedTrades}
+        onEdit={trade => { setEditMode("EDIT"); setEditTrade(trade); }}
+        onOpen={trade => {
+          void openTrade(trade.id, {
+            entry_price: trade.entry_price ?? trade.planned_entry,
+            quantity: trade.quantity,
+            risk_amount: trade.risk_amount,
+            opened_at: new Date().toISOString(),
+            notes: trade.notes ?? trade.note_entry,
+          });
+        }}
+        onCloseTrade={trade => setCloseTradeItem(trade)}
+        onCancel={trade => void deleteTrade(trade.id)}
+        onAddNote={trade => { setEditMode("NOTE"); setEditTrade(trade); }}
+      />
+
+      <Section
+        title="Watchlist"
+        items={watchlistTrades}
+        onEdit={trade => { setEditMode("EDIT"); setEditTrade(trade); }}
+        onOpen={trade => {
+          void openTrade(trade.id, {
+            entry_price: trade.entry_price ?? trade.planned_entry,
+            quantity: trade.quantity,
+            risk_amount: trade.risk_amount,
+            opened_at: new Date().toISOString(),
+            notes: trade.notes ?? trade.note_entry,
+          });
+        }}
+        onCloseTrade={trade => setCloseTradeItem(trade)}
+        onCancel={trade => void deleteTrade(trade.id)}
+        onAddNote={trade => { setEditMode("NOTE"); setEditTrade(trade); }}
+      />
+
+      <Section
+        title="Trades fermés"
+        items={closedTrades}
+        onEdit={trade => { setEditMode("EDIT"); setEditTrade(trade); }}
+        onOpen={trade => {
+          void openTrade(trade.id, {
+            entry_price: trade.entry_price ?? trade.planned_entry,
+            quantity: trade.quantity,
+            risk_amount: trade.risk_amount,
+            opened_at: new Date().toISOString(),
+            notes: trade.notes ?? trade.note_entry,
+          });
+        }}
+        onCloseTrade={trade => setCloseTradeItem(trade)}
+        onCancel={trade => void deleteTrade(trade.id)}
+        onAddNote={trade => { setEditMode("NOTE"); setEditTrade(trade); }}
+      />
+
+      {editTrade && (
+        <TradeEditor
+          trade={editTrade}
+          mode={editMode}
+          onClose={() => setEditTrade(null)}
+          onSave={updates => {
+            void updateTrade(editTrade.id, updates);
+            setEditTrade(null);
+          }}
+        />
       )}
 
-      {/* Close modal */}
-      {toClose && (
+      {closeTradeItem && (
         <CloseModal
-          trade={toClose}
-          onClose={() => setToClose(null)}
-          onConfirm={data => {
-            closeTrade(toClose.id, data);
-            setToClose(null);
+          trade={closeTradeItem}
+          onClose={() => setCloseTradeItem(null)}
+          onConfirm={payload => {
+            void closeTrade(closeTradeItem.id, payload);
+            setCloseTradeItem(null);
           }}
         />
       )}
 
-      {/* Delete confirmation */}
-      {toDelete && (
-        <DeleteConfirm
-          ticker={toDelete.trade.ticker}
-          onCancel={() => setToDelete(null)}
-          onConfirm={() => {
-            deleteTrade(toDelete.trade.id, toDelete.fromActive);
-            setToDelete(null);
-          }}
-        />
-      )}
+      <div className="text-[10px] text-gray-600">
+        Conseils portefeuille: risque par trade 1% par défaut, max 5 positions Actions et 3 positions Crypto.
+      </div>
     </div>
   );
 }
