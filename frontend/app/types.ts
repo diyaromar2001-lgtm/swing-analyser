@@ -472,6 +472,7 @@ export interface JournalTrade {
   trailing_stop?: number;
   source_snapshot_json?: unknown;
   setup_status?:  "READY" | "WAIT" | "INVALID";
+  overfit_warning?: boolean;
   category?: string;
   error?: string;
   pnl_amount?:    number | null;

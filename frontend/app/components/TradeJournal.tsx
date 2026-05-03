@@ -39,6 +39,40 @@ function pnlColor(value?: number | null) {
   return value > 0 ? "#10b981" : value < 0 ? "#ef4444" : "#6b7280";
 }
 
+function normalizeText(value?: unknown) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+function canOpenTrade(trade: JournalTrade) {
+  return (
+    trade.status === "PLANNED" &&
+    trade.execution_authorized === true &&
+    (normalizeText(trade.edge_status) === "STRONG_EDGE" || normalizeText(trade.edge_status) === "VALID_EDGE") &&
+    (normalizeText(trade.final_decision) === "BUY" || normalizeText(trade.final_decision) === "BUY NOW" || normalizeText(trade.final_decision) === "BUY NEAR ENTRY") &&
+    trade.setup_status !== "INVALID" &&
+    trade.overfit_warning !== true
+  );
+}
+
+function openBlockReason(trade: JournalTrade) {
+  if (trade.status === "WATCHLIST") return "WATCHLIST";
+  if (trade.execution_authorized !== true) return "Trade opening blocked: execution not authorized";
+  if (normalizeText(trade.edge_status) === "NO_EDGE" || normalizeText(trade.edge_status) === "WEAK_EDGE" || normalizeText(trade.edge_status) === "OVERFITTED") {
+    return "Ouverture bloquée — edge non validé";
+  }
+  if (!(normalizeText(trade.final_decision) === "BUY" || normalizeText(trade.final_decision) === "BUY NOW" || normalizeText(trade.final_decision) === "BUY NEAR ENTRY")) {
+    return "Ouverture bloquée — décision finale non autorisée";
+  }
+  if (trade.setup_status === "INVALID") return "Ouverture bloquée — setup invalide";
+  if (trade.overfit_warning === true) return "Ouverture bloquée — backtest suspect";
+  if (trade.status !== "PLANNED") return "Ouverture bloquée — statut non planifié";
+  return null;
+}
+
+function isNonConformingOpen(trade: JournalTrade) {
+  return trade.status === "OPEN" && !canOpenTrade({ ...trade, status: "PLANNED" });
+}
+
 function Section({
   title,
   items,
@@ -82,6 +116,9 @@ function Section({
                 const badge = statusLabel(trade.status);
                 const pnl = trade.pnl_usd ?? 0;
                 const riskPct = trade.risk_pct ?? DEFAULT_RISK_PCT * 100;
+                const openAllowed = canOpenTrade(trade);
+                const blockedReason = openBlockReason(trade);
+                const nonConformingOpen = isNonConformingOpen(trade);
                 return (
                   <tr key={trade.id} className="align-top hover:bg-white/[0.02]">
                     <td className="py-3 pr-3 text-xs text-gray-400 border-b border-[#141425]">{trade.universe ?? "ACTIONS"}</td>
@@ -106,10 +143,25 @@ function Section({
                     <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{trade.r_multiple != null ? `${trade.r_multiple >= 0 ? "+" : ""}${fmt(trade.r_multiple, 2)}R` : "—"}</td>
                     <td className="py-3 pr-3 text-xs text-gray-400 border-b border-[#141425]">{trade.date_entry ?? trade.opened_at ?? "—"}</td>
                     <td className="py-3 pr-3 text-xs border-b border-[#141425]">
+                      {nonConformingOpen && (
+                        <div className="mb-2 rounded-lg px-2 py-1 text-[10px] font-bold" style={{ background: "#2a0d0d", border: "1px solid #7f1d1d", color: "#fca5a5" }}>
+                          Position ouverte non conforme
+                        </div>
+                      )}
+                      {trade.status === "PLANNED" && !openAllowed && blockedReason && (
+                        <div className="mb-2 rounded-lg px-2 py-1 text-[10px] font-bold" style={{ background: "#20150a", border: "1px solid #f59e0b55", color: "#fcd34d" }}>
+                          {blockedReason}
+                        </div>
+                      )}
                       <div className="flex flex-wrap gap-1">
-                        {(trade.status === "PLANNED" || trade.status === "WATCHLIST") && (
+                        {trade.status === "PLANNED" && openAllowed && (
                           <button onClick={() => onOpen(trade)} className="px-2 py-1 rounded text-[10px] font-black" style={{ background: "#041310", color: "#10b981", border: "1px solid #065f46" }}>
                             Ouvrir
+                          </button>
+                        )}
+                        {trade.status === "PLANNED" && !openAllowed && (
+                          <button disabled className="px-2 py-1 rounded text-[10px] font-black opacity-60" style={{ background: "#1a0d0d", color: "#fca5a5", border: "1px solid #7f1d1d" }}>
+                            Ouvrir bloqu?
                           </button>
                         )}
                         {trade.status === "OPEN" && (

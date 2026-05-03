@@ -211,6 +211,50 @@ def _compute_quantity(entry_price: Optional[float], stop_loss: Optional[float], 
     return risk_amount / risk_per_unit
 
 
+def _normalize_text(value: Any) -> str:
+    return str(value or "").strip().upper()
+
+
+def _snapshot_lookup(trade: Dict[str, Any], *keys: str) -> Any:
+    snapshot = trade.get("source_snapshot_json")
+    if isinstance(snapshot, dict):
+      for key in keys:
+        if key in snapshot and snapshot.get(key) not in (None, ""):
+          return snapshot.get(key)
+    for key in keys:
+        if trade.get(key) not in (None, ""):
+            return trade.get(key)
+    return None
+
+
+def _truthy_snapshot(trade: Dict[str, Any], *keys: str) -> bool:
+    value = _snapshot_lookup(trade, *keys)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return _normalize_text(value) in {"TRUE", "1", "YES", "Y"}
+
+
+def _trade_open_block_reason(trade: Dict[str, Any]) -> Optional[str]:
+    status = _normalize_text(trade.get("status"))
+    if status != "PLANNED":
+        return "status must be PLANNED"
+    if not bool(trade.get("execution_authorized")):
+        return "execution not authorized"
+    edge_status = _normalize_text(trade.get("edge_status"))
+    if edge_status not in {"STRONG_EDGE", "VALID_EDGE"}:
+        return "edge not validated"
+    final_decision = _normalize_text(trade.get("final_decision"))
+    if final_decision not in {"BUY", "BUY NOW", "BUY NEAR ENTRY"}:
+        return "final decision not tradable"
+    if _normalize_text(_snapshot_lookup(trade, "setup_status")) == "INVALID":
+        return "setup invalid"
+    if _truthy_snapshot(trade, "overfit_warning"):
+        return "overfit warning present"
+    return None
+
+
 def _trade_payload_from_input(payload: Dict[str, Any]) -> Dict[str, Any]:
     trade_id = str(payload.get("id") or payload.get("trade_id") or payload.get("symbol") or payload.get("ticker") or f"trade_{int(datetime.now().timestamp() * 1000)}")
     symbol = str(payload.get("symbol") or payload.get("ticker") or "").upper()
@@ -373,6 +417,9 @@ def open_trade(trade_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     current = get_trade(trade_id)
     if not current:
         raise KeyError("trade_not_found")
+    block_reason = _trade_open_block_reason(current)
+    if block_reason:
+        raise ValueError(f"Trade opening blocked: execution not authorized ({block_reason})")
     updates = dict(payload)
     updates["status"] = "OPEN"
     updates["opened_at"] = updates.get("opened_at") or utc_now_iso()

@@ -2264,8 +2264,12 @@ def open_trade_journal(
     payload: TradeJournalOpenRequest,
     _: None = Depends(require_admin_key),
 ):
-    trade = trade_journal_open(trade_id, payload.model_dump(exclude_none=True))
-    return {"trade": trade}
+    from fastapi import HTTPException
+    try:
+        trade = trade_journal_open(trade_id, payload.model_dump(exclude_none=True))
+        return {"trade": trade}
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
 
 
 @app.post("/api/trade-journal/{trade_id}/close")
