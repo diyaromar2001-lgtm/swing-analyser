@@ -19,7 +19,8 @@ def _yf_history_safe(ticker: str, period: str = "4mo", interval: str = "1d", tim
     """
     try:
         ticker_obj = yf.Ticker(ticker)
-        df = ticker_obj.history(period=period, interval=interval, timeout=timeout, auto_adjust=True, progress=False)
+        # Note: progress parameter is NOT valid for history() - only for download()
+        df = ticker_obj.history(period=period, interval=interval, auto_adjust=True)
         if df is None or df.empty:
             return None
         return df

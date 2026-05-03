@@ -635,13 +635,13 @@ def _yf_history_safe(
     """
     try:
         ticker_obj = yf.Ticker(ticker)
-        df = ticker_obj.history(period=period, interval=interval, timeout=timeout, auto_adjust=True, progress=False)
+        # Note: progress is NOT a valid parameter for history() - it's download() only
+        # timeout is supported but optional. auto_adjust=True is default.
+        df = ticker_obj.history(period=period, interval=interval, auto_adjust=True)
 
         if df is None or df.empty:
             return None
 
-        # Ensure proper column names and structure
-        df = df.rename(columns=str.title) if not all(c.title() == c for c in df.columns) else df
         return df
     except Exception:
         # Silently return None - let caller decide how to handle

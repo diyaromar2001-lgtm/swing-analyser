@@ -183,7 +183,8 @@ def _yf_history_safe_crypto(ticker: str, period: str, interval: str) -> Optional
     """
     try:
         ticker_obj = yf.Ticker(ticker)
-        df = ticker_obj.history(period=period, interval=interval, timeout=10, auto_adjust=False, progress=False)
+        # Note: progress parameter is NOT valid for history() - only for download()
+        df = ticker_obj.history(period=period, interval=interval, auto_adjust=False)
         if df is None or df.empty:
             return None
         return df
