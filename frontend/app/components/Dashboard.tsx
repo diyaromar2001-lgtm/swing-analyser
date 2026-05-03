@@ -13,7 +13,8 @@ import { SignalTracker } from "./SignalTracker";
 import { CommandCenter } from "./CommandCenter";
 import { TradeJournal } from "./TradeJournal";
 import { DataFreshnessPanel } from "./DataFreshnessPanel";
-import { ensureApiResponse, getApiUrl, isAdminProtectedError } from "../lib/api";
+import { AdminPanel } from "./AdminPanel";
+import { ensureApiResponse, getAdminApiKey, getAdminHeaders, getApiUrl, isAdminProtectedError } from "../lib/api";
 import { CryptoCommandCenter } from "./crypto/CryptoCommandCenter";
 import { formatCryptoPrice } from "../lib/cryptoFormat";
 
@@ -415,6 +416,8 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [edgeOverlayCache, setEdgeOverlayCache] = useState<Record<string, Record<string, EdgeOverlay>>>({});
   const [edgeOverlayLoading, setEdgeOverlayLoading] = useState(false);
   const [edgeOverlayNotice, setEdgeOverlayNotice] = useState<string | null>(null);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [adminKeyPresent, setAdminKeyPresent] = useState(() => !!getAdminApiKey());
 
   async function recalculateEdge() {
     setEdgeComputing(true);
@@ -426,7 +429,10 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       const edgeUrl = isCrypto
         ? `${API_URL}/api/crypto/edge/compute`
         : `${API_URL}/api/strategy-edge/compute?period=${edgeHorizon}${actionTickers ? `&tickers=${encodeURIComponent(actionTickers)}` : ""}`;
-      const edgeRes = await fetchJsonWithTimeout(edgeUrl, { method: "POST" }, edgeHorizon === 36 ? 120_000 : 60_000);
+      const edgeRes = await fetchJsonWithTimeout(edgeUrl, {
+        method: "POST",
+        headers: getAdminHeaders(),
+      }, edgeHorizon === 36 ? 120_000 : 60_000);
       await ensureApiResponse(edgeRes);
       await fetchData({ fast: true, background: true });
       if (!isCrypto && edgeHorizon === 36) {
@@ -528,7 +534,10 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     }
     setAdminNotice(null);
     try {
-      const clearRes = await fetch(`${API_URL}/api/clear-cache?scope=${screenerScope}`, { method: "POST" });
+      const clearRes = await fetch(`${API_URL}/api/clear-cache?scope=${screenerScope}`, {
+        method: "POST",
+        headers: getAdminHeaders(),
+      });
       await ensureApiResponse(clearRes);
       await fetchData({ fast: false, background: true });
     } catch (error) {
@@ -766,6 +775,13 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
   return (
     <div className="min-h-screen p-5" style={{ background: "#070710" }}>
+      {showAdminPanel && (
+        <AdminPanel
+          apiUrl={API_URL}
+          onClose={() => setShowAdminPanel(false)}
+          onKeyChange={setAdminKeyPresent}
+        />
+      )}
       {showApiStatus && <ApiStatusPanel onClose={() => setShowApiStatus(false)} />}
 
       {/* HEADER */}
@@ -792,7 +808,18 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+          <button
+            onClick={() => setShowAdminPanel(true)}
+            className="px-3 py-2 rounded-lg text-xs font-semibold transition-all"
+            style={{
+              background: adminKeyPresent ? "#07150f" : "#0d0d18",
+              border: `1px solid ${adminKeyPresent ? "#16a34a55" : "#1e1e2a"}`,
+              color: adminKeyPresent ? "#4ade80" : "#6b7280",
+            }}
+          >
+            Admin {adminKeyPresent ? "ON" : "OFF"}
+          </button>
 
           {/* Toggle Command / Advanced */}
           <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>

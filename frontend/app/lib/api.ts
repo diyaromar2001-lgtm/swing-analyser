@@ -1,5 +1,6 @@
 const LOCAL_API_URL = "http://localhost:8000";
 const PROD_API_URL = "https://swing-analyser-production.up.railway.app";
+const ADMIN_API_KEY_STORAGE = "admin_api_key";
 
 export class AdminProtectedError extends Error {
   constructor(message = "Action admin protégée") {
@@ -33,4 +34,19 @@ export async function ensureApiResponse(response: Response) {
 export function isAdminProtectedError(error: unknown) {
   return error instanceof AdminProtectedError
     || (error instanceof Error && error.name === "AdminProtectedError");
+}
+
+export function getAdminApiKey(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.localStorage.getItem(ADMIN_API_KEY_STORAGE);
+    return value && value.trim() ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getAdminHeaders(): HeadersInit {
+  const key = getAdminApiKey();
+  return key ? { "X-Admin-Key": key } : {};
 }

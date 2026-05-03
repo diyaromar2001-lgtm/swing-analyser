@@ -108,6 +108,11 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/api/admin/ping")
+def admin_ping(_: None = Depends(require_admin_key)):
+    return {"status": "ok", "admin": True}
+
+
 # ── Market Status (ouvert / fermé) ────────────────────────────────────────────
 @app.get("/api/market-status")
 def market_status():
