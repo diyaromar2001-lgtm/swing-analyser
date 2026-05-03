@@ -189,6 +189,23 @@ type EdgeOverlay = Pick<
 > & {
   edge_period_months?: number;
 };
+type EdgeV2Overlay = Pick<
+  TickerResult,
+  | "edge_v2_score"
+  | "edge_v2_status"
+  | "edge_v2_strategy_name"
+  | "edge_v2_strategy_edge"
+  | "edge_v2_sector_edge"
+  | "edge_v2_regime_edge"
+  | "edge_v2_ticker_component"
+  | "edge_v2_setup_quality"
+  | "edge_v2_sample_status"
+  | "edge_v2_sector_status"
+  | "edge_v2_regime_status"
+  | "edge_v2_allowed"
+  | "edge_v2_reasons"
+  | "edge_v2_warnings"
+>;
 
 function safeNumber(value?: number | null) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -412,6 +429,10 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [edgeOverlayCache, setEdgeOverlayCache] = useState<Record<string, Record<string, EdgeOverlay>>>({});
   const [edgeOverlayLoading, setEdgeOverlayLoading] = useState(false);
   const [edgeOverlayNotice, setEdgeOverlayNotice] = useState<string | null>(null);
+  const [edgeMode, setEdgeMode] = useState<"v1" | "v2">("v1");
+  const [edgeV2OverlayCache, setEdgeV2OverlayCache] = useState<Record<string, EdgeV2Overlay>>({});
+  const [edgeV2Loading, setEdgeV2Loading] = useState(false);
+  const [edgeV2Notice, setEdgeV2Notice] = useState<string | null>(null);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [adminKeyPresent, setAdminKeyPresent] = useState(() => !!getAdminApiKey());
 
@@ -521,6 +542,54 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       }
     } finally {
       setEdgeOverlayLoading(false);
+    }
+  }, [isCrypto]);
+
+  const loadEdgeV2Research = useCallback(async (rows: TickerResult[]) => {
+    if (isCrypto || rows.length === 0) return;
+    const tickers = rows.map(row => row.ticker).join(",");
+    setEdgeV2Loading(true);
+    setEdgeV2Notice(null);
+    try {
+      const res = await fetchJsonWithTimeout(
+        `${API_URL}/api/research/edge-v2?period=36&tickers=${encodeURIComponent(tickers)}&fast=true`,
+        { cache: "no-store" },
+        45_000,
+      );
+      await ensureApiResponse(res);
+      const json = await res.json();
+      const next: Record<string, EdgeV2Overlay> = {};
+      for (const row of (json?.results ?? []) as any[]) {
+        if (!row?.ticker) continue;
+        next[row.ticker] = {
+          edge_v2_score: row.edge_v2_score,
+          edge_v2_status: row.edge_v2_status,
+          edge_v2_strategy_name: row.strategy_name,
+          edge_v2_strategy_edge: row.strategy_portfolio_edge_score,
+          edge_v2_sector_edge: row.sector_edge_score,
+          edge_v2_regime_edge: row.regime_edge_score,
+          edge_v2_ticker_component: row.ticker_edge_component,
+          edge_v2_setup_quality: row.setup_quality_score,
+          edge_v2_sample_status: row.sample_status,
+          edge_v2_sector_status: row.sector_status,
+          edge_v2_regime_status: row.regime_status,
+          edge_v2_allowed: row.allowed_by_v2_research,
+          edge_v2_reasons: row.reasons,
+          edge_v2_warnings: row.warnings,
+        };
+      }
+      setEdgeV2OverlayCache(next);
+      setEdgeV2Notice(json?.summary?.allowed_count
+        ? `Edge v2 Research prêt (${json.summary.allowed_count} setups utilisables en recherche).`
+        : "Edge v2 Research prêt.");
+    } catch (error) {
+      if (isAdminProtectedError(error)) {
+        setEdgeV2Notice("Action admin protégée");
+      } else {
+        setEdgeV2Notice("Edge v2 Research indisponible pour le moment.");
+      }
+    } finally {
+      setEdgeV2Loading(false);
     }
   }, [isCrypto]);
 
@@ -674,9 +743,17 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     });
   }, [dataWithLivePrices, edgeHorizon, edgeOverlayRows, isCrypto]);
 
+  const advancedResearchData = useMemo<TickerResult[]>(() => {
+    if (isCrypto || edgeMode === "v1") return advancedEdgeData;
+    return advancedEdgeData.map(row => {
+      const overlay = edgeV2OverlayCache[row.ticker];
+      return overlay ? { ...row, ...overlay } : row;
+    });
+  }, [advancedEdgeData, edgeMode, edgeV2OverlayCache, isCrypto]);
+
   const activeTableData = useMemo<TickerResult[]>(
-    () => (!isCrypto && uiMode === "pro" && view === "table" ? advancedEdgeData : dataWithLivePrices),
-    [advancedEdgeData, dataWithLivePrices, isCrypto, uiMode, view],
+    () => (!isCrypto && uiMode === "pro" && view === "table" ? advancedResearchData : dataWithLivePrices),
+    [advancedResearchData, dataWithLivePrices, isCrypto, uiMode, view],
   );
 
   // Chargement initial + auto-refresh toutes les 60 secondes
@@ -729,6 +806,20 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     if (missingRows.length === 0) return;
     void loadAdvancedEdgeOverlay(36, missingRows);
   }, [data, edgeHorizon, edgeOverlayCache, isCrypto, loadAdvancedEdgeOverlay, uiMode, view]);
+
+  useEffect(() => {
+    if (isCrypto || uiMode !== "pro" || view !== "table" || edgeMode !== "v2") return;
+    const missingRows = data.filter(row => !edgeV2OverlayCache[row.ticker]);
+    if (missingRows.length === 0) return;
+    void loadEdgeV2Research(missingRows);
+  }, [data, edgeMode, edgeV2OverlayCache, isCrypto, loadEdgeV2Research, uiMode, view]);
+
+  useEffect(() => {
+    if (edgeMode === "v1") {
+      setEdgeV2Notice(null);
+      setEdgeV2Loading(false);
+    }
+  }, [edgeMode]);
 
   const switchStrategy = useCallback((s: Strategy) => {
     if (isCrypto) return;
@@ -981,21 +1072,39 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           <ApiStatusDot onClick={() => setShowApiStatus(true)} />
 
           {!isCrypto && uiMode === "pro" && view === "table" && (
-            <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
-              {[24, 36].map(period => (
-                <button
-                  key={period}
-                  onClick={() => setEdgeHorizon(period as EdgeHorizon)}
-                  className="px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-all"
-                  style={{
-                    background: edgeHorizon === period ? (period === 36 ? "#1a1400" : "#0a1a0a") : "#0d0d18",
-                    color: edgeHorizon === period ? (period === 36 ? "#f59e0b" : "#4ade80") : "#4b5563",
-                    borderRight: period === 24 ? "1px solid #1e1e2a" : undefined,
-                  }}
-                >
-                  Edge {period}m
-                </button>
-              ))}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
+                {[24, 36].map(period => (
+                  <button
+                    key={period}
+                    onClick={() => setEdgeHorizon(period as EdgeHorizon)}
+                    className="px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-all"
+                    style={{
+                      background: edgeHorizon === period ? (period === 36 ? "#1a1400" : "#0a1a0a") : "#0d0d18",
+                      color: edgeHorizon === period ? (period === 36 ? "#f59e0b" : "#4ade80") : "#4b5563",
+                      borderRight: period === 24 ? "1px solid #1e1e2a" : undefined,
+                    }}
+                  >
+                    Edge {period}m
+                  </button>
+                ))}
+              </div>
+              <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
+                {(["v1", "v2"] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setEdgeMode(mode)}
+                    className="px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-all"
+                    style={{
+                      background: edgeMode === mode ? (mode === "v2" ? "#131f1a" : "#111120") : "#0d0d18",
+                      color: edgeMode === mode ? (mode === "v2" ? "#60a5fa" : "#a5b4fc") : "#4b5563",
+                      borderRight: mode === "v1" ? "1px solid #1e1e2a" : undefined,
+                    }}
+                  >
+                    {mode === "v1" ? "Edge v1" : "Edge v2 Research"}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -1291,6 +1400,23 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             </div>
           )}
 
+          {edgeV2Notice && !isCrypto && edgeMode === "v2" && (
+            <div
+              className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap"
+              style={{ background: "#07131f", border: "1px solid #1d4ed844" }}
+            >
+              <span className="text-sm">🔬</span>
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest text-sky-300">
+                  {edgeV2Notice}
+                </p>
+                <p className="text-[11px] text-sky-100/70 mt-0.5">
+                  Edge v2 est un modèle de recherche. Il n&apos;autorise pas les trades. Le Command Center reste basé sur Edge v1.
+                </p>
+              </div>
+            </div>
+          )}
+
           <Top5Cards data={activeTableData} scope={isCrypto ? "crypto" : "actions"} cryptoRegime={cryptoRegime} />
 
           {/* FILTRES */}
@@ -1398,7 +1524,12 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
               Aucun résultat pour ces filtres.
             </div>
           ) : (
-            <ScreenerTable data={filtered} showEdge={true} scope={isCrypto ? "crypto" : "actions"} />
+            <ScreenerTable
+              data={filtered}
+              showEdge={true}
+              researchMode={!isCrypto && uiMode === "pro" && view === "table" && edgeMode === "v2"}
+              scope={isCrypto ? "crypto" : "actions"}
+            />
           )}
         </>
       ) : view === "dynamic" ? (

@@ -1,0 +1,730 @@
+{
+  "A": {
+    "24": {
+      "portfolio": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "expectancy": 0.0,
+        "expectancy_dollars": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "cagr_pct": 0.0,
+        "final_capital": 10000.0,
+        "total_return_pct": 0.0,
+        "time_in_market_pct": 0.0,
+        "max_concurrent_positions": 0,
+        "avg_duration_days": 0.0,
+        "reliable_tickers": 0,
+        "best_ticker": "\u2014",
+        "worst_ticker": "\u2014",
+        "tradable_status": "NON TRADABLE",
+        "tradable_color": "#f87171",
+        "tradable_emoji": "\ud83d\udd34",
+        "equity_curve": [
+          0.0
+        ],
+        "trades": []
+      },
+      "overall": {
+        "n": 0,
+        "win_rate": 0.0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0,
+        "avg_r": 0.0
+      },
+      "train": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "test": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "statuses": {
+        "STRONG_EDGE": 0,
+        "VALID_EDGE": 0,
+        "WEAK_EDGE": 0,
+        "NO_EDGE": 0,
+        "OVERFITTED": 0
+      },
+      "sector_stats": {},
+      "regime_stats": {},
+      "median_trades_per_ticker": 0.0,
+      "total_trades": 0
+    },
+    "36": {
+      "portfolio": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "expectancy": 0.0,
+        "expectancy_dollars": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "cagr_pct": 0.0,
+        "final_capital": 10000.0,
+        "total_return_pct": 0.0,
+        "time_in_market_pct": 0.0,
+        "max_concurrent_positions": 0,
+        "avg_duration_days": 0.0,
+        "reliable_tickers": 0,
+        "best_ticker": "\u2014",
+        "worst_ticker": "\u2014",
+        "tradable_status": "NON TRADABLE",
+        "tradable_color": "#f87171",
+        "tradable_emoji": "\ud83d\udd34",
+        "equity_curve": [
+          0.0
+        ],
+        "trades": []
+      },
+      "overall": {
+        "n": 0,
+        "win_rate": 0.0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0,
+        "avg_r": 0.0
+      },
+      "train": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "test": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "statuses": {
+        "STRONG_EDGE": 0,
+        "VALID_EDGE": 0,
+        "WEAK_EDGE": 0,
+        "NO_EDGE": 0,
+        "OVERFITTED": 0
+      },
+      "sector_stats": {},
+      "regime_stats": {},
+      "median_trades_per_ticker": 0.0,
+      "total_trades": 0
+    },
+    "48": {
+      "portfolio": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "expectancy": 0.0,
+        "expectancy_dollars": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "cagr_pct": 0.0,
+        "final_capital": 10000.0,
+        "total_return_pct": 0.0,
+        "time_in_market_pct": 0.0,
+        "max_concurrent_positions": 0,
+        "avg_duration_days": 0.0,
+        "reliable_tickers": 0,
+        "best_ticker": "\u2014",
+        "worst_ticker": "\u2014",
+        "tradable_status": "NON TRADABLE",
+        "tradable_color": "#f87171",
+        "tradable_emoji": "\ud83d\udd34",
+        "equity_curve": [
+          0.0
+        ],
+        "trades": []
+      },
+      "overall": {
+        "n": 0,
+        "win_rate": 0.0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0,
+        "avg_r": 0.0
+      },
+      "train": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "test": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "statuses": {
+        "STRONG_EDGE": 0,
+        "VALID_EDGE": 0,
+        "WEAK_EDGE": 0,
+        "NO_EDGE": 0,
+        "OVERFITTED": 0
+      },
+      "sector_stats": {},
+      "regime_stats": {},
+      "median_trades_per_ticker": 0.0,
+      "total_trades": 0
+    }
+  },
+  "B": {
+    "24": {
+      "portfolio": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "expectancy": 0.0,
+        "expectancy_dollars": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "cagr_pct": 0.0,
+        "final_capital": 10000.0,
+        "total_return_pct": 0.0,
+        "time_in_market_pct": 0.0,
+        "max_concurrent_positions": 0,
+        "avg_duration_days": 0.0,
+        "reliable_tickers": 0,
+        "best_ticker": "\u2014",
+        "worst_ticker": "\u2014",
+        "tradable_status": "NON TRADABLE",
+        "tradable_color": "#f87171",
+        "tradable_emoji": "\ud83d\udd34",
+        "equity_curve": [
+          0.0
+        ],
+        "trades": []
+      },
+      "overall": {
+        "n": 0,
+        "win_rate": 0.0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0,
+        "avg_r": 0.0
+      },
+      "train": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "test": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "statuses": {
+        "STRONG_EDGE": 0,
+        "VALID_EDGE": 0,
+        "WEAK_EDGE": 0,
+        "NO_EDGE": 0,
+        "OVERFITTED": 0
+      },
+      "sector_stats": {},
+      "regime_stats": {},
+      "median_trades_per_ticker": 0.0,
+      "total_trades": 0
+    },
+    "36": {
+      "portfolio": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "expectancy": 0.0,
+        "expectancy_dollars": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "cagr_pct": 0.0,
+        "final_capital": 10000.0,
+        "total_return_pct": 0.0,
+        "time_in_market_pct": 0.0,
+        "max_concurrent_positions": 0,
+        "avg_duration_days": 0.0,
+        "reliable_tickers": 0,
+        "best_ticker": "\u2014",
+        "worst_ticker": "\u2014",
+        "tradable_status": "NON TRADABLE",
+        "tradable_color": "#f87171",
+        "tradable_emoji": "\ud83d\udd34",
+        "equity_curve": [
+          0.0
+        ],
+        "trades": []
+      },
+      "overall": {
+        "n": 0,
+        "win_rate": 0.0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0,
+        "avg_r": 0.0
+      },
+      "train": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "test": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "statuses": {
+        "STRONG_EDGE": 0,
+        "VALID_EDGE": 0,
+        "WEAK_EDGE": 0,
+        "NO_EDGE": 0,
+        "OVERFITTED": 0
+      },
+      "sector_stats": {},
+      "regime_stats": {},
+      "median_trades_per_ticker": 0.0,
+      "total_trades": 0
+    },
+    "48": {
+      "portfolio": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "expectancy": 0.0,
+        "expectancy_dollars": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "cagr_pct": 0.0,
+        "final_capital": 10000.0,
+        "total_return_pct": 0.0,
+        "time_in_market_pct": 0.0,
+        "max_concurrent_positions": 0,
+        "avg_duration_days": 0.0,
+        "reliable_tickers": 0,
+        "best_ticker": "\u2014",
+        "worst_ticker": "\u2014",
+        "tradable_status": "NON TRADABLE",
+        "tradable_color": "#f87171",
+        "tradable_emoji": "\ud83d\udd34",
+        "equity_curve": [
+          0.0
+        ],
+        "trades": []
+      },
+      "overall": {
+        "n": 0,
+        "win_rate": 0.0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0,
+        "avg_r": 0.0
+      },
+      "train": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "test": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "statuses": {
+        "STRONG_EDGE": 0,
+        "VALID_EDGE": 0,
+        "WEAK_EDGE": 0,
+        "NO_EDGE": 0,
+        "OVERFITTED": 0
+      },
+      "sector_stats": {},
+      "regime_stats": {},
+      "median_trades_per_ticker": 0.0,
+      "total_trades": 0
+    }
+  },
+  "C": {
+    "24": {
+      "portfolio": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "expectancy": 0.0,
+        "expectancy_dollars": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "cagr_pct": 0.0,
+        "final_capital": 10000.0,
+        "total_return_pct": 0.0,
+        "time_in_market_pct": 0.0,
+        "max_concurrent_positions": 0,
+        "avg_duration_days": 0.0,
+        "reliable_tickers": 0,
+        "best_ticker": "\u2014",
+        "worst_ticker": "\u2014",
+        "tradable_status": "NON TRADABLE",
+        "tradable_color": "#f87171",
+        "tradable_emoji": "\ud83d\udd34",
+        "equity_curve": [
+          0.0
+        ],
+        "trades": []
+      },
+      "overall": {
+        "n": 0,
+        "win_rate": 0.0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0,
+        "avg_r": 0.0
+      },
+      "train": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "test": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "statuses": {
+        "STRONG_EDGE": 0,
+        "VALID_EDGE": 0,
+        "WEAK_EDGE": 0,
+        "NO_EDGE": 0,
+        "OVERFITTED": 0
+      },
+      "sector_stats": {},
+      "regime_stats": {},
+      "median_trades_per_ticker": 0.0,
+      "total_trades": 0
+    },
+    "36": {
+      "portfolio": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "expectancy": 0.0,
+        "expectancy_dollars": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "cagr_pct": 0.0,
+        "final_capital": 10000.0,
+        "total_return_pct": 0.0,
+        "time_in_market_pct": 0.0,
+        "max_concurrent_positions": 0,
+        "avg_duration_days": 0.0,
+        "reliable_tickers": 0,
+        "best_ticker": "\u2014",
+        "worst_ticker": "\u2014",
+        "tradable_status": "NON TRADABLE",
+        "tradable_color": "#f87171",
+        "tradable_emoji": "\ud83d\udd34",
+        "equity_curve": [
+          0.0
+        ],
+        "trades": []
+      },
+      "overall": {
+        "n": 0,
+        "win_rate": 0.0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0,
+        "avg_r": 0.0
+      },
+      "train": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "test": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "statuses": {
+        "STRONG_EDGE": 0,
+        "VALID_EDGE": 0,
+        "WEAK_EDGE": 0,
+        "NO_EDGE": 0,
+        "OVERFITTED": 0
+      },
+      "sector_stats": {},
+      "regime_stats": {},
+      "median_trades_per_ticker": 0.0,
+      "total_trades": 0
+    },
+    "48": {
+      "portfolio": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "expectancy": 0.0,
+        "expectancy_dollars": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "cagr_pct": 0.0,
+        "final_capital": 10000.0,
+        "total_return_pct": 0.0,
+        "time_in_market_pct": 0.0,
+        "max_concurrent_positions": 0,
+        "avg_duration_days": 0.0,
+        "reliable_tickers": 0,
+        "best_ticker": "\u2014",
+        "worst_ticker": "\u2014",
+        "tradable_status": "NON TRADABLE",
+        "tradable_color": "#f87171",
+        "tradable_emoji": "\ud83d\udd34",
+        "equity_curve": [
+          0.0
+        ],
+        "trades": []
+      },
+      "overall": {
+        "n": 0,
+        "win_rate": 0.0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0,
+        "avg_r": 0.0
+      },
+      "train": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "test": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "statuses": {
+        "STRONG_EDGE": 0,
+        "VALID_EDGE": 0,
+        "WEAK_EDGE": 0,
+        "NO_EDGE": 0,
+        "OVERFITTED": 0
+      },
+      "sector_stats": {},
+      "regime_stats": {},
+      "median_trades_per_ticker": 0.0,
+      "total_trades": 0
+    }
+  },
+  "D": {
+    "24": {
+      "portfolio": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "expectancy": 0.0,
+        "expectancy_dollars": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "cagr_pct": 0.0,
+        "final_capital": 10000.0,
+        "total_return_pct": 0.0,
+        "time_in_market_pct": 0.0,
+        "max_concurrent_positions": 0,
+        "avg_duration_days": 0.0,
+        "reliable_tickers": 0,
+        "best_ticker": "\u2014",
+        "worst_ticker": "\u2014",
+        "tradable_status": "NON TRADABLE",
+        "tradable_color": "#f87171",
+        "tradable_emoji": "\ud83d\udd34",
+        "equity_curve": [
+          0.0
+        ],
+        "trades": []
+      },
+      "overall": {
+        "n": 0,
+        "win_rate": 0.0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0,
+        "avg_r": 0.0
+      },
+      "train": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "test": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "statuses": {
+        "STRONG_EDGE": 0,
+        "VALID_EDGE": 0,
+        "WEAK_EDGE": 0,
+        "NO_EDGE": 0,
+        "OVERFITTED": 0
+      },
+      "sector_stats": {},
+      "regime_stats": {},
+      "median_trades_per_ticker": 0.0,
+      "total_trades": 0
+    },
+    "36": {
+      "portfolio": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "expectancy": 0.0,
+        "expectancy_dollars": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "cagr_pct": 0.0,
+        "final_capital": 10000.0,
+        "total_return_pct": 0.0,
+        "time_in_market_pct": 0.0,
+        "max_concurrent_positions": 0,
+        "avg_duration_days": 0.0,
+        "reliable_tickers": 0,
+        "best_ticker": "\u2014",
+        "worst_ticker": "\u2014",
+        "tradable_status": "NON TRADABLE",
+        "tradable_color": "#f87171",
+        "tradable_emoji": "\ud83d\udd34",
+        "equity_curve": [
+          0.0
+        ],
+        "trades": []
+      },
+      "overall": {
+        "n": 0,
+        "win_rate": 0.0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0,
+        "avg_r": 0.0
+      },
+      "train": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "test": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "statuses": {
+        "STRONG_EDGE": 0,
+        "VALID_EDGE": 0,
+        "WEAK_EDGE": 0,
+        "NO_EDGE": 0,
+        "OVERFITTED": 0
+      },
+      "sector_stats": {},
+      "regime_stats": {},
+      "median_trades_per_ticker": 0.0,
+      "total_trades": 0
+    },
+    "48": {
+      "portfolio": {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "expectancy": 0.0,
+        "expectancy_dollars": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "cagr_pct": 0.0,
+        "final_capital": 10000.0,
+        "total_return_pct": 0.0,
+        "time_in_market_pct": 0.0,
+        "max_concurrent_positions": 0,
+        "avg_duration_days": 0.0,
+        "reliable_tickers": 0,
+        "best_ticker": "\u2014",
+        "worst_ticker": "\u2014",
+        "tradable_status": "NON TRADABLE",
+        "tradable_color": "#f87171",
+        "tradable_emoji": "\ud83d\udd34",
+        "equity_curve": [
+          0.0
+        ],
+        "trades": []
+      },
+      "overall": {
+        "n": 0,
+        "win_rate": 0.0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0,
+        "avg_r": 0.0
+      },
+      "train": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "test": {
+        "n": 0,
+        "pf": 0.0,
+        "expectancy": 0.0,
+        "max_dd": 0.0
+      },
+      "statuses": {
+        "STRONG_EDGE": 0,
+        "VALID_EDGE": 0,
+        "WEAK_EDGE": 0,
+        "NO_EDGE": 0,
+        "OVERFITTED": 0
+      },
+      "sector_stats": {},
+      "regime_stats": {},
+      "median_trades_per_ticker": 0.0,
+      "total_trades": 0
+    }
+  }
+}

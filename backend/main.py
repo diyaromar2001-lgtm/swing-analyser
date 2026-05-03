@@ -82,6 +82,7 @@ from trade_journal import (
     stats as trade_journal_stats,
     update_trade as trade_journal_update,
 )
+from edge_v2_research import build_edge_v2_research_rows
 
 app = FastAPI(title="Swing Trading Screener Pro")
 trade_journal_init_db()
@@ -1951,6 +1952,65 @@ def strategy_edge_results(
         "count": len(results),
         "results": results,
     }
+
+
+@app.get("/api/research/edge-v2")
+def research_edge_v2(
+    strategy: Optional[str] = Query(None, description="Stratégie recherchée (optionnel)"),
+    period: int = Query(36, ge=12, le=60, description="Horizon de recherche en mois"),
+    tickers: Optional[str] = Query(None, description="Sous-ensemble tickers séparés par virgule"),
+    fast: bool = Query(True, description="Mode rapide avec cache mémoire"),
+):
+    """
+    Recherche Edge v2 multi-couches.
+    Endpoint purement informatif: n'autorise aucun trade et ne modifie pas Edge v1.
+    """
+    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()] if tickers else []
+
+    setup_quality_by_ticker: Dict[str, float] = {}
+    ticker_edge_by_ticker: Dict[str, Dict[str, Any]] = {}
+
+    if ticker_list:
+        def _hydrate_one(ticker: str):
+            try:
+                row = analyze_ticker(
+                    ticker,
+                    strategy=strategy or "standard",
+                    exclude_earnings=False,
+                    fetch_news=False,
+                    use_live_price=False,
+                    fetch_earnings=False,
+                    fast=True,
+                )
+                if row is not None:
+                    setup_quality_by_ticker[ticker] = float(getattr(row, "quality_score", None) or getattr(row, "score", 0) or 0)
+            except Exception:
+                pass
+
+            edge = get_cached_edge(ticker, period_months=period)
+            if edge is None and not fast:
+                df = _get_ohlcv(ticker)
+                if df is not None:
+                    try:
+                        edge = compute_ticker_edge(ticker, df, period_months=period)
+                    except Exception:
+                        edge = None
+            if edge is not None:
+                ticker_edge_by_ticker[ticker] = edge
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            list(ex.map(_hydrate_one, ticker_list))
+
+    payload = build_edge_v2_research_rows(
+        strategy=strategy,
+        period=period,
+        tickers=ticker_list or None,
+        setup_quality_by_ticker=setup_quality_by_ticker or None,
+        ticker_edge_by_ticker=ticker_edge_by_ticker or None,
+    )
+    payload["mode"] = "research"
+    payload["fast"] = fast
+    return payload
 
 
 @app.get("/api/strategy-edge/status")

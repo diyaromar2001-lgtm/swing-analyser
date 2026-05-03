@@ -1,0 +1,182 @@
+[
+  {
+    "period": 24,
+    "status_counts": {
+      "NO_EDGE": 226,
+      "OVERFITTED": 7,
+      "VALID_EDGE": 5
+    },
+    "best_strategy_counts": {
+      "Pullback Trend": 228,
+      "Mean Reversion in Uptrend": 7,
+      "Pullback Confirmed": 3
+    },
+    "sector_status": {
+      "Technology": {
+        "NO_EDGE": 49,
+        "OVERFITTED": 2,
+        "VALID_EDGE": 1
+      },
+      "Healthcare": {
+        "NO_EDGE": 31,
+        "VALID_EDGE": 1
+      },
+      "Financials": {
+        "NO_EDGE": 27,
+        "OVERFITTED": 1,
+        "VALID_EDGE": 1
+      },
+      "Consumer Discretionary": {
+        "NO_EDGE": 26
+      },
+      "Consumer Staples": {
+        "NO_EDGE": 13,
+        "VALID_EDGE": 1
+      },
+      "Energy": {
+        "NO_EDGE": 14
+      },
+      "Industrials": {
+        "NO_EDGE": 25
+      },
+      "Materials": {
+        "NO_EDGE": 7
+      },
+      "Communication": {
+        "NO_EDGE": 10,
+        "VALID_EDGE": 1
+      },
+      "Real Estate": {
+        "NO_EDGE": 9
+      },
+      "Utilities": {
+        "NO_EDGE": 7,
+        "OVERFITTED": 1
+      },
+      "Growth / Innovation": {
+        "NO_EDGE": 8,
+        "OVERFITTED": 3
+      }
+    }
+  },
+  {
+    "period": 36,
+    "status_counts": {
+      "NO_EDGE": 226,
+      "OVERFITTED": 7,
+      "VALID_EDGE": 5
+    },
+    "best_strategy_counts": {
+      "Pullback Trend": 228,
+      "Mean Reversion in Uptrend": 7,
+      "Pullback Confirmed": 3
+    },
+    "sector_status": {
+      "Technology": {
+        "NO_EDGE": 49,
+        "OVERFITTED": 2,
+        "VALID_EDGE": 1
+      },
+      "Healthcare": {
+        "NO_EDGE": 31,
+        "VALID_EDGE": 1
+      },
+      "Financials": {
+        "NO_EDGE": 27,
+        "OVERFITTED": 1,
+        "VALID_EDGE": 1
+      },
+      "Consumer Discretionary": {
+        "NO_EDGE": 26
+      },
+      "Consumer Staples": {
+        "NO_EDGE": 13,
+        "VALID_EDGE": 1
+      },
+      "Energy": {
+        "NO_EDGE": 14
+      },
+      "Industrials": {
+        "NO_EDGE": 25
+      },
+      "Materials": {
+        "NO_EDGE": 7
+      },
+      "Communication": {
+        "NO_EDGE": 10,
+        "VALID_EDGE": 1
+      },
+      "Real Estate": {
+        "NO_EDGE": 9
+      },
+      "Utilities": {
+        "NO_EDGE": 7,
+        "OVERFITTED": 1
+      },
+      "Growth / Innovation": {
+        "NO_EDGE": 8,
+        "OVERFITTED": 3
+      }
+    }
+  },
+  {
+    "period": 48,
+    "status_counts": {
+      "NO_EDGE": 226,
+      "OVERFITTED": 7,
+      "VALID_EDGE": 5
+    },
+    "best_strategy_counts": {
+      "Pullback Trend": 228,
+      "Mean Reversion in Uptrend": 7,
+      "Pullback Confirmed": 3
+    },
+    "sector_status": {
+      "Technology": {
+        "NO_EDGE": 49,
+        "OVERFITTED": 2,
+        "VALID_EDGE": 1
+      },
+      "Healthcare": {
+        "NO_EDGE": 31,
+        "VALID_EDGE": 1
+      },
+      "Financials": {
+        "NO_EDGE": 27,
+        "OVERFITTED": 1,
+        "VALID_EDGE": 1
+      },
+      "Consumer Discretionary": {
+        "NO_EDGE": 26
+      },
+      "Consumer Staples": {
+        "NO_EDGE": 13,
+        "VALID_EDGE": 1
+      },
+      "Energy": {
+        "NO_EDGE": 14
+      },
+      "Industrials": {
+        "NO_EDGE": 25
+      },
+      "Materials": {
+        "NO_EDGE": 7
+      },
+      "Communication": {
+        "NO_EDGE": 10,
+        "VALID_EDGE": 1
+      },
+      "Real Estate": {
+        "NO_EDGE": 9
+      },
+      "Utilities": {
+        "NO_EDGE": 7,
+        "OVERFITTED": 1
+      },
+      "Growth / Innovation": {
+        "NO_EDGE": 8,
+        "OVERFITTED": 3
+      }
+    }
+  }
+]

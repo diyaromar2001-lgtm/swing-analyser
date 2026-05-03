@@ -14,7 +14,7 @@ import { SentimentCell } from "./SentimentPanel";
 import { EdgeStatusBadge, EdgeScoreBar, BestStrategyBadge, EdgeValidationNote } from "./EdgeBadge";
 import { CryptoTradePlan } from "./crypto/CryptoTradePlan";
 
-type SortKey = "score" | "rsi_val" | "perf_3m" | "perf_6m" | "dist_entry_pct" | "risk_now_pct" | "rr_ratio" | "confidence" | "edge_score" | "final_score" | "edge_train_pf" | "edge_test_pf";
+type SortKey = "score" | "rsi_val" | "perf_3m" | "perf_6m" | "dist_entry_pct" | "risk_now_pct" | "rr_ratio" | "confidence" | "edge_score" | "final_score" | "edge_train_pf" | "edge_test_pf" | "edge_v2_score";
 
 function safeFixed(value?: number | null, digits = 1, suffix = "") {
   return typeof value === "number" && Number.isFinite(value)
@@ -35,14 +35,17 @@ function PctCell({ val, good = "positive" }: { val: number; good?: "positive" | 
 }
 
 type EdgeFilter = "all" | "STRONG_EDGE" | "VALID_EDGE" | "no_no_edge";
+type ResearchFilter = "all" | "V2_STRONG_RESEARCH" | "V2_VALID_RESEARCH" | "V2_WATCHLIST" | "INSUFFICIENT_SAMPLE" | "V2_BLOCKED_SECTOR" | "V2_BLOCKED_REGIME";
 
 export function ScreenerTable({
   data,
   showEdge = false,
+  researchMode = false,
   scope = "actions",
 }: {
   data: TickerResult[];
   showEdge?: boolean;
+  researchMode?: boolean;
   scope?: "actions" | "crypto";
 }) {
   const [expanded, setExpanded]   = useState<string | null>(null);
@@ -52,6 +55,7 @@ export function ScreenerTable({
   const [apisConfigured, setApisConfigured] = useState<boolean>(true);
   const [edgeFilter, setEdgeFilter] = useState<EdgeFilter>("all");
   const [hideOverfit, setHideOverfit] = useState(false);
+  const [researchFilter, setResearchFilter] = useState<ResearchFilter>("all");
 
   useEffect(() => {
     fetch(`${API_URL}/api/status`)
@@ -66,6 +70,16 @@ export function ScreenerTable({
     if (edgeFilter === "VALID_EDGE"  && !["STRONG_EDGE", "VALID_EDGE"].includes(r.ticker_edge_status ?? "")) return false;
     if (edgeFilter === "no_no_edge"  && (r.ticker_edge_status === "NO_EDGE" || !r.ticker_edge_status)) return false;
     if (hideOverfit && r.overfit_warning) return false;
+    if (researchMode) {
+      const status = r.edge_v2_status ?? "NO_EDGE_CONFIRMED";
+      if (researchFilter !== "all" && status !== researchFilter) return false;
+      if (researchFilter === "V2_STRONG_RESEARCH" && status !== "V2_STRONG_RESEARCH") return false;
+      if (researchFilter === "V2_VALID_RESEARCH" && status !== "V2_VALID_RESEARCH") return false;
+      if (researchFilter === "V2_WATCHLIST" && status !== "V2_WATCHLIST") return false;
+      if (researchFilter === "INSUFFICIENT_SAMPLE" && status !== "INSUFFICIENT_SAMPLE") return false;
+      if (researchFilter === "V2_BLOCKED_SECTOR" && status !== "V2_BLOCKED_SECTOR") return false;
+      if (researchFilter === "V2_BLOCKED_REGIME" && status !== "V2_BLOCKED_REGIME") return false;
+    }
     return true;
   });
 
@@ -108,6 +122,20 @@ export function ScreenerTable({
     </button>
   );
 
+  const ResearchFilterBtn = ({ label, val }: { label: string; val: ResearchFilter }) => (
+    <button
+      onClick={() => setResearchFilter(researchFilter === val ? "all" : val)}
+      className="px-2.5 py-1 rounded text-[10px] font-bold transition-all"
+      style={{
+        background: researchFilter === val ? "#07131f" : "#0d0d18",
+        border: `1px solid ${researchFilter === val ? "#38bdf8" : "#1e1e2a"}`,
+        color: researchFilter === val ? "#7dd3fc" : "#4b5563",
+      }}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <>
       {tradePlan && (
@@ -138,6 +166,19 @@ export function ScreenerTable({
         </div>
       )}
 
+      {researchMode && (
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <span className="text-[10px] font-bold text-sky-700 uppercase tracking-widest">Edge v2 Research :</span>
+          <ResearchFilterBtn label="V2 Strong" val="V2_STRONG_RESEARCH" />
+          <ResearchFilterBtn label="V2 Valid" val="V2_VALID_RESEARCH" />
+          <ResearchFilterBtn label="Watchlist" val="V2_WATCHLIST" />
+          <ResearchFilterBtn label="Insufficient Sample" val="INSUFFICIENT_SAMPLE" />
+          <ResearchFilterBtn label="Blocked Sector" val="V2_BLOCKED_SECTOR" />
+          <ResearchFilterBtn label="Blocked Regime" val="V2_BLOCKED_REGIME" />
+          <span className="text-[10px] text-sky-700 ml-2">{sorted.length} résultats</span>
+        </div>
+      )}
+
       <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -156,6 +197,13 @@ export function ScreenerTable({
                 {showEdge && <Th label="Train PF" k="edge_train_pf" />}
                 {showEdge && <Th label="Test PF" k="edge_test_pf" />}
                 {showEdge && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Overfit</th>}
+                {researchMode && <Th label="V2 Score" k="edge_v2_score" />}
+                {researchMode && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">V2 Status</th>}
+                {researchMode && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Strategy Edge</th>}
+                {researchMode && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Sector Edge</th>}
+                {researchMode && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Regime Edge</th>}
+                {researchMode && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Sample</th>}
+                {researchMode && <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Reasons</th>}
                 <Th label="Entree" />
                 <Th label="SL" />
                 <Th label="TP1" />
@@ -248,6 +296,64 @@ export function ScreenerTable({
                               ? <span className="text-[10px] text-green-600">✓</span>
                               : <span className="text-[10px] text-gray-700">—</span>
                           }
+                        </td>
+                      )}
+                      {researchMode && (
+                        <td className="px-3 py-2.5 font-mono tabular-nums text-xs"
+                          style={{ color: (row.edge_v2_score ?? 0) >= 80 ? "#4ade80" : (row.edge_v2_score ?? 0) >= 62 ? "#7dd3fc" : "#9ca3af" }}>
+                          {safeFixed(row.edge_v2_score, 1)}
+                        </td>
+                      )}
+                      {researchMode && (
+                        <td className="px-3 py-2.5 text-xs">
+                          <span className="px-2 py-0.5 rounded-full font-bold"
+                            style={{
+                              background: row.edge_v2_status === "V2_STRONG_RESEARCH" ? "#052e16" :
+                                row.edge_v2_status === "V2_VALID_RESEARCH" ? "#0f172a" :
+                                row.edge_v2_status === "INSUFFICIENT_SAMPLE" ? "#1c1917" :
+                                row.edge_v2_status === "V2_BLOCKED_SECTOR" || row.edge_v2_status === "V2_BLOCKED_REGIME" || row.edge_v2_status === "V2_OVERFIT_RISK" ? "#2a0d0d" : "#111827",
+                              color: row.edge_v2_status === "V2_STRONG_RESEARCH" ? "#4ade80" :
+                                row.edge_v2_status === "V2_VALID_RESEARCH" ? "#7dd3fc" :
+                                row.edge_v2_status === "INSUFFICIENT_SAMPLE" ? "#fde047" :
+                                row.edge_v2_status === "V2_BLOCKED_SECTOR" || row.edge_v2_status === "V2_BLOCKED_REGIME" || row.edge_v2_status === "V2_OVERFIT_RISK" ? "#f87171" : "#9ca3af",
+                            }}>
+                            {row.edge_v2_status ?? "—"}
+                          </span>
+                        </td>
+                      )}
+                      {researchMode && (
+                        <td className="px-3 py-2.5 text-xs text-gray-400 max-w-[220px]">
+                          {row.edge_v2_strategy_name ?? "—"}
+                        </td>
+                      )}
+                      {researchMode && (
+                        <td className="px-3 py-2.5 text-xs text-gray-400 max-w-[180px]">
+                          {row.edge_v2_sector_edge !== undefined ? safeFixed(row.edge_v2_sector_edge, 1) : "—"}
+                        </td>
+                      )}
+                      {researchMode && (
+                        <td className="px-3 py-2.5 text-xs text-gray-400 max-w-[180px]">
+                          {row.edge_v2_regime_edge !== undefined ? safeFixed(row.edge_v2_regime_edge, 1) : "—"}
+                        </td>
+                      )}
+                      {researchMode && (
+                        <td className="px-3 py-2.5 text-xs text-gray-400">
+                          <div className="flex flex-col gap-0.5">
+                            <span>{row.edge_v2_sample_status ?? "—"}</span>
+                            <span className="text-[10px] text-slate-500">{row.edge_v2_allowed ? "allowed" : "blocked"}</span>
+                          </div>
+                        </td>
+                      )}
+                      {researchMode && (
+                        <td className="px-3 py-2.5 text-xs text-gray-500 max-w-[280px]">
+                          <div className="flex flex-col gap-0.5">
+                            {(row.edge_v2_reasons ?? []).slice(0, 2).map((reason, idx) => (
+                              <span key={idx} className="truncate">{reason}</span>
+                            ))}
+                            {(row.edge_v2_warnings ?? []).slice(0, 1).map((warning, idx) => (
+                              <span key={`w-${idx}`} className="truncate text-amber-400">{warning}</span>
+                            ))}
+                          </div>
                         </td>
                       )}
                       <td className="px-3 py-2.5 font-mono text-gray-300 tabular-nums text-xs">${scope === "crypto" ? formatCryptoPrice(row.ticker, row.entry) : row.entry.toFixed(2)}</td>

@@ -1,0 +1,159 @@
+{
+  "status_counts": {
+    "NO_EDGE": 11,
+    "OVERFITTED": 13,
+    "WEAK_EDGE": 1
+  },
+  "per_symbol": {
+    "BTC": {
+      "status": "NO_EDGE",
+      "best_strategy_name": "BTC/ETH Trend Breakout",
+      "best_strategy_key": "?",
+      "score": 15
+    },
+    "ETH": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 17
+    },
+    "SOL": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 31
+    },
+    "BNB": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 22
+    },
+    "XRP": {
+      "status": "NO_EDGE",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 26
+    },
+    "ADA": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 22
+    },
+    "AVAX": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 71
+    },
+    "DOGE": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Momentum Relative Strength",
+      "best_strategy_key": "?",
+      "score": 22
+    },
+    "TON": {
+      "status": "NO_EDGE",
+      "best_strategy_name": "BTC/ETH Trend Breakout",
+      "best_strategy_key": "?",
+      "score": 15
+    },
+    "LINK": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 11
+    },
+    "DOT": {
+      "status": "NO_EDGE",
+      "best_strategy_name": "BTC/ETH Trend Breakout",
+      "best_strategy_key": "?",
+      "score": 15
+    },
+    "POL": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 26
+    },
+    "LTC": {
+      "status": "NO_EDGE",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 26
+    },
+    "BCH": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 57
+    },
+    "UNI": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 22
+    },
+    "APT": {
+      "status": "NO_EDGE",
+      "best_strategy_name": "BTC/ETH Trend Breakout",
+      "best_strategy_key": "?",
+      "score": 15
+    },
+    "NEAR": {
+      "status": "NO_EDGE",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 78
+    },
+    "ICP": {
+      "status": "NO_EDGE",
+      "best_strategy_name": "BTC/ETH Trend Breakout",
+      "best_strategy_key": "?",
+      "score": 15
+    },
+    "FIL": {
+      "status": "NO_EDGE",
+      "best_strategy_name": "BTC/ETH Trend Breakout",
+      "best_strategy_key": "?",
+      "score": 15
+    },
+    "ATOM": {
+      "status": "NO_EDGE",
+      "best_strategy_name": "BTC/ETH Trend Breakout",
+      "best_strategy_key": "?",
+      "score": 15
+    },
+    "INJ": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 24
+    },
+    "ARB": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 11
+    },
+    "OP": {
+      "status": "NO_EDGE",
+      "best_strategy_name": "BTC/ETH Trend Breakout",
+      "best_strategy_key": "?",
+      "score": 15
+    },
+    "SUI": {
+      "status": "WEAK_EDGE",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 60
+    },
+    "SEI": {
+      "status": "OVERFITTED",
+      "best_strategy_name": "Pullback in Crypto Uptrend",
+      "best_strategy_key": "?",
+      "score": 23
+    }
+  }
+}

@@ -466,6 +466,33 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
           )}
         </div>
 
+        {typeof row.edge_v2_score === "number" && (
+          <div className="px-6">
+            <div className="rounded-xl p-4" style={{ background: "#07131f", border: "1px solid #1d4ed844" }}>
+              <p className="text-[10px] font-black uppercase tracking-widest text-sky-300">Edge v2 Research</p>
+              <div className="mt-2 grid grid-cols-2 gap-3 text-xs">
+                <Row label="V2 Score" value={<span className="text-sky-300 font-bold">{row.edge_v2_score?.toFixed(1) ?? "—"}</span>} />
+                <Row label="V2 Status" value={<span className="text-white">{row.edge_v2_status ?? "—"}</span>} />
+                <Row label="Strategy / Sector" value={<span className="text-white">{row.edge_v2_strategy_name ?? "—"}</span>} sub={row.edge_v2_sector_status ?? "—"} />
+                <Row label="Régime / Sample" value={<span className="text-white">{row.edge_v2_regime_status ?? "—"}</span>} sub={row.edge_v2_sample_status ?? "—"} />
+              </div>
+              <p className="text-[11px] text-sky-100/70 mt-3">
+                Recherche uniquement — ne remplace pas l&apos;autorisation d&apos;exécution.
+              </p>
+              {(row.edge_v2_reasons?.length || row.edge_v2_warnings?.length) ? (
+                <ul className="mt-2 space-y-1">
+                  {(row.edge_v2_reasons ?? []).slice(0, 2).map((r, i) => (
+                    <li key={i} className="text-[11px] text-slate-300">• {r}</li>
+                  ))}
+                  {(row.edge_v2_warnings ?? []).slice(0, 2).map((r, i) => (
+                    <li key={`w-${i}`} className="text-[11px] text-amber-300">• {r}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          </div>
+        )}
+
         <div className="px-6 pb-3">
           <div className="rounded-xl p-4" style={{ background: execAuth.authorized ? "#041310" : execAuth.reasons.some(r => r.includes("Edge")) ? "#1a1000" : "#130404", border: `1px solid ${execAuth.authorized ? "#065f46" : execAuth.reasons.some(r => r.includes("Edge")) ? "#ca8a04" : "#7f1d1d"}` }}>
             <div className="flex items-center justify-between gap-3 flex-wrap">

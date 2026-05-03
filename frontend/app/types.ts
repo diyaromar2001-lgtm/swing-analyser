@@ -92,6 +92,21 @@ export interface TickerResult {
   edge_max_dd?:         number;
   overfit_warning?:     boolean;
   overfit_reasons?:     string[];
+  // Edge v2 research only
+  edge_v2_score?:           number;
+  edge_v2_status?:          "V2_STRONG_RESEARCH" | "V2_VALID_RESEARCH" | "V2_WATCHLIST" | "INSUFFICIENT_SAMPLE" | "NO_EDGE_CONFIRMED" | "V2_OVERFIT_RISK" | "V2_BLOCKED_REGIME" | "V2_BLOCKED_SECTOR";
+  edge_v2_strategy_name?:   string | null;
+  edge_v2_strategy_edge?:   number;
+  edge_v2_sector_edge?:     number;
+  edge_v2_regime_edge?:     number;
+  edge_v2_ticker_component?:number;
+  edge_v2_setup_quality?:    number;
+  edge_v2_sample_status?:    "INSUFFICIENT_SAMPLE" | "SAMPLED_OK" | "NO_EDGE_CONFIRMED";
+  edge_v2_sector_status?:    "SECTOR_EDGE_CONFIRMED" | "SECTOR_EDGE_PROMISING" | "V2_BLOCKED_SECTOR";
+  edge_v2_regime_status?:    "REGIME_EDGE_CONFIRMED" | "REGIME_EDGE_PROMISING" | "V2_BLOCKED_REGIME";
+  edge_v2_allowed?:          boolean;
+  edge_v2_reasons?:          string[];
+  edge_v2_warnings?:         string[];
   // Final Score composite
   final_score?:         number;   // 0–100
   execution_quality?:   number;   // 0–100
