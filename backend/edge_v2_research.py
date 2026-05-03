@@ -25,6 +25,20 @@ _CACHE: Dict[str, Dict[str, Any]] = {}
 _CACHE_TTL = 24 * 3600
 
 
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return round(value, 6)
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_json_safe(v) for v in value]
+    return value
+
+
 def _read_json(path: Path) -> Any:
     if not path.exists():
         return None
@@ -324,7 +338,19 @@ def build_edge_v2_research_rows(
     model_keys = _model_keys_for_strategy(strategy, period)
     models = [m for k in model_keys if (m := _MODEL_CATALOG.get(k))]
     if not models:
-        return {"strategy": strategy, "period_months": period, "count": 0, "results": [], "summary": {}}
+        data = {
+            "strategy": strategy,
+            "period_months": period,
+            "count": 0,
+            "results": [],
+            "summary": {},
+            "status": "degraded",
+            "warnings": ["Aucun modèle Edge v2 disponible pour la stratégie demandée"],
+            "errors": [],
+        }
+        safe = _json_safe(data)
+        _CACHE[cache_key] = {"ts": now, "data": safe}
+        return safe
 
     all_tickers = requested
     if not all_tickers:
@@ -457,6 +483,9 @@ def build_edge_v2_research_rows(
         "period_months": period,
         "count": len(rows),
         "results": rows,
+        "status": "ok" if rows else "degraded",
+        "warnings": [],
+        "errors": [],
         "summary": {
             "status_counts": counts,
             "allowed_count": sum(1 for row in rows if row["allowed_by_v2_research"]),
@@ -469,5 +498,6 @@ def build_edge_v2_research_rows(
             "overfit_count": sum(1 for row in rows if row["edge_v2_status"] == "V2_OVERFIT_RISK"),
         },
     }
-    _CACHE[cache_key] = {"ts": now, "data": data}
-    return data
+    safe = _json_safe(data)
+    _CACHE[cache_key] = {"ts": now, "data": safe}
+    return safe
