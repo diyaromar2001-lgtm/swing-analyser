@@ -151,7 +151,7 @@ export function SignalTracker() {
           )}
 
           {/* Stats par grade */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {(["A+", "A", "B"] as const).map(grade => {
               const g = stats.by_grade[grade];
               if (!g || g.total === 0) return null;

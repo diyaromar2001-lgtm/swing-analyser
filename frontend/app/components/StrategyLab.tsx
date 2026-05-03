@@ -123,7 +123,8 @@ function WalkForwardTable({ wf }: { wf: WalkForward }) {
           {Math.abs(wrDeg) < 10 ? "ROBUST" : Math.abs(wrDeg) < 20 ? "MODERATE" : "FRAGILE"}
         </span>
       </div>
-      <table className="w-full text-[11px]">
+      <div className="overflow-x-auto">
+        <table className="w-full text-[11px]">
         <thead>
           <tr style={{ background: "#0a0a14" }}>
             <th className="px-3 py-1.5 text-left text-gray-600 font-semibold" />
@@ -144,6 +145,7 @@ function WalkForwardTable({ wf }: { wf: WalkForward }) {
           ))}
         </tbody>
       </table>
+      </div>
       <div className="flex gap-4 px-3 py-2 text-[10px]" style={{ background: "#07070f", borderTop: "1px solid #1a1a2e" }}>
         <span className="text-gray-600">
           WR degradation: <strong style={{ color: Math.abs(wrDeg) < 10 ? "#10b981" : "#f59e0b" }}>
@@ -336,7 +338,7 @@ function StrategyCard({
       </div>
 
       {/* Stats */}
-      <div className="px-4 py-3 grid grid-cols-3 gap-2">
+      <div className="px-4 py-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
         <div className="text-center">
           <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-0.5">Trades</p>
           <p className="text-base font-black text-white">{r.total_trades}</p>
@@ -1117,7 +1119,7 @@ function OptParamCard({
       </div>
 
       {/* Métriques */}
-      <div className="px-4 py-3 grid grid-cols-4 gap-2">
+      <div className="px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-2">
         <div className="text-center">
           <p className="text-[9px] text-gray-600 uppercase tracking-wider mb-0.5">Trades</p>
           <p className="text-sm font-black text-white">{ps.total_trades}</p>

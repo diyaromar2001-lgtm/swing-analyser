@@ -209,7 +209,7 @@ function SetupCard({
       </div>
 
       {/* Levels */}
-      <div className="grid grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         {[
           { label: "ENTRY",    value: `$${r.entry.toFixed(2)}`,     color: "#818cf8" },
           { label: "STOP",     value: `$${r.stop_loss.toFixed(2)}`, color: "#f87171" },
@@ -252,7 +252,7 @@ function RiskPanel({ data }: { data: TickerResult[] }) {
     <div className="rounded-2xl p-5 mt-4"
       style={{ background: "#0d0d18", border: "1px solid #f59e0b22" }}>
       <p className="text-[10px] font-black text-yellow-500 uppercase tracking-widest mb-4">⚠️ Gestion du Risque</p>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
           { label: "Risque / Trade", value: `${avgRisk}%`,   color: "#f59e0b", sub: "Basé sur SL actuel" },
           { label: "Positions Max",  value: maxPositions,     color: "#818cf8", sub: "Setups disponibles" },

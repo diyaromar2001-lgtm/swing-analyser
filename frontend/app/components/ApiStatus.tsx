@@ -184,7 +184,7 @@ export function ApiStatusPanel({ onClose }: { onClose: () => void }) {
                       {data.sentiment_cache.entries} ticker{data.sentiment_cache.entries > 1 ? "s" : ""} en cache
                       · TTL {data.sentiment_cache.ttl_minutes} min
                     </p>
-                    <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
+                    <div className="rounded-xl overflow-x-auto" style={{ border: "1px solid #1e1e2a" }}>
                       <table className="w-full">
                         <thead style={{ background: "#0d0d18" }}>
                           <tr>

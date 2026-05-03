@@ -93,7 +93,7 @@ export function SetupStats({ ticker, grade }: { ticker: string; grade: string })
 
           {data.n_trades > 0 && data.win_rate !== undefined && (
             <>
-              <div className="grid grid-cols-3 gap-2 mb-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
                 <StatBox
                   label="Win Rate"
                   value={`${data.win_rate}%`}

@@ -83,7 +83,7 @@ function PortfolioPanel({ p }: { p: PortfolioMetrics }) {
       {/* Metrics grid + equity curve */}
       <div className="px-5 py-4 flex gap-6 flex-wrap">
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-x-6 gap-y-3 flex-1 min-w-0">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3 flex-1 min-w-0">
           {[
             ["Trades",        String(p.total_trades),                                "#e2e8f0"],
             ["Win Rate",      `${p.win_rate.toFixed(1)}%`,                           wrColor],
@@ -360,7 +360,8 @@ function ComparisonPanel({ std, con }: { std: BacktestSummary; con: BacktestSumm
         <span className="text-lg">⚖️</span>
         <p className="text-sm font-bold text-indigo-300">Comparaison Standard vs Conservative</p>
       </div>
-      <table className="w-full" style={{ background: "#0a0a14" }}>
+      <div className="overflow-x-auto">
+        <table className="w-full" style={{ background: "#0a0a14" }}>
         <thead style={{ background: "#0d0d18", borderBottom: "1px solid #1e1e2a" }}>
           <tr>
             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Métrique</th>
@@ -386,6 +387,7 @@ function ComparisonPanel({ std, con }: { std: BacktestSummary; con: BacktestSumm
           />
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

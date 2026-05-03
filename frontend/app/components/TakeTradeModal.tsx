@@ -157,7 +157,7 @@ export function TakeTradeModal({
         {/* Broker */}
         <div>
           <p className="text-[9px] text-gray-600 uppercase tracking-widest mb-1">Broker</p>
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
             {["IBKR", "Degiro", "Saxo", "Autre"].map(b => (
               <button key={b} onClick={() => set("broker", b)}
                 className="py-1.5 rounded-lg text-xs font-black transition-all"

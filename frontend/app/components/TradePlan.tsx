@@ -423,7 +423,7 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">
               📡 Indicateurs Clés
             </h3>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               {[
                 { label: "RSI 14",   value: row.rsi_val.toFixed(1),       color: row.rsi_val >= 50 && row.rsi_val <= 70 ? "#4ade80" : row.rsi_val > 70 ? "#ef4444" : "#9ca3af" },
                 { label: "MACD",     value: row.macd_val > 0 ? "↑ Pos" : "↓ Nég", color: row.macd_val > 0 ? "#4ade80" : "#ef4444" },

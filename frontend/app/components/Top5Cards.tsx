@@ -107,7 +107,7 @@ export function Top5Cards({
                   </div>
                 </div>
                 <ScoreBar score={row.score} />
-                <div className="mt-3 grid grid-cols-3 gap-1.5 text-center">
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-center">
                   <div>
                     <p className="text-[9px] text-gray-600 uppercase">Entrée</p>
                     <p className="text-xs font-bold text-gray-300">${scope === "crypto" ? formatCryptoPrice(row.ticker, row.entry) : row.entry.toFixed(0)}</p>

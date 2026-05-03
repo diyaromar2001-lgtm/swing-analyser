@@ -511,7 +511,7 @@ function TradePlanPanel({
                 {t.risk_filters_status}
               </span>
             </div>
-            <div className="grid grid-cols-3 gap-2 mb-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2">
               {[
                 { label: "News",   val: t.news_risk   ?? "—" },
                 { label: "Sector", val: t.sector_rank ?? "—" },
@@ -572,7 +572,7 @@ function TradePlanPanel({
               )}
             </div>
             {t.ticker_edge_status !== "NO_EDGE" && (
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 {[
                   { label: "Trades",    val: t.edge_trades   ?? "—" },
                   { label: "Win Rate",  val: t.edge_win_rate ? `${t.edge_win_rate.toFixed(0)}%` : "—" },
@@ -743,7 +743,7 @@ function OpportunityCard({
       </div>
 
       {/* Price levels */}
-      <div className="grid grid-cols-4 gap-2 mb-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
         {[
           { label: "ENTRY", value: `$${t.entry.toFixed(2)}`,     color: "#6366f1" },
           { label: "STOP",  value: `$${t.stop_loss.toFixed(2)}`, color: "#ef4444" },
