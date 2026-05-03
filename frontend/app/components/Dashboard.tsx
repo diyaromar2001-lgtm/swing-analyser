@@ -1007,7 +1007,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           <div className="flex items-center gap-2 flex-wrap justify-end">
           <button
             onClick={() => setShowAdminPanel(true)}
-            className="px-3 py-2 rounded-lg text-xs font-semibold transition-all"
+            className="hidden md:block px-3 py-2 rounded-lg text-xs font-semibold transition-all"
             style={{
               background: adminKeyPresent ? "#07150f" : "#0d0d18",
               border: `1px solid ${adminKeyPresent ? "#16a34a55" : "#1e1e2a"}`,
@@ -1017,7 +1017,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             Admin {adminKeyPresent ? "ON" : "OFF"}
           </button>
 
-          {/* Toggle Command / Advanced */}
+          {/* Toggle Actions / Crypto */}
           <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
             {(["actions", "crypto"] as const).map((u) => (
               <button key={u} onClick={() => {
@@ -1031,13 +1031,13 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
                 setMinScore(0);
                 setView("table");
               }}
-                className="px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-all"
+                className="md:px-3 md:py-1.5 px-2 py-1 text-xs font-black uppercase tracking-widest transition-all"
                 style={{
                   background: universe === u ? (u === "actions" ? "#041310" : "#101025") : "#0d0d18",
                   color: universe === u ? (u === "actions" ? "#10b981" : "#60a5fa") : "#4b5563",
                   borderRight: u === "actions" ? "1px solid #1e1e2a" : undefined,
                 }}>
-                {u === "actions" ? "Actions" : "Crypto"}
+                {u === "actions" ? "A" : "C"}
               </button>
             ))}
           </div>
@@ -1048,20 +1048,20 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
                 setUiMode(m);
                 localStorage.setItem("swing_ui_mode", m);
               }}
-                className="px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-all"
+                className="md:px-3 md:py-1.5 px-2 py-1 text-xs font-black uppercase tracking-widest transition-all"
                 style={{
                   background: uiMode === m ? (m === "simple" ? "#041310" : "#1e1e3a") : "#0d0d18",
                   color:      uiMode === m ? (m === "simple" ? "#10b981" : "#818cf8") : "#4b5563",
                   borderRight: m === "simple" ? "1px solid #1e1e2a" : undefined,
                 }}>
-                {m === "simple" ? "⚡ Command" : "🔬 Advanced"}
+                {m === "simple" ? "⚡" : "🔬"}
               </button>
             ))}
           </div>
 
           {/* Toggle Stratégie screener */}
           {!isCrypto && uiMode === "pro" && view !== "lab" && view !== "signals" && view !== "trades" && (
-            <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
+            <div className="hidden md:flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
               <button
                 onClick={() => switchStrategy("standard")}
                 className="px-3 py-1.5 text-xs font-semibold transition-all"
@@ -1078,7 +1078,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           {/* Onglets vue — Pro seulement */}
           {uiMode === "pro" && (
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
+              <div className="hidden md:flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
                 {([
                   ["table", "📋 Tableau"],
                   ...(!isCrypto ? [["trades", "📌 Trades"]] as [typeof view, string][] : []),
@@ -1100,13 +1100,13 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
               <details className="relative">
                 <summary
-                  className="list-none cursor-pointer select-none px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest"
+                  className="list-none cursor-pointer select-none md:px-3 md:py-1.5 px-2 py-1 rounded-lg text-xs font-black uppercase tracking-widest"
                   style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#a78bfa" }}
                 >
-                  Recherche
+                  ⚙️
                 </summary>
                 <div
-                  className="absolute right-0 mt-2 z-20 w-56 rounded-xl p-2 shadow-2xl"
+                  className="absolute right-0 mt-2 z-20 w-48 md:w-56 rounded-xl p-2 shadow-2xl max-w-[calc(100vw-1rem)]"
                   style={{ background: "#0b0b14", border: "1px solid #1e1e2a" }}
                 >
                   <div className="px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gray-500">Menu</div>
@@ -1114,13 +1114,13 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
                     ["dynamic", "⚡ Signaux"],
                     ["signals", "📈 Tracking"],
                     ["backtest", "🧪 Backtest"],
-                    ["lab", "🧬 Strategy Lab"],
+                    ["lab", "🧬 Lab"],
                     ["conservative", "🛡 Conservative"],
                     ["24", "Edge 24m"],
                     ["36", "Edge 36m"],
                   ] : [
                     ["backtest", "🧪 Backtest"],
-                    ["lab", "🧬 Strategy Lab"],
+                    ["lab", "🧬 Lab"],
                   ] as [string, string][]).map(([v, label]) => (
                     <button
                       key={v}
@@ -1183,7 +1183,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           <ApiStatusDot onClick={() => setShowApiStatus(true)} />
 
           {!isCrypto && uiMode === "pro" && view === "table" && (
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="hidden md:flex items-center gap-2 flex-wrap">
               <div className="flex rounded-lg overflow-hidden" style={{ border: "1px solid #1e1e2a" }}>
                 {[24, 36].map(period => (
                   <button
@@ -1227,7 +1227,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
               title={edgeHorizon === 36
                 ? "Recalculer l'edge 36m pour l'analyse avancée visible"
                 : `Recalculer l'edge historique par ticker (cache 24h)\nCouverture actuelle : ${edgeCoverage.toFixed(0)}%`}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all disabled:opacity-40"
+              className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all disabled:opacity-40"
               style={{
                 background: edgeHorizon === 36 ? "#1a1400" : "#0a1a0a",
                 border: `1px solid ${edgeHorizon === 36 ? "#f59e0b44" : "#16a34a44"}`,
@@ -1249,18 +1249,18 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
             <button
               onClick={() => void repairCaches()}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40"
+              className="flex items-center gap-1 md:gap-2 md:px-4 md:py-2 px-2 py-1 rounded-lg md:text-sm text-xs font-medium transition-all disabled:opacity-40"
               style={{ background: "#1e1e3a", border: "1px solid #2a2a4a", color: "#818cf8" }}
             >
               {loading ? (
-                <><svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                <><svg className="animate-spin md:h-4 md:w-4 h-3 w-3" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>Analyse...</>
+                </svg><span className="hidden md:inline">Analyse...</span><span className="md:hidden">…</span></>
               ) : (
-                <><svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <><svg className="md:h-4 md:w-4 h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>Rafraîchir</>
+                </svg><span className="hidden md:inline">Rafraîchir</span></>
               )}
             </button>
           )}
