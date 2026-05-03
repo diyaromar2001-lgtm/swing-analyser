@@ -1831,8 +1831,11 @@ def cache_status(scope: str = Query("all")):
 def _warmup_actions(include_edge: bool, limit: Optional[int], warnings: List[str], errors: List[str]) -> Dict[str, Any]:
     warmed_tickers: List[str] = []
     edge_computed = 0
+    warmup_cache_key = "standard|False||0|"
 
     fetch_sp500_perf()
+    # Force a real recompute even if a previous public fast call cached an empty result.
+    _screener_cache.pop(warmup_cache_key, None)
     _run_with_timeout("actions_market_context", lambda: _get_market_ctx(allow_download=True), 45, warnings, errors)
     _run_with_timeout("actions_regime_engine", lambda: compute_regime_engine(fast=False), 45, warnings, errors)
     _run_with_timeout("actions_market_regime", lambda: market_regime(), 45, warnings, errors)
