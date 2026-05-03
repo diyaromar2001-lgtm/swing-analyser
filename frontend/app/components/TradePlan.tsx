@@ -114,6 +114,38 @@ function buildReason(row: TickerResult) {
   };
 }
 
+function getExecutionAuthorization(row: TickerResult) {
+  const edgeOk = row.ticker_edge_status === "STRONG_EDGE" || row.ticker_edge_status === "VALID_EDGE";
+  const setupOk = row.setup_grade === "A+" || row.setup_grade === "A";
+  const buyOk = ["BUY NOW", "BUY NEAR ENTRY", "BUY"].includes(row.final_decision ?? "");
+  const tradableOk = row.tradable === true;
+  const setupStatusOk = row.setup_status !== "INVALID";
+  const overfitOk = row.overfit_warning !== true;
+  const riskOk = row.risk_filters_status !== "BLOCKED";
+
+  const reasons: string[] = [];
+  if (!tradableOk) reasons.push("tradable = false");
+  if (!buyOk) reasons.push(`Décision finale : ${row.final_decision ?? "WAIT / SKIP"}`);
+  if (!edgeOk) reasons.push("Edge non validé");
+  if (!setupOk) reasons.push("Setup technique insuffisant");
+  if (!setupStatusOk) reasons.push("Setup invalide");
+  if (!overfitOk) reasons.push("Backtest suspect");
+  if (!riskOk) reasons.push("Risque bloquant");
+
+  const authorized = tradableOk && buyOk && edgeOk && setupOk && setupStatusOk && overfitOk && riskOk;
+  return {
+    authorized,
+    reasons,
+    status: authorized ? "Autorisé" : reasons.length ? "Non autorisé" : "À confirmer",
+    mainReason: reasons[0] ?? "Conditions d'exécution validées",
+    edgeLabel:
+      row.ticker_edge_status === "STRONG_EDGE" ? "Edge robuste" :
+      row.ticker_edge_status === "VALID_EDGE" ? "Edge valide" :
+      row.ticker_edge_status === "WEAK_EDGE" ? "Edge faible" :
+      row.ticker_edge_status === "OVERFITTED" ? "Backtest suspect" : "Edge non validé",
+  };
+}
+
 // ── Row helper ────────────────────────────────────────────────────────────────
 
 function Row({ label, value, sub }: { label: string; value: React.ReactNode; sub?: string }) {
@@ -136,6 +168,7 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
   const [showTakeModal, setShowTakeModal] = useState(false);
   const { isTickerActive } = useJournal();
   const alreadyTaken = isTickerActive(row.ticker);
+  const execAuth = getExecutionAuthorization(row);
   const strategyName = row.best_strategy_name === "Pullback Confirmed"
     ? "Pullback confirme"
     : row.best_strategy_name ?? "Aucune";
@@ -398,7 +431,7 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
               style={{ background: "#0c1a10", border: "1px solid #065f46", color: "#10b981" }}>
               ✅ Déjà en portefeuille
             </div>
-          ) : (
+          ) : execAuth.authorized ? (
             <button
               onClick={() => setShowTakeModal(true)}
               className="w-full py-3 rounded-xl text-sm font-black transition-all hover:opacity-90 active:scale-95"
@@ -406,7 +439,47 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
             >
               ✅ Prendre ce trade
             </button>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="w-full py-3 rounded-xl text-sm font-black transition-all opacity-90"
+              style={{ background: execAuth.reasons.some(r => r.includes("Edge")) ? "#2a1220" : "#2a220d", border: "1px solid #4b5563", color: execAuth.reasons.some(r => r.includes("Edge")) ? "#fca5a5" : "#fcd34d" }}
+            >
+              {execAuth.reasons.includes("tradable = false") || execAuth.reasons.includes("Décision finale : WAIT / SKIP") || execAuth.reasons.includes("Décision finale : SKIP")
+                ? "Trade non autorisé"
+                : "Ajouter à la watchlist"}
+            </button>
           )}
+        </div>
+
+        <div className="px-6 pb-3">
+          <div className="rounded-xl p-4" style={{ background: execAuth.authorized ? "#041310" : execAuth.reasons.some(r => r.includes("Edge")) ? "#1a1000" : "#130404", border: `1px solid ${execAuth.authorized ? "#065f46" : execAuth.reasons.some(r => r.includes("Edge")) ? "#ca8a04" : "#7f1d1d"}` }}>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: execAuth.authorized ? "#4ade80" : execAuth.reasons.some(r => r.includes("Edge")) ? "#f59e0b" : "#ef4444" }}>
+                  Autorisation d&apos;exécution
+                </p>
+                <p className="text-sm font-bold text-white mt-1">{execAuth.status}</p>
+                <p className="text-xs text-gray-400 mt-1">{execAuth.mainReason}</p>
+              </div>
+              <div className="text-right text-xs text-gray-400 space-y-1">
+                <p>Edge: <span className="text-white">{execAuth.edgeLabel}</span></p>
+                <p>Décision: <span className="text-white">{row.final_decision ?? "—"}</span></p>
+                <p>Tradable: <span className="text-white">{row.tradable ? "true" : "false"}</span></p>
+              </div>
+            </div>
+            {!execAuth.authorized && execAuth.reasons.length > 0 && (
+              <ul className="mt-3 space-y-1">
+                {execAuth.reasons.slice(0, 4).map((r, i) => (
+                  <li key={i} className="text-xs text-gray-300 flex gap-2">
+                    <span className="shrink-0" style={{ color: execAuth.reasons.some(x => x.includes("Edge")) ? "#f59e0b" : "#ef4444" }}>•</span>
+                    {r}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
 
         {showTakeModal && (

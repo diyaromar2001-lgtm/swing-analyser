@@ -35,6 +35,29 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
     row.final_decision === "SKIP" ||
     row.final_decision === "NO_TRADE";
 
+  const regimeDefensive = ["CRYPTO_BEAR", "CRYPTO_NO_TRADE", "CRYPTO_HIGH_VOLATILITY"].includes((row as any).crypto_regime ?? "");
+  const edgeOk = row.ticker_edge_status === "STRONG_EDGE" || row.ticker_edge_status === "VALID_EDGE";
+  const execAuthorized =
+    !regimeDefensive &&
+    row.tradable === true &&
+    !nonTradeWarning &&
+    edgeOk &&
+    row.overfit_warning !== true;
+  const execReasons: string[] = [];
+  if (regimeDefensive) execReasons.push("Régime crypto défensif");
+  if (row.tradable === false) execReasons.push("tradable = false");
+  if (!edgeOk) execReasons.push("Edge non validé");
+  if (row.overfit_warning) execReasons.push("Backtest suspect");
+  if (row.setup_status === "INVALID") execReasons.push("Setup invalide");
+  if (["SKIP", "WAIT", "NO_TRADE"].includes(row.final_decision ?? "")) execReasons.push(`Décision finale : ${row.final_decision}`);
+
+
+  const ctaText = execAuthorized
+    ? "Prendre ce trade"
+    : (regimeDefensive || !edgeOk || row.overfit_warning || row.setup_status === "INVALID")
+      ? "Trade non autorisé"
+      : "Ajouter à la watchlist";
+
   return (
     <div
       className="fixed inset-0 z-50 flex justify-end"
@@ -63,7 +86,7 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-          {nonTradeWarning && (
+          {(nonTradeWarning || regimeDefensive) && (
             <div className="rounded-xl p-4" style={{ background: "#2a0d0d", border: "1px solid #ef444455" }}>
               <p className="text-xs font-black text-red-300 uppercase tracking-widest mb-1">NO TRADE CRYPTO</p>
               <p className="text-sm text-red-200">Pas de trade - edge non validé ou régime crypto défensif.</p>
@@ -127,6 +150,45 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
               <li className="text-xs text-gray-400">• Réduire la taille si volatilité extrême.</li>
             </ul>
           </div>
+
+          <div className="rounded-xl p-4" style={{ background: execAuthorized ? "#041310" : "#130404", border: `1px solid ${execAuthorized ? "#065f46" : "#7f1d1d"}` }}>
+            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: execAuthorized ? "#4ade80" : "#f87171" }}>
+              Autorisation d&apos;exécution
+            </p>
+            <div className="mt-2 flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <p className="text-sm font-bold text-white">{execAuthorized ? "Autorisé" : "Non autorisé"}</p>
+                <p className="text-xs text-gray-400 mt-1">{execReasons[0] ?? "Conditions d'exécution validées"}</p>
+              </div>
+              <div className="text-xs text-gray-400 space-y-1 text-right">
+                <p>Edge: <span className="text-white">{row.ticker_edge_status ?? "—"}</span></p>
+                <p>Décision: <span className="text-white">{row.final_decision ?? "—"}</span></p>
+                <p>Tradable: <span className="text-white">{row.tradable ? "true" : "false"}</span></p>
+              </div>
+            </div>
+            {!execAuthorized && execReasons.length > 0 && (
+              <ul className="mt-3 space-y-1">
+                {execReasons.slice(0, 4).map((r, i) => (
+                  <li key={i} className="text-xs text-gray-300 flex gap-2">
+                    <span className="shrink-0 text-amber-400">•</span>{r}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <button
+            type="button"
+            disabled={!execAuthorized}
+            className="w-full py-3 rounded-xl text-sm font-black transition-all disabled:cursor-not-allowed disabled:opacity-90"
+            style={{
+              background: execAuthorized ? "#0f5132" : (regimeDefensive || row.overfit_warning || row.setup_status === "INVALID") ? "#2a0d0d" : "#2a220d",
+              border: `1px solid ${execAuthorized ? "#22c55e" : (regimeDefensive || row.overfit_warning || row.setup_status === "INVALID") ? "#7f1d1d" : "#a16207"}`,
+              color: execAuthorized ? "#86efac" : (regimeDefensive || row.overfit_warning || row.setup_status === "INVALID") ? "#fca5a5" : "#fcd34d",
+            }}
+          >
+            {ctaText}
+          </button>
         </div>
       </div>
     </div>
