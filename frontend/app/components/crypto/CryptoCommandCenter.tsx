@@ -111,7 +111,10 @@ export function CryptoCommandCenter({
           <p className="text-[10px] font-bold text-gray-700 uppercase tracking-widest">
             0 cryptos analysées · aucun cache exploitable
           </p>
-          <div className="flex items-center gap-2">
+          <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full" style={{ background: "#130404", border: "1px solid #7f1d1d", color: "#fca5a5" }}>
+          Crypto = surveillance uniquement si r?gime d?fensif
+        </span>
+        <div className="flex items-center gap-2">
             <button onClick={onRefreshPrices} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ background: "#0c0c18", border: "1px solid #1a1a2e", color: "#10b981" }}>
               Prix seulement
             </button>

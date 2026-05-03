@@ -434,6 +434,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [edgeV2OverlayCache, setEdgeV2OverlayCache] = useState<Record<string, EdgeV2Overlay>>({});
   const [edgeV2Loading, setEdgeV2Loading] = useState(false);
   const [edgeV2Notice, setEdgeV2Notice] = useState<string | null>(null);
+  const lastEdgeV2FetchKeyRef = useRef<string>("");
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [adminKeyPresent, setAdminKeyPresent] = useState(() => !!getAdminApiKey());
 
@@ -546,8 +547,10 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     }
   }, [isCrypto]);
 
-  const loadEdgeV2Research = useCallback(async (rows: TickerResult[]) => {
-    if (isCrypto || rows.length === 0) return;
+  const loadEdgeV2Research = useCallback(async (rows: TickerResult[], requestKey: string) => {
+    if (isCrypto || rows.length === 0 || !requestKey) return;
+    if (lastEdgeV2FetchKeyRef.current === requestKey) return;
+    lastEdgeV2FetchKeyRef.current = requestKey;
     const tickers = rows.map(row => row.ticker).join(",");
     setEdgeV2Loading(true);
     setEdgeV2Notice(null);
@@ -744,6 +747,11 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     });
   }, [dataWithLivePrices, edgeHorizon, edgeOverlayRows, isCrypto]);
 
+  const edgeV2RequestKey = useMemo(() => {
+    if (isCrypto || uiMode !== "pro" || view !== "table" || edgeMode !== "v2") return "";
+    return `v2|36|${data.map(row => row.ticker).join(",")}`;
+  }, [data, edgeMode, isCrypto, uiMode, view]);
+
   const advancedResearchData = useMemo<TickerResult[]>(() => {
     if (isCrypto || edgeMode === "v1") return advancedEdgeData;
     return advancedEdgeData.map(row => {
@@ -810,17 +818,22 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
   useEffect(() => {
     if (isCrypto || uiMode !== "pro" || view !== "table" || edgeMode !== "v2") return;
+    if (!edgeV2RequestKey) return;
     const missingRows = data.filter(row => !edgeV2OverlayCache[row.ticker]);
     if (missingRows.length === 0) return;
-    void loadEdgeV2Research(missingRows);
-  }, [data, edgeMode, edgeV2OverlayCache, isCrypto, loadEdgeV2Research, uiMode, view]);
+    void loadEdgeV2Research(missingRows, edgeV2RequestKey);
+  }, [data, edgeMode, edgeV2OverlayCache, edgeV2RequestKey, isCrypto, loadEdgeV2Research, uiMode, view]);
 
   useEffect(() => {
     if (edgeMode === "v1") {
       setEdgeV2Notice(null);
       setEdgeV2Loading(false);
+      lastEdgeV2FetchKeyRef.current = "";
     }
-  }, [edgeMode]);
+    if (!edgeV2RequestKey) {
+      lastEdgeV2FetchKeyRef.current = "";
+    }
+  }, [edgeMode, edgeV2RequestKey]);
 
   const switchStrategy = useCallback((s: Strategy) => {
     if (isCrypto) return;
