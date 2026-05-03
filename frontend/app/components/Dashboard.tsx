@@ -264,8 +264,11 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [cryptoRegime, setCryptoRegime] = useState<CryptoRegimeEngine | null>(null);
   const [freshness, setFreshness]   = useState<DataFreshness | null>(null);
   const [screenerRefreshing, setScreenerRefreshing] = useState(false);
-  const [screenerNotice, setScreenerNotice] = useState<{ kind: "timeout" | "refresh-failed" | "empty-cache"; message: string } | null>(null);
-  const [adminNotice, setAdminNotice] = useState<string | null>(null);
+  const [repairNotice, setRepairNotice] = useState<string | null>(null);
+  const [infoNotice, setInfoNotice] = useState<string | null>(null);
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
+  const [adminErrorNotice, setAdminErrorNotice] = useState<string | null>(null);
+  const [dataErrorNotice, setDataErrorNotice] = useState<string | null>(null);
 
   // Filtres
   const [search, setSearch]         = useState("");
@@ -334,7 +337,8 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     const hadVisibleData = dataLengthRef.current > 0;
     setLoading(true);
     setScreenerRefreshing(true);
-    setScreenerNotice(null);
+    setDataErrorNotice(null);
+    setRepairNotice(null);
     try {
       const screenerUrl = isCrypto
         ? `${API_URL}/api/crypto/screener${fast ? "?fast=true" : ""}`
@@ -364,38 +368,30 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
         dataLengthRef.current = json.length;
         setLastUpdate(new Date());
         saveScreenerCache(screenerScope, json);
-        setScreenerNotice(null);
+        setDataErrorNotice(null);
       } else if (isCrypto) {
         const cached = loadScreenerCache(screenerScope);
         if (cached?.data?.length || hadVisibleData) {
-          setScreenerNotice({
-            kind: "refresh-failed",
-            message: "Données précédentes — refresh échoué",
-          });
+          setDataErrorNotice("Données précédentes — refresh échoué");
         } else {
           setData([]);
           dataLengthRef.current = 0;
-          setScreenerNotice({
-            kind: "empty-cache",
-            message: "Aucune donnée crypto en cache. Lancez une réparation des caches.",
-          });
+          setDataErrorNotice("Aucune donnée crypto en cache. Lancez une réparation des caches.");
         }
       } else {
         setData(json);
         dataLengthRef.current = json.length;
         setLastUpdate(new Date());
         saveScreenerCache(screenerScope, json);
+        setDataErrorNotice(null);
       }
       await regimePromise;
       await fetchFreshness();
     } catch (e) {
       const timeout = e instanceof DOMException && e.name === "AbortError";
-      setScreenerNotice({
-        kind: timeout ? "timeout" : "refresh-failed",
-        message: timeout
-          ? "Réparation des caches trop longue. Les dernières données disponibles restent affichées."
-          : "Données précédentes — refresh échoué",
-      });
+      setDataErrorNotice(timeout
+        ? "Réparation des caches trop longue. Les dernières données disponibles restent affichées."
+        : "Données précédentes — refresh échoué");
       const cached = loadScreenerCache(screenerScope);
       if (cached?.data?.length && !hadVisibleData) {
         setData(cached.data);
@@ -421,7 +417,9 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
   async function recalculateEdge() {
     setEdgeComputing(true);
-    setAdminNotice(null);
+    setRepairNotice(null);
+    setInfoNotice(null);
+    setAdminErrorNotice(null);
     try {
       const actionTickers = !isCrypto && edgeHorizon === 36
         ? data.map(row => row.ticker).join(",")
@@ -446,7 +444,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       }
     } catch (error) {
       if (isAdminProtectedError(error)) {
-        setAdminNotice("Action admin protégée");
+        setAdminErrorNotice("Action admin protégée");
         setEdgeOverlayNotice("Action admin protégée");
       }
     }
@@ -516,7 +514,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       setEdgeOverlayCache(prev => ({ ...prev, [String(period)]: next }));
     } catch (error) {
       if (isAdminProtectedError(error)) {
-        setAdminNotice("Action admin protégée");
+        setAdminErrorNotice("Action admin protégée");
         setEdgeOverlayNotice("Action admin protégée");
       } else {
         setEdgeOverlayNotice("Analyse Edge 36m indisponible pour le moment. Les valeurs 24m restent affichées.");
@@ -529,50 +527,58 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   // ── Refresh manuel : vide le cache prix puis recharge ────────────────────────
   const repairCaches = useCallback(async () => {
     if (!adminKeyPresent) {
-      setAdminNotice("Admin requis");
+      setAdminErrorNotice("Admin requis");
       return;
     }
-    setAdminNotice("Réparation des caches en cours…");
-    setScreenerNotice(null);
+    setRepairNotice("Réparation des caches en cours…");
+    setInfoNotice("Réparation des caches en cours…");
+    setSuccessNotice(null);
+    setAdminErrorNotice(null);
+    setDataErrorNotice(null);
     setLoading(true);
     setScreenerRefreshing(true);
     try {
       for (const batch of [1, 2, 3, 4, 5]) {
-        setAdminNotice(`Réparation des caches… Actions batch ${batch}/5`);
+        setRepairNotice(`Réparation des caches… Actions batch ${batch}/5`);
+        setInfoNotice(`Réparation des caches… Actions batch ${batch}/5`);
         const res = await fetch(`${API_URL}/api/warmup?scope=actions&batch=${batch}&batch_size=50&include_edge=false`, {
           method: "POST",
           headers: getAdminHeaders(),
         });
         await ensureApiResponse(res);
       }
-      setAdminNotice("Réparation des caches… Warmup Crypto");
+      setRepairNotice("Réparation des caches… Warmup Crypto");
+      setInfoNotice("Réparation des caches… Warmup Crypto");
       const cryptoRes = await fetch(`${API_URL}/api/warmup?scope=crypto&include_edge=false`, {
         method: "POST",
         headers: getAdminHeaders(),
       });
       await ensureApiResponse(cryptoRes);
-      setAdminNotice("Réparation des caches… vérification finale");
+      setRepairNotice("Réparation des caches… vérification finale");
+      setInfoNotice("Réparation des caches… vérification finale");
       const statusRes = await fetch(`${API_URL}/api/cache-status?scope=all`, { cache: "no-store" });
       await ensureApiResponse(statusRes);
       const status = await statusRes.json();
-      setAdminNotice(
-        `Actions ${Number(status?.actions?.ohlcv_cache_count ?? 0) > 150 && Number(status?.actions?.price_cache_count ?? 0) > 150 && Number(status?.actions?.screener_results_count ?? 0) > 0 ? "OK" : "à vérifier"} · ` +
-        `Crypto ${Number(status?.crypto?.crypto_price_cache_count ?? 0) > 0 && Number(status?.crypto?.crypto_screener_cache_count ?? 0) > 0 && status?.crypto?.crypto_regime_cache_status === "warm" ? "OK" : "à vérifier"}`
-      );
+      const actionsOk = Number(status?.actions?.ohlcv_cache_count ?? 0) > 150 && Number(status?.actions?.price_cache_count ?? 0) > 150 && Number(status?.actions?.screener_results_count ?? 0) > 0;
+      const cryptoOk = Number(status?.crypto?.crypto_price_cache_count ?? 0) > 0 && Number(status?.crypto?.crypto_screener_cache_count ?? 0) > 0 && status?.crypto?.crypto_regime_cache_status === "warm";
+      const overallOk = actionsOk && cryptoOk;
+      if (overallOk) {
+        setSuccessNotice("Caches prêts : Actions OK · Crypto OK");
+        setRepairNotice("Les données sont chaudes. L'app est prête.");
+        setAdminErrorNotice(null);
+        setDataErrorNotice(null);
+      } else {
+        setInfoNotice(
+          `Actions ${actionsOk ? "OK" : "à vérifier"} · Crypto ${cryptoOk ? "OK" : "à vérifier"}`
+        );
+      }
       await fetchData({ fast: true, background: true });
     } catch (error) {
       if (isAdminProtectedError(error)) {
-        setAdminNotice("Action admin protégée");
-        setScreenerNotice({
-          kind: "refresh-failed",
-          message: "Action admin protégée",
-        });
+        setAdminErrorNotice("Action admin protégée");
+        setRepairNotice(null);
       } else {
-        setAdminNotice("Warmup trop long ou interrompu. Vérifiez le cache-status.");
-        setScreenerNotice({
-          kind: "timeout",
-          message: "Warmup trop long ou interrompu. Vérifiez le cache-status.",
-        });
+        setDataErrorNotice("Warmup trop long ou interrompu. Vérifiez le cache-status.");
       }
     } finally {
       setScreenerRefreshing(false);
@@ -618,16 +624,12 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       dataLengthRef.current = cached.data.length;
       setLastUpdate(new Date(cached.ts));
       setLoading(false);
-      setScreenerNotice({
-        kind: "refresh-failed",
-        message: "Dernières données locales restaurées depuis le cache",
-      });
+      setDataErrorNotice(null);
+      setSuccessNotice("Dernières données locales restaurées depuis le cache");
       return;
     }
-    setScreenerNotice({
-      kind: "empty-cache",
-      message: "Aucune donnée en cache. Lancez une réparation des caches.",
-    });
+    setSuccessNotice(null);
+    setDataErrorNotice("Aucune donnée en cache. Lancez une réparation des caches.");
     setLoading(false);
   }, [screenerScope]);
 
@@ -696,7 +698,10 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     setRegime(null);
     setCryptoRegime(null);
     setFreshness(null);
-    setScreenerNotice(null);
+    setDataErrorNotice(null);
+    setAdminErrorNotice(null);
+    setSuccessNotice(null);
+    setInfoNotice(null);
     void fetchData({ fast: true, background: !!cached?.data?.length });
     fetch(isCrypto ? `${API_URL}/api/crypto/regime` : `${API_URL}/api/market-regime`)
       .then(r => r.json())
@@ -799,7 +804,19 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   };
 
   // Écran de chargement initial
-  if (loading && data.length === 0 && !screenerNotice) {
+  const runtimeNotice = dataErrorNotice || repairNotice || infoNotice || successNotice || adminErrorNotice;
+  const screenerNotice: { kind: "timeout" | "refresh-failed" | "empty-cache"; message: string } | null = dataErrorNotice
+    ? {
+        kind: dataErrorNotice.toLowerCase().includes("trop longue")
+          ? "timeout"
+          : dataErrorNotice.toLowerCase().includes("aucune donnée")
+            ? "empty-cache"
+            : "refresh-failed",
+        message: dataErrorNotice,
+      }
+    : null;
+
+  if (loading && data.length === 0 && !runtimeNotice) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: "#070710" }}>
         <div className="text-center space-y-4">
@@ -1031,61 +1048,89 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
       </div>
 
       {/* ── COMMAND CENTER ───────────────────────────────────────────────── */}
-      {screenerNotice && (
+      {successNotice && (
         <div className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap"
-          style={{ background: screenerNotice.kind === "timeout" ? "#1a1010" : "#1a0f06", border: `1px solid ${screenerNotice.kind === "timeout" ? "#ef444455" : "#f59e0b55"}` }}>
-            <span className="text-sm">{screenerNotice.kind === "timeout" ? "⏳" : "⚠️"}</span>
-            <div>
-              <p className="text-xs font-black uppercase tracking-widest" style={{ color: screenerNotice.kind === "timeout" ? "#f87171" : "#f59e0b" }}>
-                {screenerNotice.message}
-              </p>
-              <p className="text-[11px] text-gray-500 mt-0.5">
-                {screenerNotice.kind === "timeout"
-                  ? "Les données déjà visibles restent affichées pendant que le backend finit le calcul."
-                  : "Les dernières données connues sont conservées côté navigateur."}
-              </p>
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                onClick={repairCaches}
-                disabled={!adminKeyPresent}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
-                style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: adminKeyPresent ? "#f59e0b" : "#6b7280" }}
-              >
-                {adminKeyPresent ? "Réparer les caches" : "Admin requis"}
-              </button>
-              <button
-                onClick={refreshPricesOnly}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold"
-                style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#10b981" }}
-              >
-                Rafraîchir prix seulement
-              </button>
-              <button
-                onClick={restoreFromCache}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold"
-                style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#f59e0b" }}
-              >
-                Recharger depuis cache
-              </button>
-            </div>
+          style={{ background: "#07140d", border: "1px solid #10b98155" }}>
+          <span className="text-sm">✅</span>
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-300">
+              {successNotice}
+            </p>
+            <p className="text-[11px] text-emerald-100/70 mt-0.5">
+              Les données sont chaudes. L&apos;app est prête.
+            </p>
           </div>
-        )}
+        </div>
+      )}
 
-        {adminNotice && (
-          <div className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3"
-            style={{ background: "#1a0a0a", border: "1px solid #7f1d1d66" }}>
-            <span className="text-sm">🔒</span>
-            <div>
-              <p className="text-xs font-black text-red-400 uppercase tracking-widest">
-                {adminNotice}
-              </p>
-              <p className="text-[11px] text-red-200 mt-0.5">
-                Cette action nécessite une clé admin côté backend. L&apos;interface reste utilisable sans recalcul protégé.
-              </p>
-            </div>
+      {repairNotice && !successNotice && (
+        <div className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap"
+          style={{ background: "#0f172a", border: "1px solid #334155" }}>
+          <span className="text-sm">🛠️</span>
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-slate-200">
+              {repairNotice}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              {infoNotice ?? "Réparation en cours. Les dernières données visibles restent affichées."}
+            </p>
           </div>
-        )}
+        </div>
+      )}
+
+      {dataErrorNotice && (
+        <div className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3 flex-wrap"
+          style={{ background: "#1a0f06", border: "1px solid #f59e0b55" }}>
+          <span className="text-sm">⚠️</span>
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-amber-300">
+              {dataErrorNotice}
+            </p>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              Les dernières données connues sont conservées côté navigateur.
+            </p>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={repairCaches}
+              disabled={!adminKeyPresent}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold disabled:opacity-50"
+              style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: adminKeyPresent ? "#f59e0b" : "#6b7280" }}
+            >
+              {adminKeyPresent ? "Réparer les caches" : "Admin requis"}
+            </button>
+            <button
+              onClick={refreshPricesOnly}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold"
+              style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#10b981" }}
+            >
+              Rafraîchir prix seulement
+            </button>
+            <button
+              onClick={restoreFromCache}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold"
+              style={{ background: "#0d0d18", border: "1px solid #1e1e2a", color: "#f59e0b" }}
+            >
+              Recharger depuis cache
+            </button>
+          </div>
+        </div>
+      )}
+
+      {adminErrorNotice && (
+        <div className="rounded-xl px-4 py-3 mb-4 flex items-center gap-3"
+          style={{ background: "#1a0a0a", border: "1px solid #7f1d1d66" }}>
+          <span className="text-sm">🔒</span>
+          <div>
+            <p className="text-xs font-black text-red-400 uppercase tracking-widest">
+              {adminErrorNotice}
+            </p>
+            <p className="text-[11px] text-red-200 mt-0.5">
+              Cette action nécessite une clé admin côté backend. L&apos;interface reste utilisable sans recalcul protégé.
+            </p>
+          </div>
+        </div>
+      )}
 
         <DataFreshnessPanel
           freshness={freshness}

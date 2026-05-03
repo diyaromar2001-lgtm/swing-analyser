@@ -45,6 +45,10 @@ export function AdminPanel({
   const [keyInput, setKeyInput] = useState("");
   const [savedKeyState, setSavedKeyState] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
+  const [repairNotice, setRepairNotice] = useState<string | null>(null);
+  const [adminErrorNotice, setAdminErrorNotice] = useState<string | null>(null);
+  const [dataErrorNotice, setDataErrorNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [testStatus, setTestStatus] = useState<"idle" | "ok" | "fail">("idle");
   const [cacheStatus, setCacheStatus] = useState<CacheStatus | null>(null);
@@ -72,6 +76,10 @@ export function AdminPanel({
       setMessage("Aucune clé à sauvegarder.");
       return;
     }
+    setSuccessNotice(null);
+    setRepairNotice(null);
+    setAdminErrorNotice(null);
+    setDataErrorNotice(null);
     try {
       window.localStorage.setItem(ADMIN_API_KEY_STORAGE, value);
       setSavedKeyState(value);
@@ -85,6 +93,10 @@ export function AdminPanel({
   }
 
   function clearKey() {
+    setSuccessNotice(null);
+    setRepairNotice(null);
+    setAdminErrorNotice(null);
+    setDataErrorNotice(null);
     try {
       window.localStorage.removeItem(ADMIN_API_KEY_STORAGE);
       setSavedKeyState(null);
@@ -100,6 +112,10 @@ export function AdminPanel({
   async function testKey() {
     setBusy("test");
     setMessage(null);
+    setSuccessNotice(null);
+    setRepairNotice(null);
+    setAdminErrorNotice(null);
+    setDataErrorNotice(null);
     try {
       const res = await fetch(`${apiUrl}/api/admin/ping`, {
         headers: getAdminHeaders(),
@@ -109,17 +125,17 @@ export function AdminPanel({
       const json = await res.json();
       if (json?.admin) {
         setTestStatus("ok");
-        setMessage("Clé validée.");
+        setSuccessNotice("Clé validée.");
       } else {
         setTestStatus("fail");
-        setMessage("Clé invalide.");
+        setAdminErrorNotice("Clé invalide.");
       }
     } catch (error) {
       setTestStatus("fail");
       if (isAdminProtectedError(error)) {
-        setMessage("Action admin protégée — clé absente ou invalide.");
+        setAdminErrorNotice("Action admin protégée — clé absente ou invalide.");
       } else {
-        setMessage("Test de clé impossible.");
+        setDataErrorNotice("Test de clé impossible.");
       }
     } finally {
       setBusy(null);
@@ -129,17 +145,33 @@ export function AdminPanel({
   async function fetchCacheStatus() {
     setBusy("cache");
     setMessage(null);
+    setSuccessNotice(null);
+    setRepairNotice(null);
+    setAdminErrorNotice(null);
+    setDataErrorNotice(null);
     try {
       const res = await fetch(`${apiUrl}/api/cache-status?scope=all`, { cache: "no-store" });
       await ensureApiResponse(res);
       const json = await res.json();
       setCacheStatus(json);
-      setMessage("Cache vérifié.");
+      const actionsOk = !!json?.actions
+        && Number(json.actions.ohlcv_cache_count ?? 0) > 150
+        && Number(json.actions.price_cache_count ?? 0) > 150
+        && Number(json.actions.screener_results_count ?? 0) > 0;
+      const cryptoOk = !!json?.crypto
+        && Number(json.crypto.crypto_price_cache_count ?? 0) > 0
+        && Number(json.crypto.crypto_screener_cache_count ?? 0) > 0
+        && json.crypto.crypto_regime_cache_status === "warm";
+      if (actionsOk && cryptoOk) {
+        setSuccessNotice("Caches prêts : Actions OK · Crypto OK");
+      } else {
+        setRepairNotice("Cache vérifié.");
+      }
     } catch (error) {
       if (isAdminProtectedError(error)) {
-        setMessage("Action admin protégée — clé absente ou invalide.");
+        setAdminErrorNotice("Action admin protégée — clé absente ou invalide.");
       } else {
-        setMessage("Vérification cache impossible.");
+        setDataErrorNotice("Vérification cache impossible.");
       }
     } finally {
       setBusy(null);
@@ -149,6 +181,10 @@ export function AdminPanel({
   async function runWarmup(url: string, label: string, withHeader = true) {
     setBusy(label);
     setMessage(null);
+    setSuccessNotice(null);
+    setRepairNotice(null);
+    setAdminErrorNotice(null);
+    setDataErrorNotice(null);
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -162,12 +198,12 @@ export function AdminPanel({
         ...(json.errors?.length ? json.errors.map(e => `[error] ${e}`) : []),
         ...prev,
       ]);
-      setMessage("Warmup terminé.");
+      setSuccessNotice("Warmup terminé.");
     } catch (error) {
       if (isAdminProtectedError(error)) {
-        setMessage("Action admin protégée — clé absente ou invalide.");
+        setAdminErrorNotice("Action admin protégée — clé absente ou invalide.");
       } else {
-        setMessage("Warmup trop long ou interrompu. Vérifiez le cache-status.");
+        setDataErrorNotice("Warmup trop long ou interrompu. Vérifiez le cache-status.");
       }
     } finally {
       setBusy(null);
@@ -207,18 +243,22 @@ export function AdminPanel({
     }
     setBusy("danger-clear-cache");
     setMessage(null);
+    setSuccessNotice(null);
+    setRepairNotice(null);
+    setAdminErrorNotice(null);
+    setDataErrorNotice(null);
     try {
       const res = await fetch(`${apiUrl}/api/clear-cache?scope=all`, {
         method: "POST",
         headers: getAdminHeaders(),
       });
       await ensureApiResponse(res);
-      setMessage("Caches vidés. Lancez un warmup complet ensuite.");
+      setRepairNotice("Caches vidés. Lancez un warmup complet ensuite.");
     } catch (error) {
       if (isAdminProtectedError(error)) {
-        setMessage("Action admin protégée — clé absente ou invalide.");
+        setAdminErrorNotice("Action admin protégée — clé absente ou invalide.");
       } else {
-        setMessage("Vidage des caches impossible.");
+        setDataErrorNotice("Vidage des caches impossible.");
       }
     } finally {
       setBusy(null);
@@ -272,10 +312,34 @@ export function AdminPanel({
               <button onClick={clearKey} className="px-3 py-2 rounded-lg bg-slate-800 text-slate-200 text-sm font-semibold">Effacer la clé</button>
               <button onClick={testKey} disabled={busy === "test"} className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50">Tester la clé</button>
             </div>
-            <div className="mt-3 text-sm text-slate-400">
-              {message ? <span>{message}</span> : <span>Statut admin: {adminActive ? "Activé localement" : "Désactivé"}</span>}
-              {testStatus === "ok" && <span className="ml-2 text-emerald-300">OK</span>}
-              {testStatus === "fail" && <span className="ml-2 text-red-400">Échec</span>}
+            <div className="mt-3 space-y-2">
+              {successNotice && (
+                <div className="rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200">
+                  {successNotice}
+                </div>
+              )}
+              {repairNotice && !successNotice && (
+                <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-slate-200">
+                  {repairNotice}
+                </div>
+              )}
+              {adminErrorNotice && (
+                <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+                  {adminErrorNotice}
+                </div>
+              )}
+              {dataErrorNotice && (
+                <div className="rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+                  {dataErrorNotice}
+                </div>
+              )}
+              {!successNotice && !repairNotice && !adminErrorNotice && !dataErrorNotice && (
+                <div className="text-sm text-slate-400">
+                  {message ? <span>{message}</span> : <span>Statut admin: {adminActive ? "Activé localement" : "Désactivé"}</span>}
+                  {testStatus === "ok" && <span className="ml-2 text-emerald-300">OK</span>}
+                  {testStatus === "fail" && <span className="ml-2 text-red-400">Échec</span>}
+                </div>
+              )}
             </div>
           </section>
 
