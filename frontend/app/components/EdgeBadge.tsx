@@ -5,19 +5,21 @@ export type EdgeStatus =
   | "VALID_EDGE"
   | "WEAK_EDGE"
   | "NO_EDGE"
-  | "OVERFITTED";
+  | "OVERFITTED"
+  | "UNKNOWN";
 
-const EDGE_CFG: Record<EdgeStatus, { label: string; color: string; bg: string }> = {
-  STRONG_EDGE: { label: "⚡ STRONG EDGE", color: "#4ade80", bg: "#052e16" },
+const EDGE_CFG: Record<string, { label: string; color: string; bg: string }> = {
+  STRONG_EDGE: { label: "✓ STRONG EDGE", color: "#4ade80", bg: "#052e16" },
   VALID_EDGE:  { label: "✓ VALID EDGE",  color: "#86efac", bg: "#031a0d" },
   WEAK_EDGE:   { label: "~ WEAK EDGE",   color: "#fde047", bg: "#1c1500" },
-  NO_EDGE:     { label: "○ NO EDGE",     color: "#6b7280", bg: "#111118" },
-  OVERFITTED:  { label: "⚠ OVERFIT",     color: "#f59e0b", bg: "#1c1000" },
+  NO_EDGE:     { label: "✗ NO EDGE",     color: "#ef4444", bg: "#1a0d0d" },
+  OVERFITTED:  { label: "⚠ OVERFITTED",  color: "#f97316", bg: "#1c0800" },
+  UNKNOWN:     { label: "— UNKNOWN",     color: "#6b7280", bg: "#111118" },
 };
 
 export function EdgeStatusBadge({ status }: { status?: EdgeStatus | string | null }) {
-  const s = (status as EdgeStatus) ?? "NO_EDGE";
-  const c = EDGE_CFG[s] ?? EDGE_CFG.NO_EDGE;
+  const s = status?.trim().toUpperCase() || "UNKNOWN";
+  const c = EDGE_CFG[s] ?? EDGE_CFG.UNKNOWN;
   return (
     <span
       className="text-[10px] font-black px-1.5 py-0.5 rounded whitespace-nowrap"

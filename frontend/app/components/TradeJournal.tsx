@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useJournal } from "../hooks/useJournal";
 import { JournalTrade } from "../types";
+import { EdgeStatusBadge } from "./EdgeBadge";
 
 const SIM_CAPITAL = 10_000;
 const DEFAULT_RISK_PCT = 0.01;
@@ -148,7 +149,7 @@ function Section({
                       <span className="px-2 py-1 rounded text-[10px] font-black" style={{ color: badge.color, background: badge.bg }}>{badge.label}</span>
                     </td>
                     <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{trade.setup_grade ?? "—"}</td>
-                    <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{trade.edge_status ?? "—"}</td>
+                    <td className="py-3 pr-3 border-b border-[#141425]"><EdgeStatusBadge status={trade.edge_status} /></td>
                     <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">{(trade.strategy_name ?? trade.strategy ?? "—").replaceAll("_", " ")}</td>
                     <td className="py-3 pr-3 text-xs text-gray-300 border-b border-[#141425]">
                       {notePreview ? (
