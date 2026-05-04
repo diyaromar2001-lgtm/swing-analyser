@@ -514,6 +514,19 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
     }
   }, [isCrypto]);
 
+  const handleRefreshScreener = useCallback(async () => {
+    // Refresh screener data after edge compute
+    try {
+      const refreshedData = await fetchData({ fast: true });
+      // If advanced view is active and we have fresh data, reload overlay
+      if (uiMode === "pro" && !isCrypto && edgeHorizon === 36) {
+        setEdgeOverlayCache(prev => ({ ...prev, ["36"]: {} }));
+      }
+    } catch (error) {
+      console.error("Failed to refresh screener:", error);
+    }
+  }, [fetchData, uiMode, isCrypto, edgeHorizon]);
+
   useEffect(() => {
     if (!successNotice) return;
     if (!successNotice.includes("Dernières données locales") && !successNotice.startsWith("Caches prêts")) return;
@@ -1000,6 +1013,7 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
           apiUrl={API_URL}
           onClose={() => setShowAdminPanel(false)}
           onKeyChange={setAdminKeyPresent}
+          onRefreshScreener={handleRefreshScreener}
         />
       )}
       {showApiStatus && <ApiStatusPanel onClose={() => setShowApiStatus(false)} />}

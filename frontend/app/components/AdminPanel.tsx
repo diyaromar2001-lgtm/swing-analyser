@@ -38,10 +38,12 @@ export function AdminPanel({
   apiUrl,
   onClose,
   onKeyChange,
+  onRefreshScreener,
 }: {
   apiUrl: string;
   onClose: () => void;
   onKeyChange?: (hasKey: boolean) => void;
+  onRefreshScreener?: () => void;
 }) {
   const [keyInput, setKeyInput] = useState("");
   const [savedKeyState, setSavedKeyState] = useState<string | null>(null);
@@ -273,7 +275,13 @@ export function AdminPanel({
         setRepairNotice("Aucun ticker éligible trouvé dans le cache actuel.");
         setInfoNotice("Utilisez le calcul par ticker dans le Trade Plan (bouton 'Calculer Edge [TICKER]').");
       } else {
-        setSuccessNotice(`Edge calculé pour ${json.edge_actions_computed} / ${json.edge_actions_count} tickers.`);
+        setSuccessNotice(`Edge calculé pour ${json.edge_actions_computed} / ${json.edge_actions_count} tickers — tableau mis à jour`);
+        // Auto-refresh screener to reflect new edge statuses
+        if (onRefreshScreener) {
+          setTimeout(() => {
+            onRefreshScreener();
+          }, 500);
+        }
       }
     } catch (error) {
       if (isAdminProtectedError(error)) {

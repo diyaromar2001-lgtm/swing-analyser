@@ -3109,6 +3109,7 @@ def warmup_edge_actions(
                 "edge_actions_computed": 0,
                 "edge_actions_tickers": [],
                 "edge_actions_failed": 0,
+                "results": [],
                 "warnings": warnings,
                 "errors": errors,
                 "duration_ms": round((_time.perf_counter() - started) * 1000, 1),
@@ -3132,12 +3133,32 @@ def warmup_edge_actions(
 
         _persist_runtime_cache_state()
 
+        # BUGFIX: Invalidate screener cache so next fetch reflects new edge statuses
+        _screener_cache.clear()
+
+        # Build results with edge details for each computed ticker
+        results = []
+        for ticker in filtered_tickers:
+            edge_data, edge_state = get_cached_edge_with_status(ticker)
+            if edge_data:
+                results.append({
+                    "ticker": ticker,
+                    "edge_status": edge_data.get("ticker_edge_status", "NO_EDGE"),
+                    "train_pf": float(edge_data.get("train_pf", 0.0)),
+                    "test_pf": float(edge_data.get("test_pf", 0.0)),
+                    "expectancy": float(edge_data.get("expectancy", 0.0)),
+                    "trades": int(edge_data.get("total_trades", 0)),
+                    "overfit_warning": bool(edge_data.get("overfit_warning", False)),
+                    "sample_status": edge_data.get("sample_status", "UNKNOWN"),
+                })
+
         return {
             "status": "ok" if not errors else "partial",
             "edge_actions_count": len(filtered_tickers),
             "edge_actions_computed": edge_computed,
             "edge_actions_tickers": filtered_tickers,
             "edge_actions_failed": len([e for e in errors if "edge_actions:" in e]),
+            "results": results,
             "warnings": warnings[-10:],  # Last 10
             "errors": errors[-10:],      # Last 10
             "duration_ms": round((_time.perf_counter() - started) * 1000, 1),
@@ -3150,6 +3171,7 @@ def warmup_edge_actions(
             "edge_actions_computed": 0,
             "edge_actions_tickers": [],
             "edge_actions_failed": 0,
+            "results": [],
             "warnings": warnings,
             "errors": [f"warmup_edge_actions: {type(exc).__name__}: {str(exc)[:180]}"],
             "duration_ms": round((_time.perf_counter() - started) * 1000, 1),
