@@ -77,7 +77,7 @@ export interface TickerResult {
   tradable?:            boolean;
   rejection_reason?:    string;
   // Strategy Edge per Ticker
-  ticker_edge_status?:  "STRONG_EDGE" | "VALID_EDGE" | "WEAK_EDGE" | "NO_EDGE" | "OVERFITTED";
+  ticker_edge_status?:  "STRONG_EDGE" | "VALID_EDGE" | "WEAK_EDGE" | "NO_EDGE" | "OVERFITTED" | "EDGE_NOT_COMPUTED";
   best_strategy_for_ticker?: string | null;
   best_strategy_name?:  string | null;
   best_strategy_color?: string;

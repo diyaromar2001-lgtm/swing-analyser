@@ -6,6 +6,7 @@ export type EdgeStatus =
   | "WEAK_EDGE"
   | "NO_EDGE"
   | "OVERFITTED"
+  | "EDGE_NOT_COMPUTED"
   | "UNKNOWN";
 
 const EDGE_CFG: Record<string, { label: string; color: string; bg: string }> = {
@@ -14,6 +15,7 @@ const EDGE_CFG: Record<string, { label: string; color: string; bg: string }> = {
   WEAK_EDGE:   { label: "~ WEAK EDGE",   color: "#fde047", bg: "#1c1500" },
   NO_EDGE:     { label: "✗ NO EDGE",     color: "#ef4444", bg: "#1a0d0d" },
   OVERFITTED:  { label: "⚠ OVERFITTED",  color: "#f97316", bg: "#1c0800" },
+  EDGE_NOT_COMPUTED: { label: "◆ EDGE NOT COMPUTED", color: "#60a5fa", bg: "#082f49" },
   UNKNOWN:     { label: "— UNKNOWN",     color: "#6b7280", bg: "#111118" },
 };
 
@@ -39,6 +41,9 @@ export function EdgeValidationNote({
 }) {
   if (setupGrade === "REJECT") {
     return <span className="text-[10px] text-red-400 font-bold">Setup invalide</span>;
+  }
+  if (status === "EDGE_NOT_COMPUTED") {
+    return <span className="text-[10px] text-blue-400 font-bold">Edge non calculé — cliquer Calculer</span>;
   }
   if (status === "OVERFITTED") {
     return <span className="text-[10px] text-amber-400 font-bold">Overfit — éviter</span>;

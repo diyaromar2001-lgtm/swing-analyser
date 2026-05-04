@@ -49,7 +49,7 @@ from market_context import compute_market_context, _fetch_vix, _fetch_sector_str
 from earnings import get_earnings_date
 from setup_validator import validate_setup
 from market_regime_engine import compute_regime_engine
-from ticker_edge import compute_ticker_edge, get_cached_edge, invalidate_cache as _invalidate_edge_cache
+from ticker_edge import compute_ticker_edge, get_cached_edge, get_cached_edge_with_status, is_edge_cache_populated, invalidate_cache as _invalidate_edge_cache
 import market_regime_engine as _regime_engine_module
 import market_context as _market_context_module
 import ticker_edge as _ticker_edge_module
@@ -982,7 +982,7 @@ class TickerResult(BaseModel):
     tradable:            bool        = True
     rejection_reason:    str         = ""
     # ── Strategy Edge per Ticker ──────────────────────────────────────────
-    ticker_edge_status:  str         = "NO_EDGE"   # STRONG_EDGE | VALID_EDGE | WEAK_EDGE | OVERFITTED | NO_EDGE
+    ticker_edge_status:  str         = "NO_EDGE"   # STRONG_EDGE | VALID_EDGE | WEAK_EDGE | OVERFITTED | NO_EDGE | EDGE_NOT_COMPUTED
     best_strategy_for_ticker: Optional[str] = None  # clé de la meilleure stratégie
     best_strategy_name:  Optional[str] = None
     best_strategy_color: str         = "#6b7280"
@@ -1241,8 +1241,17 @@ def analyze_ticker(
 
         # ── 7. Strategy Edge (cache uniquement — non bloquant) ──────────────
         try:
-            edge_data    = get_cached_edge(ticker) or {}
-            te_status    = edge_data.get("ticker_edge_status",  "NO_EDGE")
+            edge_data, edge_cache_state = get_cached_edge_with_status(ticker)
+            if edge_data is None:
+                if edge_cache_state == "EMPTY":
+                    te_status = "EDGE_NOT_COMPUTED"
+                    edge_data = {}
+                else:
+                    te_status = "NO_EDGE"
+                    edge_data = {}
+            else:
+                edge_data = edge_data or {}
+                te_status = edge_data.get("ticker_edge_status", "NO_EDGE")
             best_strat   = edge_data.get("best_strategy",       None)
             best_s_name  = edge_data.get("best_strategy_name",  None)
             best_s_color = edge_data.get("best_strategy_color", "#6b7280")
@@ -2903,6 +2912,119 @@ def warmup_actions_missing(
     payload["updated"] = _actions_cache_snapshot()
     _persist_runtime_cache_state()
     return payload
+
+
+@app.post("/api/warmup/edge-actions")
+def warmup_edge_actions(
+    grades: Optional[str] = Query("A+,A,B"),
+    limit: Optional[int] = Query(None, ge=1, le=100),
+    _: None = Depends(require_admin_key),
+):
+    """
+    Compute edge v1 for filtered Actions tickers (by grade).
+    Targets: A+, A, B grades only (no REJECT).
+    Uses existing screener cache to filter tickers.
+    Progressive computation in batches.
+    """
+    started = _time.perf_counter()
+    warnings: List[str] = []
+    errors: List[str] = []
+    edge_computed = 0
+
+    # Parse grades filter
+    target_grades = [g.strip().upper() for g in (grades or "A+,A,B").split(",")]
+    valid_grades = {"A+", "A", "B"}
+    target_grades = [g for g in target_grades if g in valid_grades]
+    if not target_grades:
+        target_grades = ["A+", "A", "B"]
+
+    try:
+        # Get current screener cache (contains all evaluated tickers)
+        current_cache = _screener_cache.get(_default_screener_cache_key(), {}).get("data", [])
+        if not current_cache:
+            # Try to run a quick screener pass to populate
+            try:
+                _run_with_timeout(
+                    "warmup_edge_screener",
+                    lambda: _run_screener_impl(fast=True, limit=None),
+                    45,
+                    warnings,
+                    errors,
+                )
+                current_cache = _screener_cache.get(_default_screener_cache_key(), {}).get("data", [])
+            except Exception as e:
+                warnings.append(f"Could not pre-warm screener: {type(e).__name__}")
+
+        # Filter for target grades
+        filtered_tickers = []
+        for result in (current_cache or []):
+            if hasattr(result, "setup_grade"):
+                grade = result.setup_grade
+            elif isinstance(result, dict):
+                grade = result.get("setup_grade")
+            else:
+                continue
+            if grade in target_grades:
+                ticker = result.ticker if hasattr(result, "ticker") else result.get("ticker")
+                if ticker:
+                    filtered_tickers.append(ticker)
+
+        # Apply limit if specified
+        if limit:
+            filtered_tickers = filtered_tickers[:limit]
+
+        if not filtered_tickers:
+            return {
+                "status": "ok",
+                "edge_actions_count": 0,
+                "edge_actions_computed": 0,
+                "edge_actions_tickers": [],
+                "edge_actions_failed": 0,
+                "warnings": warnings,
+                "errors": errors,
+                "duration_ms": round((_time.perf_counter() - started) * 1000, 1),
+            }
+
+        # Compute edge for each ticker in batches
+        batch_size = 5
+        for batch_start in range(0, len(filtered_tickers), batch_size):
+            batch = filtered_tickers[batch_start:batch_start + batch_size]
+            for ticker in batch:
+                try:
+                    df = _get_ohlcv(ticker, allow_download=True)
+                    if df is None:
+                        warnings.append(f"edge_actions:{ticker}: OHLCV unavailable")
+                        continue
+                    compute_ticker_edge(ticker, df, period_months=24)
+                    edge_computed += 1
+                except Exception as exc:
+                    msg = f"edge_actions:{ticker}: {type(exc).__name__}: {str(exc)[:160]}"
+                    errors.append(msg)
+
+        _persist_runtime_cache_state()
+
+        return {
+            "status": "ok" if not errors else "partial",
+            "edge_actions_count": len(filtered_tickers),
+            "edge_actions_computed": edge_computed,
+            "edge_actions_tickers": filtered_tickers,
+            "edge_actions_failed": len([e for e in errors if "edge_actions:" in e]),
+            "warnings": warnings[-10:],  # Last 10
+            "errors": errors[-10:],      # Last 10
+            "duration_ms": round((_time.perf_counter() - started) * 1000, 1),
+        }
+
+    except Exception as exc:
+        return {
+            "status": "error",
+            "edge_actions_count": 0,
+            "edge_actions_computed": 0,
+            "edge_actions_tickers": [],
+            "edge_actions_failed": 0,
+            "warnings": warnings,
+            "errors": [f"warmup_edge_actions: {type(exc).__name__}: {str(exc)[:180]}"],
+            "duration_ms": round((_time.perf_counter() - started) * 1000, 1),
+        }
 
 
 # ── Trade Journal persisté ─────────────────────────────────────────────────

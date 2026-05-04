@@ -126,7 +126,12 @@ function getExecutionAuthorization(row: TickerResult) {
   const reasons: string[] = [];
   if (!tradableOk) reasons.push("tradable = false");
   if (!buyOk) reasons.push(`Décision finale : ${row.final_decision ?? "WAIT / SKIP"}`);
-  if (!edgeOk) reasons.push("Edge non validé");
+  if (!edgeOk) {
+    const edgeMsg = row.ticker_edge_status === "EDGE_NOT_COMPUTED"
+      ? "Edge non calculé (cliquer Calculer Edge)"
+      : "Edge non validé";
+    reasons.push(edgeMsg);
+  }
   if (!setupOk) reasons.push("Setup technique insuffisant");
   if (!setupStatusOk) reasons.push("Setup invalide");
   if (!overfitOk) reasons.push("Backtest suspect");
@@ -142,7 +147,8 @@ function getExecutionAuthorization(row: TickerResult) {
       row.ticker_edge_status === "STRONG_EDGE" ? "Edge robuste" :
       row.ticker_edge_status === "VALID_EDGE" ? "Edge valide" :
       row.ticker_edge_status === "WEAK_EDGE" ? "Edge faible" :
-      row.ticker_edge_status === "OVERFITTED" ? "Backtest suspect" : "Edge non validé",
+      row.ticker_edge_status === "OVERFITTED" ? "Backtest suspect" :
+      row.ticker_edge_status === "EDGE_NOT_COMPUTED" ? "Edge non calculé" : "Edge non validé",
   };
 }
 
@@ -192,12 +198,15 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
             ? "Edge faible"
             : row.ticker_edge_status === "OVERFITTED"
               ? "Backtest suspect - eviter"
-              : "Edge non valide";
+              : row.ticker_edge_status === "EDGE_NOT_COMPUTED"
+                ? "Edge non calculé"
+                : "Edge non valide";
   const edgeColor =
     row.ticker_edge_status === "STRONG_EDGE" ? "#4ade80" :
     row.ticker_edge_status === "VALID_EDGE"  ? "#86efac" :
     row.ticker_edge_status === "WEAK_EDGE"   ? "#fde047" :
-    row.ticker_edge_status === "OVERFITTED"  ? "#f59e0b" : "#9ca3af";
+    row.ticker_edge_status === "OVERFITTED"  ? "#f59e0b" :
+    row.ticker_edge_status === "EDGE_NOT_COMPUTED" ? "#60a5fa" : "#9ca3af";
 
   const gradeColors: Record<string, { bg: string; border: string }> = {
     "A+":    { bg: "#031a0d", border: "#16a34a" },

@@ -245,6 +245,42 @@ export function AdminPanel({
     );
   }
 
+  async function runEdgeActionsCompute() {
+    setBusy("edge-actions");
+    setMessage(null);
+    setSuccessNotice(null);
+    setRepairNotice(null);
+    setInfoNotice(null);
+    setAdminErrorNotice(null);
+    setDataErrorNotice(null);
+    try {
+      const res = await fetch(
+        `${apiUrl}/api/warmup/edge-actions?grades=A%2B,A,B`,
+        {
+          method: "POST",
+          headers: getAdminHeaders(),
+        }
+      );
+      await ensureApiResponse(res);
+      const json = await res.json() as any;
+      setWarmupLog(prev => [
+        `[edge-actions] computed=${json.edge_actions_computed}/${json.edge_actions_count} duration=${json.duration_ms}ms`,
+        ...(json.warnings?.length ? json.warnings.map((w: string) => `[warn] ${w}`) : []),
+        ...(json.errors?.length ? json.errors.map((e: string) => `[error] ${e}`) : []),
+        ...prev,
+      ]);
+      setSuccessNotice(`Edge calculé pour ${json.edge_actions_computed} tickers.`);
+    } catch (error) {
+      if (isAdminProtectedError(error)) {
+        setAdminErrorNotice("Action admin protégée — clé absente ou invalide.");
+      } else {
+        setDataErrorNotice("Calcul edge impossible.");
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function runDangerClearCache() {
     if (!window.confirm("Cette action vide les caches et peut rendre l'app lente. Continuer ?")) {
       return;
@@ -387,6 +423,17 @@ export function AdminPanel({
                 >
                   Warmup Crypto
                 </button>
+              </div>
+              <div className="p-3 rounded-lg border border-slate-800 bg-black/40">
+                <h4 className="text-sm font-semibold text-white mb-2">Edge v1 Analysis</h4>
+                <button
+                  onClick={runEdgeActionsCompute}
+                  disabled={!adminActive || !!busy}
+                  className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold disabled:opacity-40"
+                >
+                  Calculer Edge Actions (A+/A/B)
+                </button>
+                <p className="text-[10px] text-slate-400 mt-2">Compute strategy edge for A+/A/B grade setups only. Does not modify existing data.</p>
               </div>
             </div>
             <div className="mt-4 text-xs text-slate-400 space-y-2">

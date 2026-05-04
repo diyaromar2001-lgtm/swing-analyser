@@ -362,6 +362,22 @@ def get_cached_edge(ticker: str, period_months: int = PERIOD_MONTHS) -> Optional
     return None
 
 
+def get_cached_edge_with_status(ticker: str, period_months: int = PERIOD_MONTHS) -> tuple[Optional[Dict], str]:
+    """
+    Retourne (edge_data, cache_state).
+    cache_state : 'POPULATED' si cache existe, 'EMPTY' si jamais calculé.
+    """
+    cached = _edge_cache.get(_cache_key(ticker, period_months))
+    if cached:
+        return cached["data"], "POPULATED"
+    return None, "EMPTY"
+
+
+def is_edge_cache_populated() -> bool:
+    """Vérifie si au moins un ticker a son edge en cache."""
+    return len(_edge_cache) > 0
+
+
 def invalidate_cache(ticker: Optional[str] = None) -> None:
     """Vide le cache (tout ou un ticker)."""
     if ticker:
