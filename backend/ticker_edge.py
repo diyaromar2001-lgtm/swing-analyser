@@ -130,22 +130,31 @@ def _edge_score_from(status: str, overall: Dict, test: Dict) -> int:
 def _classify_status(overall: Dict, train: Dict, test: Dict,
                       overfit: bool) -> str:
     """Détermine le statut d'edge pour une stratégie."""
-    n_ok  = overall["n"] >= MIN_TRADES
-    pf_ok = overall["pf"] >= MIN_PROFIT_FACTOR
-    tpf   = test["pf"]  if test["n"] > 0 else 0.0
-    exp   = overall["expectancy"]
-    dd    = overall["max_dd"]
+    n          = overall["n"]
+    pf_ok      = overall["pf"] >= MIN_PROFIT_FACTOR
+    tpf        = test["pf"] if test["n"] > 0 else 0.0
+    exp        = overall["expectancy"]
+    dd         = overall["max_dd"]
 
-    if not n_ok:
-        return "NO_EDGE"
+    # INSUFFICIENT_SAMPLE: Too few trades to conclude
+    if n < MIN_TRADES:
+        return "INSUFFICIENT_SAMPLE"
+
+    # Overfit check
     if overfit:
         return "OVERFITTED"
+
+    # STRONG_EDGE: Robust across all metrics
     if pf_ok and tpf >= MIN_TEST_PF and exp >= MIN_EXPECTANCY and dd <= MAX_DRAWDOWN_PCT:
         if overall["pf"] >= 1.5 and tpf >= 1.2 and overall["n"] >= 20:
             return "STRONG_EDGE"
         return "VALID_EDGE"
+
+    # WEAK_EDGE: Some positive signals but not robust
     if overall["pf"] >= 1.1 and (tpf >= 1.0 or exp >= MIN_EXPECTANCY):
         return "WEAK_EDGE"
+
+    # NO_EDGE: Sufficient sample but poor metrics
     return "NO_EDGE"
 
 
@@ -225,7 +234,7 @@ def compute_ticker_edge(ticker: str, df: pd.DataFrame, period_months: int = PERI
                     "train":    _empty,
                     "test":     _empty,
                     "overall":  _empty,
-                    "edge_status":    "NO_EDGE",
+                    "edge_status":    "INSUFFICIENT_SAMPLE",  # Changed from NO_EDGE
                     "edge_score":     0,
                     "overfit":        False,
                     "overfit_reasons": ["Aucun trade généré sur la période"],
@@ -305,15 +314,22 @@ def compute_ticker_edge(ticker: str, df: pd.DataFrame, period_months: int = PERI
                 "train":   {"n": 0, "win_rate": 0.0, "pf": 0.0, "expectancy": 0.0, "max_dd": 0.0},
                 "test":    {"n": 0, "win_rate": 0.0, "pf": 0.0, "expectancy": 0.0, "max_dd": 0.0},
                 "overall": {"n": 0, "win_rate": 0.0, "pf": 0.0, "expectancy": 0.0, "max_dd": 0.0},
-                "edge_status":    "NO_EDGE",
+                "edge_status":    "EDGE_NOT_COMPUTED",  # Changed from NO_EDGE
                 "edge_score":     0,
                 "overfit":        False,
-                "overfit_reasons": [str(exc)[:120]],
+                "overfit_reasons": [f"Error: {str(exc)[:120]}"],
             })
 
     # ── Sélection meilleure stratégie ────────────────────────────────────────
-    _priority = {"STRONG_EDGE": 4, "VALID_EDGE": 3, "WEAK_EDGE": 2,
-                 "OVERFITTED": 1, "NO_EDGE": 0}
+    _priority = {
+        "STRONG_EDGE": 5,
+        "VALID_EDGE": 4,
+        "WEAK_EDGE": 3,
+        "NO_EDGE": 2,
+        "INSUFFICIENT_SAMPLE": 1,
+        "OVERFITTED": 0,
+        "EDGE_NOT_COMPUTED": -1,
+    }
 
     ranked = sorted(
         strategy_results,
@@ -323,7 +339,7 @@ def compute_ticker_edge(ticker: str, df: pd.DataFrame, period_months: int = PERI
     best = ranked[0] if ranked else None
 
     # Ticker edge status global (calqué sur la meilleure stratégie)
-    ticker_edge_status = best["edge_status"] if best else "NO_EDGE"
+    ticker_edge_status = best["edge_status"] if best else "EDGE_NOT_COMPUTED"
 
     data: Dict = {
         "ticker":              ticker,

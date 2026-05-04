@@ -77,7 +77,7 @@ export interface TickerResult {
   tradable?:            boolean;
   rejection_reason?:    string;
   // Strategy Edge per Ticker
-  ticker_edge_status?:  "STRONG_EDGE" | "VALID_EDGE" | "WEAK_EDGE" | "NO_EDGE" | "OVERFITTED" | "EDGE_NOT_COMPUTED";
+  ticker_edge_status?:  "STRONG_EDGE" | "VALID_EDGE" | "WEAK_EDGE" | "NO_EDGE" | "INSUFFICIENT_SAMPLE" | "OVERFITTED" | "EDGE_NOT_COMPUTED";
   best_strategy_for_ticker?: string | null;
   best_strategy_name?:  string | null;
   best_strategy_color?: string;
@@ -169,6 +169,15 @@ export interface TickerResult {
     confidence:      number;
   };
   tradable_universe_symbol?:     boolean;
+  // Edge Fallback Search (lazy-computed for INSUFFICIENT_SAMPLE)
+  edge_fallback_search?: {
+    fallback_tier:          1 | 2 | 3 | 4;
+    fallback_strategy_key:  string;
+    fallback_symbol:        string;
+    fallback_edge_status:   "VALID_EDGE" | "STRONG_EDGE";
+    fallback_source:        string;
+    explanation:            string;
+  } | null;
   error?:            string;
 }
 

@@ -157,15 +157,25 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
                 <Row
                   label="Edge historique"
                   value={
-                    row.ticker_edge_status === "NO_EDGE"
-                      ? "Edge non validé"
-                      : row.ticker_edge_status === "OVERFITTED"
-                        ? "Backtest suspect — éviter"
-                        : row.ticker_edge_status === "WEAK_EDGE"
-                          ? "Edge faible"
-                          : row.ticker_edge_status ?? "NO_EDGE"
+                    row.ticker_edge_status === "INSUFFICIENT_SAMPLE"
+                      ? "Historique insuffisant"
+                      : row.ticker_edge_status === "NO_EDGE"
+                        ? "Edge non validé"
+                        : row.ticker_edge_status === "OVERFITTED"
+                          ? "Backtest suspect — éviter"
+                          : row.ticker_edge_status === "WEAK_EDGE"
+                            ? "Edge faible"
+                            : row.ticker_edge_status === "EDGE_NOT_COMPUTED"
+                              ? "Non calculé"
+                              : row.ticker_edge_status ?? "NO_EDGE"
                   }
-                  sub={row.overfit_warning ? "Backtest suspect — éviter" : "Validation historique"}
+                  sub={
+                    row.ticker_edge_status === "INSUFFICIENT_SAMPLE"
+                      ? `Seulement ${row.edge_trades ?? 0} trades historiques (besoin ≥8)`
+                      : row.overfit_warning
+                        ? "Backtest suspect — éviter"
+                        : "Validation historique"
+                  }
                 />
                 <Row label="Score edge" value={row.edge_score ?? 0} sub={`Train PF ${row.edge_train_pf ?? 0} · Test PF ${row.edge_test_pf ?? 0}`} />
                 <Row label="Volume 24h" value={row.volume_24h ? `$${Math.round(row.volume_24h).toLocaleString()}` : "—"} sub="Liquidité crypto spot" />
@@ -175,6 +185,30 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
               </div>
             </div>
           </div>
+
+          {/* FALLBACK EDGE CONTEXT (when exact edge is INSUFFICIENT_SAMPLE) */}
+          {row.ticker_edge_status === "INSUFFICIENT_SAMPLE" && row.edge_fallback_search && (
+            <div className="rounded-xl p-4" style={{ background: "#081f3d", border: "1px solid #1e40af55" }}>
+              <p className="text-xs font-bold text-blue-300 mb-3">ℹ️ Contexte edge par fallback (Tier {row.edge_fallback_search.fallback_tier})</p>
+              <div className="space-y-2 text-xs text-blue-200">
+                <p>
+                  <strong>Symbole fallback:</strong> {row.edge_fallback_search.fallback_symbol}
+                </p>
+                <p>
+                  <strong>Source:</strong> {row.edge_fallback_search.fallback_source}
+                </p>
+                <p>
+                  <strong>Edge fallback:</strong> {row.edge_fallback_search.fallback_edge_status}
+                </p>
+                <p className="mt-2 text-xs text-blue-300/80">
+                  {row.edge_fallback_search.explanation}
+                </p>
+                <p className="text-xs text-blue-300/70 mt-2 italic">
+                  💡 Cette information montre que des setups similaires (secteur/marché) ont une edge validée, mais votre exact edge requiert plus de données historiques.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl p-4" style={{ background: "#0b1020", border: "1px solid #334155" }}>
             <p className="text-[10px] font-black uppercase tracking-widest text-sky-300 mb-2">Ce qu&apos;il manque pour devenir autorisé</p>

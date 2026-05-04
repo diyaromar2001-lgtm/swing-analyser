@@ -22,15 +22,20 @@ from crypto_data import (
     get_crypto_price_snapshot,
 )
 from crypto_edge import _EDGE_TTL, compute_crypto_edge, get_cached_crypto_edge
+from crypto_edge_fallback import find_edge_fallback
 from crypto_regime_engine import _CACHE_TTL as CRYPTO_REGIME_TTL, _cache as _crypto_regime_cache, compute_crypto_regime
 from crypto_strategy_lab import CRYPTO_LAB_STRATEGIES
 from crypto_universe import is_tradable_crypto
 from indicators import atr, ema, macd, perf_pct, rsi, sma, support_level
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 _screener_cache: Dict[str, dict] = {}
 _SCREENER_TTL = 60
 _last_screener_update_ts: float = 0.0
+
+# Lazy-compute executor for fallback searches (non-blocking)
+_fallback_executor = ThreadPoolExecutor(max_workers=2)
 
 
 def _empty_score_detail(details: Dict[str, bool]) -> Dict[str, Any]:
@@ -81,6 +86,9 @@ def _decision_from(
         return "SKIP"
     if overfit_warning or edge_status == "OVERFITTED":
         return "SKIP"
+    # INSUFFICIENT_SAMPLE: Don't block watchlist, inform user about data
+    if edge_status == "INSUFFICIENT_SAMPLE":
+        return "WATCHLIST"
     if edge_status in ("NO_EDGE", "WEAK_EDGE"):
         return "WATCHLIST"
     if regime in ("CRYPTO_BEAR", "CRYPTO_HIGH_VOLATILITY", "CRYPTO_NO_TRADE"):
@@ -163,15 +171,16 @@ def compute_crypto_execution_authorization(
     setup_status: str,
     setup_grade: str,
     edge_status: str,
-    overfit_warning: bool,
-    rr_ratio: float,
-    dist_entry_pct: float,
-    volatility_pct: float,
-    stop_loss: float,
-    tp1: float,
-    tp2: float,
-    final_decision: str,
-    regime_data: Dict[str, Any],
+    total_trades: int = 0,
+    overfit_warning: bool = False,
+    rr_ratio: float = 0.0,
+    dist_entry_pct: float = 0.0,
+    volatility_pct: float = 0.0,
+    stop_loss: float = 0.0,
+    tp1: float = 0.0,
+    tp2: float = 0.0,
+    final_decision: str = "WAIT",
+    regime_data: Optional[Dict[str, Any]] = None,
     fast: bool = False,
 ) -> Dict[str, Any]:
     """Compute Crypto Tradable V1 execution authorization.
@@ -355,7 +364,15 @@ def compute_crypto_execution_authorization(
     if edge_status in ("VALID_EDGE", "STRONG_EDGE"):
         checklist["edge_validated"] = True
         authorized_conditions.append(f"✓ Edge validated ({edge_status})")
+    elif edge_status == "INSUFFICIENT_SAMPLE":
+        # INSUFFICIENT_SAMPLE: Not enough trades to conclude, but not "bad edge"
+        checklist["edge_validated"] = False
+        blocked_reasons.append(
+            f"Edge insufficient: {edge_status} — need more historical occurrences "
+            f"(have {total_trades} trades, need ≥8 for initial assessment)"
+        )
     else:
+        # NO_EDGE, WEAK_EDGE, OVERFITTED, EDGE_NOT_COMPUTED
         checklist["edge_validated"] = False
         blocked_reasons.append(f"Edge not validated: {edge_status} (need VALID_EDGE or STRONG_EDGE)")
 
@@ -566,6 +583,7 @@ def analyze_crypto_symbol(
         setup_status=setup_status,
         setup_grade=grade,
         edge_status=edge.get("ticker_edge_status", "NO_EDGE"),
+        total_trades=edge.get("total_trades", 0),  # Pass total trades for INSUFFICIENT_SAMPLE messaging
         overfit_warning=bool(edge.get("overfit_warning", False)),
         rr_ratio=levels["rr_ratio"],
         dist_entry_pct=abs(levels["dist_entry_pct"]),
@@ -577,6 +595,21 @@ def analyze_crypto_symbol(
         regime_data=regime,
         fast=fast,
     )
+
+    # ── LAZY-COMPUTE FALLBACK SEARCH ────────────────────────────────────────────
+    # If exact edge is INSUFFICIENT_SAMPLE, queue fallback search in background
+    # Result caches with 1h TTL, available on next request
+    edge_fallback_search = None
+    if edge.get("ticker_edge_status") == "INSUFFICIENT_SAMPLE":
+        # Queue async fallback search (don't wait for it)
+        _fallback_executor.submit(
+            find_edge_fallback,
+            symbol,
+            edge.get("best_strategy"),
+            24,  # period_months
+        )
+        # Return immediately with fallback=None, will be populated on next request
+        edge_fallback_search = None
 
     return {
         "ticker": symbol,
@@ -661,6 +694,7 @@ def analyze_crypto_symbol(
         "btc_context": auth_result.get("btc_context", {}),
         "eth_context": auth_result.get("eth_context", {}),
         "tradable_universe_symbol": auth_result.get("authorization_checklist", {}).get("tradable_universe_symbol", False),
+        "edge_fallback_search": edge_fallback_search,  # Lazy-computed, None initially
     }
 
 

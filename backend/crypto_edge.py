@@ -23,12 +23,22 @@ def _status_from(result: Dict) -> str:
     test_pf = result.get("test_pf", 0.0)
     expectancy = result.get("expectancy", 0.0)
     max_dd = result.get("max_drawdown_pct", 0.0)
+
+    # INSUFFICIENT_SAMPLE: Not enough trades to draw conclusions
+    if trades < 8:
+        return "INSUFFICIENT_SAMPLE"
+
+    # STRONG_EDGE: Robust backtest with good metrics
     if trades >= 18 and pf >= 1.35 and test_pf >= 1.1 and expectancy > 0 and max_dd >= -30:
         return "STRONG_EDGE"
+    # VALID_EDGE: Acceptable performance across metrics
     if trades >= 12 and pf >= 1.15 and test_pf >= 1.0 and expectancy >= 0 and max_dd >= -35:
         return "VALID_EDGE"
+    # WEAK_EDGE: Some positive metrics but not robust enough
     if trades >= 8 and pf >= 1.0:
         return "WEAK_EDGE"
+
+    # NO_EDGE: Sufficient sample (>= 8 trades) but metrics are poor
     return "NO_EDGE"
 
 
@@ -44,7 +54,7 @@ def compute_crypto_edge(symbol: str) -> Dict:
     if df is None or len(df) < 220:
         data = {
             "symbol": sym,
-            "ticker_edge_status": "NO_EDGE",
+            "ticker_edge_status": "EDGE_NOT_COMPUTED",  # Changed from NO_EDGE
             "best_strategy": None,
             "best_strategy_name": None,
             "best_strategy_color": "#6b7280",
@@ -58,7 +68,7 @@ def compute_crypto_edge(symbol: str) -> Dict:
             "expectancy": 0.0,
             "max_dd": 0.0,
             "overfit_warning": False,
-            "overfit_reasons": ["Données insuffisantes"],
+            "overfit_reasons": ["Données OHLCV insuffisantes (< 220 bars)"],
             "all_strategies": [],
             "computed_at": now,
         }
@@ -79,12 +89,19 @@ def compute_crypto_edge(symbol: str) -> Dict:
         status = _status_from(result)
         results.append({**result, "edge_status": status})
 
-    priority = {"STRONG_EDGE": 4, "VALID_EDGE": 3, "WEAK_EDGE": 2, "OVERFITTED": 1, "NO_EDGE": 0}
-    ranked = sorted(results, key=lambda row: (priority[row["edge_status"]], row.get("score", 0.0)), reverse=True)
+    priority = {
+        "STRONG_EDGE": 5,
+        "VALID_EDGE": 4,
+        "WEAK_EDGE": 3,
+        "NO_EDGE": 2,
+        "INSUFFICIENT_SAMPLE": 1,
+        "OVERFITTED": 0,
+    }
+    ranked = sorted(results, key=lambda row: (priority.get(row["edge_status"], -1), row.get("score", 0.0)), reverse=True)
     best = ranked[0] if ranked else None
     data = {
         "symbol": sym,
-        "ticker_edge_status": best["edge_status"] if best else "NO_EDGE",
+        "ticker_edge_status": best["edge_status"] if best else "EDGE_NOT_COMPUTED",
         "best_strategy": best["key"] if best else None,
         "best_strategy_name": best["name"] if best else None,
         "best_strategy_color": best["color"] if best else "#6b7280",
