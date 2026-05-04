@@ -278,9 +278,25 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
       );
       const json = await res.json() as any;
       if (json.status === "ok") {
-        setEdgeMessage(`✓ Edge calculé pour ${row.ticker}`);
-        // Note: Pour refresh complet, fermer et rouvrir le Trade Plan
-        // Ou notifier parent de rafraîchir les données
+        // BUGFIX: Update local row object with computed edge_status
+        // This ensures the UI reflects the new status immediately
+        // when TradePlan is closed and parent (ScreenerTable) re-renders
+        const computedEdgeStatus = json.edge_status || "EDGE_NOT_COMPUTED";
+
+        // Update the local row object
+        row.ticker_edge_status = computedEdgeStatus;
+
+        // Also update edge metrics if available
+        if (json.train_pf !== undefined) row.edge_train_pf = json.train_pf;
+        if (json.test_pf !== undefined) row.edge_test_pf = json.test_pf;
+        if (json.trades !== undefined) row.edge_trades = json.trades;
+        if (json.expectancy !== undefined) row.edge_expectancy = json.expectancy;
+        if (json.overfit_warning !== undefined) row.overfit_warning = json.overfit_warning;
+
+        setEdgeMessage(`✓ Edge calculé pour ${row.ticker} (${computedEdgeStatus})`);
+
+        // Close Trade Plan after brief delay to show success message
+        // The parent (ScreenerTable) will re-render with updated row data
         setTimeout(() => onClose(), 1500);
       } else if (json.status === "unavailable") {
         setEdgeMessage(`⚠ ${json.message}`);

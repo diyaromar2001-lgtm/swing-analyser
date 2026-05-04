@@ -183,7 +183,8 @@ def _persist_runtime_cache_state() -> None:
             "actions": {
                 "_ohlcv_cache": _ohlcv_cache,
                 "_price_cache": _price_cache,
-                "_screener_cache": _screener_cache,
+                # Note: _screener_cache NOT persisted (calculated cache, not critical data)
+                # Preventing screener cache stale data from persisting after edge compute
                 "_market_regime_cache": _market_regime_cache,
                 "_mkt_ctx_cache": _mkt_ctx_cache,
                 "_warmup_progress": _warmup_progress,
@@ -3200,6 +3201,9 @@ def compute_strategy_edge_single(
 
             # BUGFIX: Persist the edge cache after computing
             _persist_runtime_cache_state()
+
+            # BUGFIX: Invalidate screener cache so next fetch reflects new edge status
+            _screener_cache.clear()
 
             return {
                 "status": "ok",
