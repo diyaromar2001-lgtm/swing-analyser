@@ -24,7 +24,9 @@ from crypto_data import (
 from crypto_edge import _EDGE_TTL, compute_crypto_edge, get_cached_crypto_edge
 from crypto_regime_engine import _CACHE_TTL as CRYPTO_REGIME_TTL, _cache as _crypto_regime_cache, compute_crypto_regime
 from crypto_strategy_lab import CRYPTO_LAB_STRATEGIES
+from crypto_universe import is_tradable_crypto
 from indicators import atr, ema, macd, perf_pct, rsi, sma, support_level
+import os
 
 _screener_cache: Dict[str, dict] = {}
 _SCREENER_TTL = 60
@@ -127,6 +129,262 @@ def _levels(price: float, high: pd.Series, low: pd.Series, ema20_v: float, atr_v
         "rr_ratio": round(rr, 2),
         "risk_now_pct": round((price - stop) / max(price, 0.0001) * 100.0, 2),
         "dist_entry_pct": round((price - entry) / max(entry, 0.0001) * 100.0, 2),
+    }
+
+
+def _get_btc_eth_context(regime_data: Dict[str, Any], fast: bool = False) -> Dict[str, Any]:
+    """Get BTC/ETH context for evaluating altcoin tradability.
+
+    Returns:
+        Dict with BTC/ETH price-to-SMA context and regime alignment
+    """
+    btc_price = float(regime_data.get("btc_price", 0.0))
+    btc_sma200 = float(regime_data.get("btc_sma200", 0.0))
+    eth_price = float(regime_data.get("eth_price", 0.0))
+    eth_sma200 = float(regime_data.get("eth_sma200", 0.0))
+
+    btc_above = btc_price > btc_sma200 if btc_sma200 > 0 else False
+    eth_above = eth_price > eth_sma200 if eth_sma200 > 0 else False
+
+    return {
+        "btc_price": round(btc_price, 2),
+        "btc_above_sma200": btc_above,
+        "eth_price": round(eth_price, 2),
+        "eth_above_sma200": eth_above,
+        "regime": regime_data.get("crypto_regime", "UNKNOWN"),
+        "status": "OK" if regime_data.get("data_status") == "OK" else "MISSING",
+        "confidence": int(regime_data.get("confidence", 0)),
+    }
+
+
+def compute_crypto_execution_authorization(
+    symbol: str,
+    regime: str,
+    setup_status: str,
+    setup_grade: str,
+    edge_status: str,
+    overfit_warning: bool,
+    rr_ratio: float,
+    dist_entry_pct: float,
+    volatility_pct: float,
+    stop_loss: float,
+    tp1: float,
+    tp2: float,
+    final_decision: str,
+    regime_data: Dict[str, Any],
+    fast: bool = False,
+) -> Dict[str, Any]:
+    """Compute Crypto Tradable V1 execution authorization.
+
+    Checks all 12 mandatory conditions for crypto trading.
+    Authorization is STRICT: all conditions must pass.
+
+    Args:
+        symbol: Crypto symbol (BTC, ETH, etc.)
+        regime: Current crypto regime (CRYPTO_BULL, CRYPTO_BEAR, etc.)
+        setup_status: Setup status (READY, WAIT, INVALID)
+        setup_grade: Setup grade (A+, A, B, REJECT)
+        edge_status: Edge status (VALID_EDGE, STRONG_EDGE, WEAK_EDGE, NO_EDGE, OVERFITTED, etc.)
+        overfit_warning: Whether overfit warning is active
+        rr_ratio: Risk/reward ratio
+        dist_entry_pct: Distance to entry as percentage
+        volatility_pct: Current volatility percentage
+        stop_loss: Stop loss level
+        tp1: Take profit 1 level
+        tp2: Take profit 2 level
+        final_decision: Current final decision (BUY NOW, BUY NEAR ENTRY, WAIT, SKIP, NO_TRADE)
+        regime_data: Full regime data dict for BTC/ETH context
+        fast: Fast mode flag
+
+    Returns:
+        Dict with:
+        - crypto_execution_authorized: bool (true only if all 12 conditions pass)
+        - crypto_tradable_decision: str (BUY NOW / BUY NEAR ENTRY if authorized, else WATCHLIST/SKIP/NO_TRADE)
+        - crypto_blocked_reasons: list of reasons why not authorized
+        - crypto_authorized_conditions: list of conditions that are met
+        - authorization_checklist: dict of all 12 condition statuses
+        - crypto_watchlist_eligible: bool (true if setup not INVALID/REJECT, independent of auth)
+        - btc_context: dict with BTC context
+        - eth_context: dict with ETH context
+    """
+    # Feature flag check
+    CRYPTO_TRADABLE_V1_ENABLED = os.getenv("CRYPTO_TRADABLE_V1_ENABLED", "true").lower() == "true"
+
+    if not CRYPTO_TRADABLE_V1_ENABLED:
+        btc_ctx = _get_btc_eth_context(regime_data, fast)
+        eth_ctx = {k.replace("btc_", "eth_"): v for k, v in btc_ctx.items()}
+        return {
+            "crypto_execution_authorized": False,
+            "crypto_tradable_decision": "UNAVAILABLE",
+            "crypto_blocked_reasons": ["Crypto Tradable V1 disabled"],
+            "crypto_authorized_conditions": [],
+            "authorization_checklist": {
+                "regime_favorable": False,
+                "btc_eth_context_ok": False,
+                "setup_grade_sufficient": False,
+                "setup_ready": False,
+                "entry_near": False,
+                "stop_defined": False,
+                "tp_defined": False,
+                "rr_adequate": False,
+                "volatility_acceptable": False,
+                "overfit_ok": False,
+                "tradable_universe_symbol": False,
+                "edge_validated": False,
+            },
+            "crypto_watchlist_eligible": setup_status not in ("INVALID",),
+            "btc_context": btc_ctx,
+            "eth_context": eth_ctx,
+        }
+
+    # Initialize checks
+    blocked_reasons: List[str] = []
+    authorized_conditions: List[str] = []
+    checklist = {
+        "regime_favorable": False,
+        "btc_eth_context_ok": False,
+        "setup_grade_sufficient": False,
+        "setup_ready": False,
+        "entry_near": False,
+        "stop_defined": False,
+        "tp_defined": False,
+        "rr_adequate": False,
+        "volatility_acceptable": False,
+        "overfit_ok": False,
+        "tradable_universe_symbol": False,
+        "edge_validated": False,
+    }
+
+    # Get BTC/ETH context
+    btc_ctx = _get_btc_eth_context(regime_data, fast)
+    eth_ctx = {k.replace("btc_", "eth_"): v for k, v in btc_ctx.items()}
+
+    # 1. REGIME CHECK: Only CRYPTO_BULL or CRYPTO_PULLBACK
+    if regime in ("CRYPTO_BULL", "CRYPTO_PULLBACK"):
+        checklist["regime_favorable"] = True
+        authorized_conditions.append("✓ Régime favorable (BULL/PULLBACK)")
+    else:
+        checklist["regime_favorable"] = False
+        blocked_reasons.append(f"Régime défavorable: {regime} (only BULL/PULLBACK allow trading)")
+
+    # 2. BTC/ETH CONTEXT: At least one above SMA200
+    btc_eth_ok = btc_ctx["btc_above_sma200"] or eth_ctx.get("eth_above_sma200", False)
+    if btc_eth_ok:
+        checklist["btc_eth_context_ok"] = True
+        authorized_conditions.append("✓ BTC/ETH context compatible")
+    else:
+        checklist["btc_eth_context_ok"] = False
+        blocked_reasons.append("BTC/ETH context incompatible (both below SMA200)")
+
+    # 3. SETUP GRADE: A+ or A only
+    if setup_grade in ("A+", "A"):
+        checklist["setup_grade_sufficient"] = True
+        authorized_conditions.append(f"✓ Setup grade sufficient ({setup_grade})")
+    else:
+        checklist["setup_grade_sufficient"] = False
+        blocked_reasons.append(f"Setup grade insufficient: {setup_grade} (need A+ or A)")
+
+    # 4. SETUP READY: Must be READY
+    if setup_status == "READY":
+        checklist["setup_ready"] = True
+        authorized_conditions.append("✓ Setup status READY")
+    else:
+        checklist["setup_ready"] = False
+        blocked_reasons.append(f"Setup not ready: {setup_status}")
+
+    # 5. ENTRY NEAR: Distance ≤ 5%
+    entry_near = abs(dist_entry_pct) <= 5.0
+    if entry_near:
+        checklist["entry_near"] = True
+        authorized_conditions.append(f"✓ Entry near ({abs(dist_entry_pct):.1f}%)")
+    else:
+        checklist["entry_near"] = False
+        blocked_reasons.append(f"Entry distance too far: {abs(dist_entry_pct):.1f}% (max 5%)")
+
+    # 6. STOP LOSS DEFINED: Non-zero and reasonable
+    if stop_loss > 0:
+        checklist["stop_defined"] = True
+        authorized_conditions.append("✓ Stop loss defined")
+    else:
+        checklist["stop_defined"] = False
+        blocked_reasons.append("Stop loss not defined")
+
+    # 7. TP1 and TP2 DEFINED: Both non-zero and TP2 > TP1
+    tp_ok = tp1 > 0 and tp2 > 0 and tp2 > tp1
+    if tp_ok:
+        checklist["tp_defined"] = True
+        authorized_conditions.append("✓ TP1/TP2 defined")
+    else:
+        checklist["tp_defined"] = False
+        blocked_reasons.append("Take profit levels not properly defined")
+
+    # 8. RISK/REWARD ADEQUATE: ≥ 1.5x
+    if rr_ratio >= 1.5:
+        checklist["rr_adequate"] = True
+        authorized_conditions.append(f"✓ Risk/reward adequate ({rr_ratio:.1f}x)")
+    else:
+        checklist["rr_adequate"] = False
+        blocked_reasons.append(f"Risk/reward insufficient: {rr_ratio:.1f}x (min 1.5x)")
+
+    # 9. VOLATILITY ACCEPTABLE: ≤ 9%
+    if volatility_pct <= 9.0:
+        checklist["volatility_acceptable"] = True
+        authorized_conditions.append(f"✓ Volatility acceptable ({volatility_pct:.1f}%)")
+    else:
+        checklist["volatility_acceptable"] = False
+        blocked_reasons.append(f"Volatility too high: {volatility_pct:.1f}% (max 9%)")
+
+    # 10. NO OVERFIT WARNING
+    if not overfit_warning:
+        checklist["overfit_ok"] = True
+        authorized_conditions.append("✓ No overfit warning")
+    else:
+        checklist["overfit_ok"] = False
+        blocked_reasons.append("Overfit warning detected")
+
+    # 11. TRADABLE UNIVERSE: Symbol in Phase 1 universe (7 symbols)
+    if is_tradable_crypto(symbol):
+        checklist["tradable_universe_symbol"] = True
+        authorized_conditions.append(f"✓ Symbol in Phase 1 tradable universe")
+    else:
+        checklist["tradable_universe_symbol"] = False
+        blocked_reasons.append(f"Symbol {symbol} not in Phase 1 tradable universe")
+
+    # 12. EDGE VALIDATED: VALID_EDGE or STRONG_EDGE only (MANDATORY)
+    # This is a HARD BLOCK — edge is not optional, not informational
+    if edge_status in ("VALID_EDGE", "STRONG_EDGE"):
+        checklist["edge_validated"] = True
+        authorized_conditions.append(f"✓ Edge validated ({edge_status})")
+    else:
+        checklist["edge_validated"] = False
+        blocked_reasons.append(f"Edge not validated: {edge_status} (need VALID_EDGE or STRONG_EDGE)")
+
+    # FINAL DECISION
+    all_conditions_met = all(checklist.values())
+    crypto_execution_authorized = all_conditions_met
+
+    # Determine tradable decision
+    if crypto_execution_authorized:
+        if abs(dist_entry_pct) <= 1.5 and setup_status == "READY":
+            crypto_tradable_decision = "BUY NOW"
+        else:
+            crypto_tradable_decision = "BUY NEAR ENTRY"
+    else:
+        # If not authorized, revert to original decision but cannot execute
+        crypto_tradable_decision = final_decision if final_decision in ("WAIT", "SKIP", "NO_TRADE") else "WAIT"
+
+    # WATCHLIST ELIGIBILITY: Independent of auth, only blocked by INVALID/REJECT setup
+    crypto_watchlist_eligible = setup_status not in ("INVALID",) and setup_grade != "REJECT"
+
+    return {
+        "crypto_execution_authorized": crypto_execution_authorized,
+        "crypto_tradable_decision": crypto_tradable_decision,
+        "crypto_blocked_reasons": blocked_reasons,
+        "crypto_authorized_conditions": authorized_conditions,
+        "authorization_checklist": checklist,
+        "crypto_watchlist_eligible": crypto_watchlist_eligible,
+        "btc_context": btc_ctx,
+        "eth_context": eth_ctx,
     }
 
 
@@ -300,6 +558,26 @@ def analyze_crypto_symbol(
         + 0.15 * max(0, 100 - abs(levels["dist_entry_pct"]) * 10)
     )
 
+    # ── CRYPTO TRADABLE V1 AUTHORIZATION ─────────────────────────────────────────
+    # Compute execution authorization for crypto trading
+    auth_result = compute_crypto_execution_authorization(
+        symbol=symbol,
+        regime=regime["crypto_regime"],
+        setup_status=setup_status,
+        setup_grade=grade,
+        edge_status=edge.get("ticker_edge_status", "NO_EDGE"),
+        overfit_warning=bool(edge.get("overfit_warning", False)),
+        rr_ratio=levels["rr_ratio"],
+        dist_entry_pct=abs(levels["dist_entry_pct"]),
+        volatility_pct=volatility_pct,
+        stop_loss=levels["stop_loss"],
+        tp1=levels["tp1"],
+        tp2=levels["tp2"],
+        final_decision=final_decision,
+        regime_data=regime,
+        fast=fast,
+    )
+
     return {
         "ticker": symbol,
         "sector": crypto_sector(symbol),
@@ -373,6 +651,16 @@ def analyze_crypto_symbol(
         "volatility_pct": volatility_pct,
         "liquidity_score": float(market_info.get("liquidity_score", 0.0) or 0.0),
         "avg_hold_days": edge.get("all_strategies", [{}])[0].get("avg_duration_days", 0.0) if edge.get("all_strategies") else 0.0,
+        # ── CRYPTO TRADABLE V1 AUTHORIZATION FIELDS ──────────────────────────────
+        "crypto_execution_authorized": auth_result.get("crypto_execution_authorized", False),
+        "crypto_tradable_decision": auth_result.get("crypto_tradable_decision", "UNAVAILABLE"),
+        "crypto_blocked_reasons": auth_result.get("crypto_blocked_reasons", []),
+        "crypto_authorized_conditions": auth_result.get("crypto_authorized_conditions", []),
+        "authorization_checklist": auth_result.get("authorization_checklist", {}),
+        "crypto_watchlist_eligible": auth_result.get("crypto_watchlist_eligible", False),
+        "btc_context": auth_result.get("btc_context", {}),
+        "eth_context": auth_result.get("eth_context", {}),
+        "tradable_universe_symbol": auth_result.get("authorization_checklist", {}).get("tradable_universe_symbol", False),
     }
 
 

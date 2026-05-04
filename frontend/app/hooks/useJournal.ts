@@ -201,6 +201,52 @@ async function fetchStats() {
   return (await response.json()) as JournalStats;
 }
 
+// ── CRYPTO TRADABLE V1 HELPER ────────────────────────────────────────────
+/**
+ * Check if a crypto trade can be opened (PLANNED/OPEN states).
+ * Only applies to crypto assets — actions ignore this check.
+ * WATCHLIST has no restrictions.
+ */
+export function canOpenCryptoTrade(
+  row: any,
+  intent: string,
+): { allowed: boolean; reason?: string } {
+  // Only check for PLANNED/OPEN, not WATCHLIST
+  if (intent === "WATCHLIST") {
+    return { allowed: true };
+  }
+
+  // Only apply crypto auth check to crypto assets
+  if (row.asset_scope !== "CRYPTO") {
+    return { allowed: true };
+  }
+
+  // For PLANNED/OPEN on crypto: require execution authorization
+  if (row.crypto_execution_authorized !== true) {
+    return {
+      allowed: false,
+      reason: `Crypto trade not authorized. ${
+        row.crypto_blocked_reasons?.length > 0
+          ? `Reasons: ${row.crypto_blocked_reasons.join("; ")}`
+          : "Review setup requirements."
+      }`,
+    };
+  }
+
+  // For OPEN specifically: also check that decision is executable
+  if (intent === "OPEN") {
+    const decision = row.crypto_tradable_decision?.toUpperCase() || "";
+    if (!["BUY NOW", "BUY NEAR ENTRY"].includes(decision)) {
+      return {
+        allowed: false,
+        reason: `Setup decision is not actionable: ${row.crypto_tradable_decision || "unknown"}. Can only open if decision is BUY NOW or BUY NEAR ENTRY.`,
+      };
+    }
+  }
+
+  return { allowed: true };
+}
+
 export function useJournal() {
   const [trades, setTrades] = useState<JournalTrade[]>(() => readJson<JournalTrade[]>(JOURNAL_CACHE_KEY, []));
   const [stats, setStats] = useState<JournalStats>(() => readJson<JournalStats>(JOURNAL_STATS_KEY, {

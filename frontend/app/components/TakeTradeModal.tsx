@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { TickerResult, JournalTrade, RegimeEngine } from "../types";
-import { useJournal } from "../hooks/useJournal";
+import { useJournal, canOpenCryptoTrade } from "../hooks/useJournal";
 
 const SIM_CAPITAL = 10_000;
 const RISK_PCT    = 0.01;
@@ -39,12 +39,24 @@ export function TakeTradeModal({
       note_entry:  "",
     });
 
+  // ── CRYPTO TRADABLE V1 WARNING MODAL ────────────────────────────────────
+  const [cryptoWarning, setCryptoWarning] = useState<{ shown: boolean; reason?: string }>({ shown: false });
+
   const set = (k: string, v: string | number) => setForm(f => ({ ...f, [k]: v }));
 
   const riskUsd    = Math.max(0, (form.price_entry - t.stop_loss) * form.quantity + form.fees);
   const capitalUsd = form.price_entry * form.quantity;
 
   const handleSave = () => {
+      // ── CRYPTO TRADABLE V1 GATE ──────────────────────────────────────────
+      // Check if crypto trade is authorized (only applies to PLANNED/OPEN, not WATCHLIST)
+      const cryptoCheckResult = canOpenCryptoTrade(t, journalStatus);
+      if (!cryptoCheckResult.allowed) {
+        // Trade not authorized — show warning and return without submitting
+        setCryptoWarning({ shown: true, reason: cryptoCheckResult.reason });
+        return;
+      }
+
       const trade: JournalTrade = {
         id:            `${t.ticker}_${Date.now()}`,
         ticker:        t.ticker,
@@ -207,6 +219,31 @@ export function TakeTradeModal({
         >
           {submitLabel ?? (journalStatus === "PLANNED" ? "✅ Préparer ce trade" : "🟠 Ajouter à la watchlist")}
         </button>
+
+        {/* CRYPTO TRADABLE V1 WARNING MODAL */}
+        {cryptoWarning.shown && (
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center"
+            style={{ background: "rgba(0,0,0,.9)" }}
+            onClick={() => setCryptoWarning({ shown: false })}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl p-6 space-y-4"
+              style={{ background: "#2a0d0d", border: "1px solid #ef444455" }}
+              onClick={e => e.stopPropagation()}
+            >
+              <p className="text-sm font-black text-red-300 uppercase tracking-widest">⚠️ Crypto Trade Not Authorized</p>
+              <p className="text-xs text-red-200">{cryptoWarning.reason || "This crypto trade cannot be executed at this time. Please review the setup requirements."}</p>
+              <button
+                onClick={() => setCryptoWarning({ shown: false })}
+                className="w-full py-2 rounded-lg text-sm font-black text-white transition-all"
+                style={{ background: "#7f1d1d", border: "1px solid #ef4444" }}
+              >
+                Understood
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

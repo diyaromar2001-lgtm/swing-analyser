@@ -132,6 +132,43 @@ export interface TickerResult {
   volatility_pct?:      number;
   liquidity_score?:     number;
   avg_hold_days?:       number;
+  // ── CRYPTO TRADABLE V1 AUTHORIZATION ────────────────────────────────────
+  crypto_execution_authorized?:  boolean;
+  crypto_tradable_decision?:     "BUY NOW" | "BUY NEAR ENTRY" | "WATCHLIST" | "SKIP" | "WAIT" | "NO_TRADE" | "UNAVAILABLE";
+  crypto_blocked_reasons?:       string[];
+  crypto_authorized_conditions?: string[];
+  authorization_checklist?:      {
+    regime_favorable:           boolean;
+    btc_eth_context_ok:         boolean;
+    setup_grade_sufficient:     boolean;
+    setup_ready:                boolean;
+    entry_near:                 boolean;
+    stop_defined:               boolean;
+    tp_defined:                 boolean;
+    rr_adequate:                boolean;
+    volatility_acceptable:      boolean;
+    overfit_ok:                 boolean;
+    tradable_universe_symbol:   boolean;
+    edge_validated:             boolean;
+  };
+  crypto_watchlist_eligible?:    boolean;
+  btc_context?:                  {
+    btc_price:       number;
+    btc_above_sma200:boolean;
+    eth_price:       number;
+    eth_above_sma200:boolean;
+    regime:          string;
+    status:          string;
+    confidence:      number;
+  };
+  eth_context?:                  {
+    eth_price:       number;
+    eth_above_sma200:boolean;
+    regime:          string;
+    status:          string;
+    confidence:      number;
+  };
+  tradable_universe_symbol?:     boolean;
   error?:            string;
 }
 

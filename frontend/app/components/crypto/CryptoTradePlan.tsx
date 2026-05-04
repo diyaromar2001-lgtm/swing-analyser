@@ -45,69 +45,44 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
     row.setup_grade === "A" ? "#bef264" :
     row.setup_grade === "B" ? "#f59e0b" : "#ef4444";
 
-  const nonTradeWarning =
-    row.ticker_edge_status === "NO_EDGE" ||
-    row.ticker_edge_status === "WEAK_EDGE" ||
-    row.ticker_edge_status === "OVERFITTED" ||
-    row.setup_grade === "REJECT" ||
-    row.setup_status === "INVALID" ||
-    row.final_decision === "SKIP" ||
-    row.final_decision === "NO_TRADE";
+  // ── CRYPTO TRADABLE V1 AUTHORIZATION ──────────────────────────────────
+  // Use backend-computed authorization instead of frontend logic
+  const execAuthorized = row.crypto_execution_authorized === true;
+  const watchlistEligible = row.crypto_watchlist_eligible === true;
+  const checklist = (row.authorization_checklist || {}) as Record<string, boolean>;
 
-  const regimeDefensive = ["CRYPTO_BEAR", "CRYPTO_NO_TRADE", "CRYPTO_HIGH_VOLATILITY"].includes((row as any).crypto_regime ?? "");
-  const edgeOk = row.ticker_edge_status === "STRONG_EDGE" || row.ticker_edge_status === "VALID_EDGE";
-  const execAuthorized =
-    !regimeDefensive &&
-    row.tradable === true &&
-    !nonTradeWarning &&
-    edgeOk &&
-    row.overfit_warning !== true;
-  const watchlistEligible = !execAuthorized && !regimeDefensive && row.setup_status !== "INVALID";
-  const regimeOk = !regimeDefensive;
-  const btcEthOk =
-    (row as any).crypto_regime !== "CRYPTO_BEAR" &&
-    (row as any).crypto_regime !== "CRYPTO_NO_TRADE" &&
-    (row as any).crypto_regime !== "CRYPTO_HIGH_VOLATILITY";
-  const setupOk = row.setup_grade === "A+" || row.setup_grade === "A";
-  const edgeChecklistOk = edgeOk;
-  const overfitChecklistOk = row.overfit_warning !== true;
-  const decisionChecklistOk = ["BUY NOW", "BUY NEAR ENTRY", "BUY"].includes(row.final_decision ?? "");
-  const priceNear = typeof row.dist_entry_pct === "number" ? row.dist_entry_pct <= 3 : false;
-  const stopOk = Number.isFinite(row.stop_loss) && row.stop_loss > 0;
-  const tpOk = Number.isFinite(row.tp1) && row.tp1 > 0 && Number.isFinite(row.tp2) && row.tp2 > 0;
-  const weekendOk = research?.weekendRisk !== "BLOCKED";
+  // Build readiness items from authorization checklist
   const readinessItems = [
-    { label: "Régime crypto favorable", ok: regimeOk },
-    { label: "BTC/ETH compatibles", ok: btcEthOk },
-    { label: "Setup technique valide", ok: setupOk },
-    { label: "Edge validé", ok: edgeChecklistOk },
-    { label: "Pas d'overfit", ok: overfitChecklistOk },
-    { label: "Décision BUY / BUY NEAR ENTRY / BUY NOW", ok: decisionChecklistOk },
-    { label: "Prix proche entrée", ok: priceNear },
-    { label: "Stop visible", ok: stopOk },
-    { label: "TP1 / TP2 visibles", ok: tpOk },
-    { label: "Week-end risk acceptable", ok: weekendOk },
+    { label: "Régime crypto favorable", ok: checklist.regime_favorable ?? false },
+    { label: "BTC/ETH compatibles", ok: checklist.btc_eth_context_ok ?? false },
+    { label: "Setup grade A+ ou A", ok: checklist.setup_grade_sufficient ?? false },
+    { label: "Setup status READY", ok: checklist.setup_ready ?? false },
+    { label: "Prix proche entrée (≤5%)", ok: checklist.entry_near ?? false },
+    { label: "Stop loss défini", ok: checklist.stop_defined ?? false },
+    { label: "TP1/TP2 définis", ok: checklist.tp_defined ?? false },
+    { label: "Risk/reward ≥1.5x", ok: checklist.rr_adequate ?? false },
+    { label: "Volatilité acceptable (≤9%)", ok: checklist.volatility_acceptable ?? false },
+    { label: "Pas d’overfit", ok: checklist.overfit_ok ?? false },
+    { label: "Symbole univers tradable (BTC, ETH, SOL, BNB, LINK, AAVE, MKR)", ok: checklist.tradable_universe_symbol ?? false },
+    { label: "Edge VALID_EDGE ou STRONG_EDGE", ok: checklist.edge_validated ?? false },
   ];
+
+  const blockedReasons = row.crypto_blocked_reasons ?? [];
+  const authorizedConditions = row.crypto_authorized_conditions ?? [];
   const missingCount = readinessItems.filter(item => !item.ok).length;
   const readinessConclusion =
-    !regimeOk ? "Bloqué par régime" :
-    !edgeChecklistOk ? "Bloqué par edge" :
-    !decisionChecklistOk ? "Encore en watchlist" :
-    missingCount <= 2 ? "Proche d’être autorisé" : "Encore en watchlist";
+    blockedReasons.length > 0 && !execAuthorized ? `Bloqué (${blockedReasons.length} raison${blockedReasons.length > 1 ? "s" : ""})` :
+    watchlistEligible ? "Watchlist possible" :
+    "Non autorisé";
 
-  const execReasons: string[] = [];
-  if (regimeDefensive) execReasons.push("Régime crypto défensif");
-  if (row.tradable === false) execReasons.push("tradable = false");
-  if (!edgeOk) execReasons.push("Edge non validé");
-  if (row.overfit_warning) execReasons.push("Backtest suspect");
-  if (row.setup_status === "INVALID") execReasons.push("Setup invalide");
-  if (["SKIP", "WAIT", "NO_TRADE"].includes(row.final_decision ?? "")) execReasons.push(`Décision finale : ${row.final_decision}`);
+  // Use backend-provided blocked reasons instead of frontend logic
+  const execReasons = blockedReasons;
 
   const ctaText = execAuthorized
-    ? "Préparer ce trade"
+    ? "✅ Préparer ce trade (PLANNED)"
     : watchlistEligible
-      ? "Ajouter à la watchlist"
-      : "Trade non autorisé";
+      ? "🟠 Ajouter à la watchlist"
+      : "❌ Trade non autorisé";
 
   return (
     <div
@@ -145,10 +120,10 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
             </p>
           </div>
 
-          {(nonTradeWarning || regimeDefensive) && (
+          {!execAuthorized && !watchlistEligible && (
             <div className="rounded-xl p-4" style={{ background: "#2a0d0d", border: "1px solid #ef444455" }}>
               <p className="text-xs font-black text-red-300 uppercase tracking-widest mb-1">NO TRADE CRYPTO</p>
-              <p className="text-sm text-red-200">Pas de trade - edge non validé ou régime crypto défensif.</p>
+              <p className="text-sm text-red-200">Trade non autorisé. Setup invalide ou rejeté.</p>
             </div>
           )}
 
@@ -237,31 +212,33 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
             </ul>
           </div>
 
-          <div className="rounded-xl p-4" style={{ background: execAuthorized ? "#041310" : "#130404", border: `1px solid ${execAuthorized ? "#065f46" : "#7f1d1d"}` }}>
-            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: execAuthorized ? "#4ade80" : "#f87171" }}>
-              Autorisation d&apos;exécution
-            </p>
-            <div className="mt-2 flex items-start justify-between gap-3 flex-wrap">
-              <div>
-                <p className="text-sm font-bold text-white">{execAuthorized ? "Autorisé" : "Non autorisé"}</p>
-                <p className="text-xs text-gray-400 mt-1">{execReasons[0] ?? "Conditions d'exécution validées"}</p>
-              </div>
-              <div className="text-xs text-gray-400 space-y-1 text-right">
-                <p>Edge: <span className="text-white">{row.ticker_edge_status ?? "—"}</span></p>
-                <p>Décision: <span className="text-white">{row.final_decision ?? "—"}</span></p>
-                <p>Tradable: <span className="text-white">{row.tradable ? "true" : "false"}</span></p>
-              </div>
-            </div>
-            {!execAuthorized && execReasons.length > 0 && (
-              <ul className="mt-3 space-y-1">
-                {execReasons.slice(0, 4).map((r, i) => (
-                  <li key={i} className="text-xs text-gray-300 flex gap-2">
-                    <span className="shrink-0 text-amber-400">•</span>{r}
+          {/* BLOCKED REASONS (if trade not authorized) */}
+          {!execAuthorized && execReasons.length > 0 && (
+            <div className="rounded-xl p-4" style={{ background: "#2a0d0d", border: "1px solid #ef444455" }}>
+              <p className="text-xs font-black text-red-300 uppercase tracking-widest mb-2">❌ TRADE NON AUTORISÉ ({execReasons.length} raison{execReasons.length > 1 ? "s" : ""})</p>
+              <ul className="space-y-1">
+                {execReasons.map((r, i) => (
+                  <li key={i} className="text-xs text-red-200 flex gap-2">
+                    <span className="shrink-0">•</span>{r}
                   </li>
                 ))}
               </ul>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* AUTHORIZED CONDITIONS (if trade authorized) */}
+          {execAuthorized && authorizedConditions.length > 0 && (
+            <div className="rounded-xl p-4" style={{ background: "#041310", border: "1px solid #065f46" }}>
+              <p className="text-xs font-black text-emerald-300 uppercase tracking-widest mb-2">✓ CONDITIONS RÉUNIES ({authorizedConditions.length})</p>
+              <ul className="space-y-1">
+                {authorizedConditions.map((c, i) => (
+                  <li key={i} className="text-xs text-emerald-100 flex gap-2">
+                    <span className="shrink-0">•</span>{c}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <button
             type="button"

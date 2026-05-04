@@ -40,3 +40,23 @@ CRYPTO_UNIVERSE: List[Dict[str, str]] = [
 CRYPTO_SYMBOLS: List[str] = [item["symbol"] for item in CRYPTO_UNIVERSE]
 CRYPTO_BY_SYMBOL: Dict[str, Dict[str, str]] = {item["symbol"]: item for item in CRYPTO_UNIVERSE}
 CRYPTO_SECTORS: List[str] = sorted({item["sector"] for item in CRYPTO_UNIVERSE})
+
+# ── Crypto Tradable V1 ───────────────────────────────────────────────────────────
+# Phase 1 tradable universe: BTC, ETH, SOL, BNB, LINK, AAVE, MKR
+# Only these 7 symbols can be executed (PLANNED/OPEN) in Crypto Tradable V1.
+# WATCHLIST remains available for all crypto symbols regardless of this universe.
+CRYPTO_TRADABLE_UNIVERSE_V1: frozenset = frozenset({
+    "BTC", "ETH", "SOL", "BNB", "LINK", "AAVE", "MKR"
+})
+
+
+def is_tradable_crypto(symbol: str) -> bool:
+    """Check if symbol is in Phase 1 tradable universe.
+
+    Args:
+        symbol: Crypto symbol (e.g., "BTC", "ETH")
+
+    Returns:
+        True if symbol can be traded, False otherwise
+    """
+    return symbol.upper() in CRYPTO_TRADABLE_UNIVERSE_V1
