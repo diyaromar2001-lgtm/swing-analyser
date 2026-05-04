@@ -137,6 +137,14 @@ export function CryptoTradePlan({ row, onClose }: { row: TickerResult; onClose: 
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          {/* Backtest Phase 1 Warning */}
+          <div className="rounded-xl p-4" style={{ background: "#2a1111", border: "1px solid #ef444455" }}>
+            <p className="text-xs font-black text-red-300 uppercase tracking-widest mb-1">⚠️ CRYPTO BACKTEST NON VALIDÉ</p>
+            <p className="text-sm text-red-200">
+              Backtest Phase 1 montre aucune stratégie crypto viable (PF max 1.01 / sample insuffisant). <strong>Trade réel non recommandé.</strong> Crypto = observation uniquement.
+            </p>
+          </div>
+
           {(nonTradeWarning || regimeDefensive) && (
             <div className="rounded-xl p-4" style={{ background: "#2a0d0d", border: "1px solid #ef444455" }}>
               <p className="text-xs font-black text-red-300 uppercase tracking-widest mb-1">NO TRADE CRYPTO</p>

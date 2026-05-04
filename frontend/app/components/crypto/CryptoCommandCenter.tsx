@@ -154,6 +154,14 @@ export function CryptoCommandCenter({
     <div className="space-y-3">
       {selected && <CryptoTradePlan row={selected} onClose={() => setSelected(null)} />}
 
+      {/* Avertissement global: Aucune stratégie crypto validée */}
+      <div className="rounded-xl p-4" style={{ background: "#2a1111", border: "1px solid #ef444455" }}>
+        <p className="text-xs font-black text-red-300 uppercase tracking-widest mb-1">⚠️ NO VALIDATED CRYPTO EDGE</p>
+        <p className="text-sm text-red-200">
+          Aucune stratégie crypto n&apos;est actuellement validée par backtest Phase 1. <strong>Crypto = observation uniquement.</strong> Les données sont disponibles à titre informatif. Aucun trade crypto n&apos;est autorisé.
+        </p>
+      </div>
+
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-bold text-gray-700 uppercase tracking-widest">
           {data.length} cryptos analysées · {tradeable.length} setup{tradeable.length > 1 ? "s" : ""} avec edge validé

@@ -75,6 +75,31 @@ export function CryptoResearchV2Panel({ regime }: { regime: CryptoRegimeEngine |
         ))}
       </div>
 
+      {/* Backtest Phase 1 Results */}
+      <div className="rounded-xl p-4" style={{ background: "#1a0f0f", border: "1px solid #ef444444" }}>
+        <p className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-3">📊 BACKTEST PHASE 1 RESULTS</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div style={{ background: "#0d0d18", padding: "8px 12px", borderRadius: "6px", borderLeft: "3px solid #fca5a5" }}>
+            <p className="text-[9px] text-gray-600 uppercase tracking-wider">BTC/ETH Pullback</p>
+            <p className="text-xs text-white font-semibold mt-1">PF: 1.01 <span style={{ color: "#fca5a5" }}>⚠️</span></p>
+            <p className="text-[9px] text-gray-500 mt-0.5">N=20, Test PF=0.91 → Marginal, non validé</p>
+          </div>
+          <div style={{ background: "#0d0d18", padding: "8px 12px", borderRadius: "6px", borderLeft: "3px solid #ef4444" }}>
+            <p className="text-[9px] text-gray-600 uppercase tracking-wider">Altcoin RS Rotation</p>
+            <p className="text-xs text-white font-semibold mt-1">PF: 0.59 <span style={{ color: "#ef4444" }}>✗</span></p>
+            <p className="text-[9px] text-gray-500 mt-0.5">DD 64% → Rejetée, catastrophique</p>
+          </div>
+          <div style={{ background: "#0d0d18", padding: "8px 12px", borderRadius: "6px", borderLeft: "3px solid #ef4444" }}>
+            <p className="text-[9px] text-gray-600 uppercase tracking-wider">4H Timing Pullback</p>
+            <p className="text-xs text-white font-semibold mt-1">Trades: 0 <span style={{ color: "#ef4444" }}>✗</span></p>
+            <p className="text-[9px] text-gray-500 mt-0.5">Non-fonctionnel, zéro signaux</p>
+          </div>
+        </div>
+        <p className="text-xs text-red-300 mt-3 font-semibold">
+          ➜ Aucune stratégie ne dépasse le seuil minimum PF &gt; 1.20. Crypto = observation uniquement.
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="rounded-xl p-3" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
           <p className="text-[9px] text-gray-600 uppercase tracking-widest">Régime crypto actuel</p>
