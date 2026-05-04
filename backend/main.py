@@ -2317,50 +2317,6 @@ def ticker_edge_endpoint(
     return compute_ticker_edge(t, df, period_months=period)
 
 
-@app.post("/api/strategy-edge/compute")
-def compute_strategy_edge(
-    tickers: Optional[str] = Query(None, description="Sous-ensemble tickers séparés par virgule (défaut : tous)"),
-    period: int = Query(24, ge=12, le=60, description="Horizon backtest en mois"),
-    _: None = Depends(require_admin_key),
-):
-    """
-    Calcule l'edge pour une liste de tickers (ou tous) en parallèle.
-    Résultats mis en cache 24h — à appeler manuellement via bouton 'Recalculate Edge'.
-    Peut prendre 2-5 minutes pour tous les tickers.
-    """
-    ticker_list = (
-        [t.strip().upper() for t in tickers.split(",") if t.strip()]
-        if tickers else ALL_TICKERS
-    )
-
-    computed = 0
-    errors   = 0
-
-    def _compute_one(t: str):
-        nonlocal computed, errors
-        df = _get_ohlcv(t)
-        if df is None:
-            errors += 1
-            return
-        try:
-            compute_ticker_edge(t, df, period_months=period)
-            computed += 1
-        except Exception:
-            errors += 1
-
-    with ThreadPoolExecutor(max_workers=6) as ex:
-        list(ex.map(_compute_one, ticker_list))
-
-    return {
-        "status":   "ok",
-        "computed": computed,
-        "errors":   errors,
-        "total":    len(ticker_list),
-        "period_months": period,
-        "message":  f"Edge calculé pour {computed}/{len(ticker_list)} tickers sur {period} mois (cache 24h)",
-    }
-
-
 @app.get("/api/strategy-edge/results")
 def strategy_edge_results(
     tickers: str = Query(..., description="Sous-ensemble tickers séparés par virgule"),
@@ -3250,11 +3206,16 @@ def compute_strategy_edge_single(
                 "ticker": ticker_upper,
                 "edge_status": edge_status,
                 "message": f"Edge calculé pour {ticker_upper}",
+                # Edge metrics (detailed)
                 "trades": int(edge_data.get("total_trades", 0)),
-                "pf": float(edge_data.get("pf", 0.0)),
+                "occurrences": int(edge_data.get("total_trades", 0)),  # Same as trades
+                "train_pf": float(edge_data.get("pf", 0.0)),
                 "test_pf": float(edge_data.get("test_pf", 0.0)),
                 "expectancy": float(edge_data.get("expectancy", 0.0)),
-                "overfit": bool(edge_data.get("overfit_warning", False)),
+                "overfit_warning": bool(edge_data.get("overfit_warning", False)),
+                "sample_status": edge_data.get("sample_status", "UNKNOWN"),
+                # Metadata
+                "period_months": 24,
                 "duration_ms": round((_time.perf_counter() - started) * 1000, 1),
             }
 
