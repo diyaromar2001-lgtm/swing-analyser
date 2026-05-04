@@ -206,12 +206,13 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
     "REJECT":{ bg: "#100a0a", border: "#7f1d1d" },
   };
   const gc = gradeColors[row.setup_grade] ?? gradeColors["REJECT"];
+  // WAIT = "pas encore" → eligible watchlist. SKIP/NO_TRADE = rejet explicite → bloqué.
+  // tradable=false ne bloque pas la watchlist (surveillance ≠ exécution).
   const blockedForWatchlist =
-    row.tradable === false ||
-    ["SKIP", "WAIT", "NO_TRADE"].includes(row.final_decision ?? "") ||
     row.setup_status === "INVALID" ||
     row.overfit_warning === true ||
-    row.setup_grade === "REJECT";
+    row.setup_grade === "REJECT" ||
+    ["SKIP", "NO_TRADE"].includes(row.final_decision ?? "");
   const watchlistEligible = !execAuth.authorized && !blockedForWatchlist;
   const marketOk = Boolean(
     row.score_detail.details.prix_above_sma200 &&
