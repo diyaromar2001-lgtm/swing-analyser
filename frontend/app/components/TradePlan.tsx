@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { TickerResult } from "../types";
 import { SetupGradeBadge, SignalBadge, ConfidenceBadge } from "./CategoryBadge";
+import { getAdminApiKey, getAdminHeaders, isAdminProtectedError, getApiUrl } from "../lib/api";
 import { SentimentPanel } from "./SentimentPanel";
 import { SetupStats } from "./SetupStats";
 import { TakeTradeModal } from "./TakeTradeModal";
@@ -181,6 +182,8 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
   const reason     = buildReason(row);
   const scoreColor = row.score >= 80 ? "#10b981" : row.score >= 65 ? "#f59e0b" : "#ef4444";
   const [journalIntent, setJournalIntent] = useState<"PLANNED" | "WATCHLIST" | null>(null);
+  const [computingEdge, setComputingEdge] = useState(false);
+  const [edgeMessage, setEdgeMessage] = useState<string | null>(null);
   const { isTickerActive } = useJournal();
   const alreadyTaken = isTickerActive(row.ticker, row.asset_scope);
   const execAuth = getExecutionAuthorization(row);
@@ -256,6 +259,46 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
     !decisionOk ? "Encore en watchlist" :
     !setupOk ? "À éviter" :
     missingCount <= 2 ? "Proche d’être autorisé" : "Encore en watchlist";
+
+  const handleComputeEdge = useCallback(async () => {
+    if (!getAdminApiKey()) {
+      setEdgeMessage("Clé admin requise pour calculer l’edge");
+      return;
+    }
+    setComputingEdge(true);
+    setEdgeMessage(null);
+    try {
+      const apiUrl = getApiUrl();
+      const res = await fetch(
+        `${apiUrl}/api/strategy-edge/compute?ticker=${encodeURIComponent(row.ticker)}`,
+        {
+          method: "POST",
+          headers: getAdminHeaders(),
+        }
+      );
+      const json = await res.json() as any;
+      if (json.status === "ok") {
+        setEdgeMessage(`✓ Edge calculé pour ${row.ticker}`);
+        // Note: Pour refresh complet, fermer et rouvrir le Trade Plan
+        // Ou notifier parent de rafraîchir les données
+        setTimeout(() => onClose(), 1500);
+      } else if (json.status === "unavailable") {
+        setEdgeMessage(`⚠ ${json.message}`);
+      } else {
+        setEdgeMessage(`✗ Erreur: ${json.message}`);
+      }
+    } catch (error) {
+      if (isAdminProtectedError(error)) {
+        setEdgeMessage("Clé admin invalide ou expirée");
+      } else {
+        setEdgeMessage("Erreur lors du calcul de l’edge");
+      }
+    } finally {
+      setComputingEdge(false);
+    }
+  }, [row.ticker, onClose]);
+
+  const canComputeEdge = row.ticker_edge_status === "EDGE_NOT_COMPUTED" && getAdminApiKey();
 
   return (
     <div
@@ -509,13 +552,25 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
               ✅ Préparer ce trade
             </button>
           ) : watchlistEligible ? (
-            <button
-              onClick={() => setJournalIntent("WATCHLIST")}
-              className="w-full py-3 rounded-xl text-sm font-black transition-all hover:opacity-90 active:scale-95"
-              style={{ background: "#2a220d", border: "1px solid #a16207", color: "#fcd34d" }}
-            >
-              🟠 Ajouter à la watchlist
-            </button>
+            <div className="space-y-2">
+              <button
+                onClick={() => setJournalIntent("WATCHLIST")}
+                className="w-full py-3 rounded-xl text-sm font-black transition-all hover:opacity-90 active:scale-95"
+                style={{ background: "#2a220d", border: "1px solid #a16207", color: "#fcd34d" }}
+              >
+                🟠 Ajouter à la watchlist
+              </button>
+              {canComputeEdge && (
+                <button
+                  onClick={handleComputeEdge}
+                  disabled={computingEdge}
+                  className="w-full py-2 rounded-xl text-xs font-semibold transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
+                  style={{ background: "#1e3a5f", border: "1px solid #60a5fa", color: "#93c5fd" }}
+                >
+                  {computingEdge ? `🔄 Calcul edge…` : `💠 Calculer Edge ${row.ticker}`}
+                </button>
+              )}
+            </div>
           ) : (
             <button
               type="button"
@@ -583,6 +638,14 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
             )}
           </div>
         </div>
+
+        {edgeMessage && (
+          <div className="px-6 pb-3">
+            <div className={`rounded-lg px-3 py-2 text-xs ${edgeMessage.startsWith("✓") ? "bg-emerald-950/40 border border-emerald-800 text-emerald-200" : edgeMessage.startsWith("⚠") ? "bg-amber-950/40 border border-amber-800 text-amber-200" : "bg-red-950/40 border border-red-800 text-red-200"}`}>
+              {edgeMessage}
+            </div>
+          </div>
+        )}
 
         {journalIntent && (
           <TakeTradeModal

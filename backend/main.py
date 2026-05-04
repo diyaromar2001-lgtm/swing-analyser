@@ -3027,6 +3027,94 @@ def warmup_edge_actions(
         }
 
 
+@app.post("/api/strategy-edge/compute")
+def compute_strategy_edge_single(
+    ticker: str = Query(...),
+    _: None = Depends(require_admin_key),
+):
+    """
+    Compute edge v1 for a single ticker (targeted from Trade Plan).
+    No grade filtering — works for any ticker.
+    Used as CTA in Trade Plan when EDGE_NOT_COMPUTED.
+    """
+    started = _time.perf_counter()
+    warnings: List[str] = []
+    errors: List[str] = []
+    edge_status = "EDGE_NOT_COMPUTED"
+    edge_data = {}
+
+    ticker_upper = ticker.upper()
+
+    try:
+        # Fetch OHLCV data for ticker
+        df = _get_ohlcv(ticker_upper, allow_download=True)
+        if df is None:
+            msg = f"OHLCV data unavailable for {ticker_upper}"
+            warnings.append(msg)
+            return {
+                "status": "unavailable",
+                "ticker": ticker_upper,
+                "edge_status": "EDGE_NOT_COMPUTED",
+                "message": msg,
+                "trades": 0,
+                "pf": 0.0,
+                "test_pf": 0.0,
+                "expectancy": 0.0,
+                "overfit": False,
+                "duration_ms": round((_time.perf_counter() - started) * 1000, 1),
+            }
+
+        # Compute edge
+        try:
+            result = compute_ticker_edge(ticker_upper, df, period_months=24)
+            edge_data = result if isinstance(result, dict) else {}
+            edge_status = edge_data.get("ticker_edge_status", "NO_EDGE")
+
+            return {
+                "status": "ok",
+                "ticker": ticker_upper,
+                "edge_status": edge_status,
+                "message": f"Edge calculé pour {ticker_upper}",
+                "trades": int(edge_data.get("total_trades", 0)),
+                "pf": float(edge_data.get("pf", 0.0)),
+                "test_pf": float(edge_data.get("test_pf", 0.0)),
+                "expectancy": float(edge_data.get("expectancy", 0.0)),
+                "overfit": bool(edge_data.get("overfit_warning", False)),
+                "duration_ms": round((_time.perf_counter() - started) * 1000, 1),
+            }
+
+        except Exception as exc:
+            msg = f"{type(exc).__name__}: {str(exc)[:160]}"
+            errors.append(msg)
+            return {
+                "status": "error",
+                "ticker": ticker_upper,
+                "edge_status": "EDGE_NOT_COMPUTED",
+                "message": f"Calcul échoué: {msg}",
+                "trades": 0,
+                "pf": 0.0,
+                "test_pf": 0.0,
+                "expectancy": 0.0,
+                "overfit": False,
+                "duration_ms": round((_time.perf_counter() - started) * 1000, 1),
+            }
+
+    except Exception as exc:
+        msg = f"compute_strategy_edge_single: {type(exc).__name__}: {str(exc)[:180]}"
+        return {
+            "status": "error",
+            "ticker": ticker_upper,
+            "edge_status": "EDGE_NOT_COMPUTED",
+            "message": msg,
+            "trades": 0,
+            "pf": 0.0,
+            "test_pf": 0.0,
+            "expectancy": 0.0,
+            "overfit": False,
+            "duration_ms": round((_time.perf_counter() - started) * 1000, 1),
+        }
+
+
 # ── Trade Journal persisté ─────────────────────────────────────────────────
 
 @app.get("/api/trade-journal")

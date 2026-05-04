@@ -269,7 +269,12 @@ export function AdminPanel({
         ...(json.errors?.length ? json.errors.map((e: string) => `[error] ${e}`) : []),
         ...prev,
       ]);
-      setSuccessNotice(`Edge calculé pour ${json.edge_actions_computed} tickers.`);
+      if (json.edge_actions_count === 0) {
+        setRepairNotice("Aucun ticker éligible trouvé dans le cache actuel.");
+        setInfoNotice("Utilisez le calcul par ticker dans le Trade Plan (bouton 'Calculer Edge [TICKER]').");
+      } else {
+        setSuccessNotice(`Edge calculé pour ${json.edge_actions_computed} / ${json.edge_actions_count} tickers.`);
+      }
     } catch (error) {
       if (isAdminProtectedError(error)) {
         setAdminErrorNotice("Action admin protégée — clé absente ou invalide.");
