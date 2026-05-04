@@ -33,6 +33,8 @@ CRYPTO_UNIVERSE: List[Dict[str, str]] = [
     {"symbol": "OP", "pair": "OPUSDT", "coingecko_id": "optimism", "yahoo_symbol": "OP-USD", "sector": "Layer 2"},
     {"symbol": "SUI", "pair": "SUIUSDT", "coingecko_id": "sui", "yahoo_symbol": "SUI20947-USD", "sector": "Layer 1"},
     {"symbol": "SEI", "pair": "SEIUSDT", "coingecko_id": "sei-network", "yahoo_symbol": "SEI-USD", "sector": "Layer 1"},
+    {"symbol": "AAVE", "pair": "AAVEUSDT", "coingecko_id": "aave", "yahoo_symbol": "AAVE-USD", "sector": "DeFi"},
+    {"symbol": "MKR", "pair": "MKRUSDT", "coingecko_id": "maker", "yahoo_symbol": "MKR-USD", "sector": "DeFi"},
 ]
 
 CRYPTO_SYMBOLS: List[str] = [item["symbol"] for item in CRYPTO_UNIVERSE]
