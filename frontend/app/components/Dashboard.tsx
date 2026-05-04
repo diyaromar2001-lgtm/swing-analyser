@@ -390,13 +390,37 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
         saveScreenerCache(screenerScope, json);
         setDataErrorNotice(null);
       } else if (isCrypto) {
-        const cached = loadScreenerCache(screenerScope);
-        if (cached?.data?.length || hadVisibleData) {
-          setDataErrorNotice("Données précédentes — refresh échoué");
-        } else {
-          setData([]);
-          dataLengthRef.current = 0;
-          setDataErrorNotice("Aucune donnée crypto en cache. Lancez une réparation des caches.");
+        // Cache vide côté serveur (cold-start Railway) — retry sans fast=true
+        let recovered = false;
+        if (fast) {
+          try {
+            const retryRes = await fetchJsonWithTimeout(
+              `${API_URL}/api/crypto/screener`,
+              { cache: "no-store" },
+              20_000,
+            );
+            if (retryRes.ok) {
+              const retryJson = await retryRes.json();
+              if (Array.isArray(retryJson) && retryJson.length > 0) {
+                setData(retryJson);
+                dataLengthRef.current = retryJson.length;
+                setLastUpdate(new Date());
+                saveScreenerCache(screenerScope, retryJson);
+                setDataErrorNotice(null);
+                recovered = true;
+              }
+            }
+          } catch { /* retry silencieux */ }
+        }
+        if (!recovered) {
+          const cached = loadScreenerCache(screenerScope);
+          if (cached?.data?.length || hadVisibleData) {
+            setDataErrorNotice("Données précédentes — refresh échoué");
+          } else {
+            setData([]);
+            dataLengthRef.current = 0;
+            setDataErrorNotice("Aucune donnée crypto en cache. Lancez une réparation des caches.");
+          }
         }
       } else {
         setData(json);
