@@ -528,14 +528,16 @@ export function ScreenerTable({
                       <td className="px-3 py-2.5"><PctCell val={row.perf_3m} /></td>
                       <td className="px-3 py-2.5 text-center">
                         {scope === "crypto" ? (
-                          <span className="text-[10px] font-bold" style={{ color: row.ticker_edge_status === "OVERFITTED" ? "#f59e0b" : row.ticker_edge_status === "NO_EDGE" ? "#9ca3af" : "#4ade80" }}>
+                          <span className="text-[10px] font-bold" style={{ color: row.ticker_edge_status === "OVERFITTED" ? "#f59e0b" : row.ticker_edge_status === "NO_EDGE" ? "#9ca3af" : row.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "#a78bfa" : "#4ade80" }}>
                             {row.ticker_edge_status === "NO_EDGE"
                               ? "Edge non validé"
                               : row.ticker_edge_status === "OVERFITTED"
                                 ? "Backtest suspect — éviter"
                                 : row.ticker_edge_status === "WEAK_EDGE"
                                   ? "Edge faible"
-                                  : row.ticker_edge_status ?? "—"}
+                                  : row.ticker_edge_status === "INSUFFICIENT_SAMPLE"
+                                    ? "Historique insuffisant"
+                                    : row.ticker_edge_status ?? "—"}
                           </span>
                         ) : (
                           <SentimentCell ticker={row.ticker} apisConfigured={apisConfigured} />

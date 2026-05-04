@@ -60,7 +60,7 @@ export function Top5Cards({
             ? defensiveRegime
               ? "👁 Watchlist technique crypto — surveillance uniquement"
               : "🎯 Quelles sont les meilleures cryptos à surveiller aujourd’hui ?"
-            : "🎯 Quelles sont les meilleures actions à trader aujourd&apos;hui ?"}
+            : "🎯 Quelles sont les meilleures actions à trader aujourd'hui ?"}
         </p>
         {defensiveRegime && (
           <div className="mb-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest"

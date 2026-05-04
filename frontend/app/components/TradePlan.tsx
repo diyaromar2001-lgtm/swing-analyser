@@ -276,6 +276,10 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
           headers: getAdminHeaders(),
         }
       );
+      if (!res.ok && res.status >= 500) {
+        setEdgeMessage(`⚠ Serveur indisponible (${res.status}) — réessayez dans quelques instants`);
+        return;
+      }
       const json = await res.json() as any;
       if (json.status === "ok") {
         // BUGFIX: Update local row object with computed edge_status

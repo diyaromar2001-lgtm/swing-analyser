@@ -5,18 +5,20 @@ export type EdgeStatus =
   | "VALID_EDGE"
   | "WEAK_EDGE"
   | "NO_EDGE"
+  | "INSUFFICIENT_SAMPLE"
   | "OVERFITTED"
   | "EDGE_NOT_COMPUTED"
   | "UNKNOWN";
 
 const EDGE_CFG: Record<string, { label: string; color: string; bg: string }> = {
-  STRONG_EDGE: { label: "✓ STRONG EDGE", color: "#4ade80", bg: "#052e16" },
-  VALID_EDGE:  { label: "✓ VALID EDGE",  color: "#86efac", bg: "#031a0d" },
-  WEAK_EDGE:   { label: "~ WEAK EDGE",   color: "#fde047", bg: "#1c1500" },
-  NO_EDGE:     { label: "✗ NO EDGE",     color: "#ef4444", bg: "#1a0d0d" },
-  OVERFITTED:  { label: "⚠ OVERFITTED",  color: "#f97316", bg: "#1c0800" },
-  EDGE_NOT_COMPUTED: { label: "◆ EDGE NOT COMPUTED", color: "#60a5fa", bg: "#082f49" },
-  UNKNOWN:     { label: "— UNKNOWN",     color: "#6b7280", bg: "#111118" },
+  STRONG_EDGE:         { label: "✓ STRONG EDGE",        color: "#4ade80", bg: "#052e16" },
+  VALID_EDGE:          { label: "✓ VALID EDGE",          color: "#86efac", bg: "#031a0d" },
+  WEAK_EDGE:           { label: "~ WEAK EDGE",           color: "#fde047", bg: "#1c1500" },
+  NO_EDGE:             { label: "✗ NO EDGE",             color: "#ef4444", bg: "#1a0d0d" },
+  INSUFFICIENT_SAMPLE: { label: "◌ HISTORIQUE INSUFFISANT", color: "#a78bfa", bg: "#1e1230" },
+  OVERFITTED:          { label: "⚠ OVERFITTED",          color: "#f97316", bg: "#1c0800" },
+  EDGE_NOT_COMPUTED:   { label: "◆ EDGE NOT COMPUTED",   color: "#60a5fa", bg: "#082f49" },
+  UNKNOWN:             { label: "— UNKNOWN",             color: "#6b7280", bg: "#111118" },
 };
 
 export function EdgeStatusBadge({ status }: { status?: EdgeStatus | string | null }) {
@@ -47,6 +49,9 @@ export function EdgeValidationNote({
   }
   if (status === "OVERFITTED") {
     return <span className="text-[10px] text-amber-400 font-bold">Overfit — éviter</span>;
+  }
+  if (status === "INSUFFICIENT_SAMPLE") {
+    return <span className="text-[10px] text-purple-400 font-bold">Historique insuffisant (&lt;8 trades)</span>;
   }
   if (status === "NO_EDGE" || !status) {
     return <span className="text-[10px] text-gray-500 font-bold">Non validé historiquement</span>;

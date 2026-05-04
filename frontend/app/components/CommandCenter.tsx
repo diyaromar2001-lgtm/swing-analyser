@@ -559,10 +559,11 @@ function TradePlanPanel({
                   background: t.ticker_edge_status === "STRONG_EDGE" ? "#052e16" : t.ticker_edge_status === "VALID_EDGE" ? "#031a0d" : "#111118",
                   color: t.ticker_edge_status === "STRONG_EDGE" ? "#4ade80" : t.ticker_edge_status === "VALID_EDGE" ? "#86efac" : "#6b7280",
                 }}>
-                {t.ticker_edge_status === "STRONG_EDGE" ? "⚡ STRONG EDGE"
-                 : t.ticker_edge_status === "VALID_EDGE" ? "✓ VALID EDGE"
-                 : t.ticker_edge_status === "WEAK_EDGE"  ? "~ WEAK EDGE"
-                 : t.ticker_edge_status === "OVERFITTED" ? "⚠ OVERFITTED"
+                {t.ticker_edge_status === "STRONG_EDGE"         ? "⚡ STRONG EDGE"
+                 : t.ticker_edge_status === "VALID_EDGE"          ? "✓ VALID EDGE"
+                 : t.ticker_edge_status === "WEAK_EDGE"           ? "~ WEAK EDGE"
+                 : t.ticker_edge_status === "OVERFITTED"          ? "⚠ OVERFITTED"
+                 : t.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "◌ HISTORIQUE INSUFFISANT"
                  : "— PAS D'EDGE CALCULÉ"}
               </span>
               {t.best_strategy_name && (
@@ -1236,11 +1237,11 @@ export function CommandCenter({
                         <span
                           className="text-[9px] px-1.5 py-0.5 rounded font-black"
                           style={{
-                            background: t.ticker_edge_status === "OVERFITTED" ? "#1c1000" : "#111118",
-                            color: t.ticker_edge_status === "OVERFITTED" ? "#f59e0b" : "#9ca3af",
+                            background: t.ticker_edge_status === "OVERFITTED" ? "#1c1000" : t.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "#1e1230" : "#111118",
+                            color: t.ticker_edge_status === "OVERFITTED" ? "#f59e0b" : t.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "#a78bfa" : "#9ca3af",
                           }}
                         >
-                          {t.ticker_edge_status === "OVERFITTED" ? "Overfit — éviter" : "Edge non validé"}
+                          {t.ticker_edge_status === "OVERFITTED" ? "Overfit — éviter" : t.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "Historique insuffisant" : "Edge non validé"}
                         </span>
                       </div>
                       <span className="text-xs font-black text-gray-400">{t.score}</span>

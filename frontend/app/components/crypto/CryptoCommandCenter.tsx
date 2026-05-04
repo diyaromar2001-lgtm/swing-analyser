@@ -249,7 +249,7 @@ export function CryptoCommandCenter({
           <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-2 px-1">
             {defensiveRegime
               ? "👁 Watchlist technique crypto — surveillance uniquement, aucun achat autorisé"
-              : "🎯 Meilleures cryptos à trader aujourd&apos;hui — edge validé uniquement"}
+              : "🎯 Meilleures cryptos à trader aujourd'hui — edge validé uniquement"}
           </p>
           {defensiveRegime && (
             <div className="mb-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest"
