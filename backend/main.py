@@ -235,6 +235,158 @@ def admin_ping(_: None = Depends(require_admin_key)):
     return {"status": "ok", "admin": True}
 
 
+@app.get("/api/debug/cache-integrity")
+def debug_cache_integrity(_: None = Depends(require_admin_key)):
+    """
+    Diagnostic endpoint: Cache integrity, persistence status, warmup progress.
+    Returns: app uptime, cache counts, persistence status, warnings.
+    """
+    from datetime import datetime, timezone
+
+    # Uptime
+    uptime_seconds = _time.time() - APP_STARTED_AT
+    app_started_at_iso = datetime.fromtimestamp(APP_STARTED_AT, tz=timezone.utc).isoformat()
+
+    # Persistence status
+    persistence_status = get_cache_persistence_status()
+
+    # Actions caches
+    actions_edge_count = len(_ticker_edge_module._edge_cache)
+    actions_edge_tickers = list(_ticker_edge_module._edge_cache.keys()) if _ticker_edge_module._edge_cache else []
+    actions_ohlcv_count = len(_ohlcv_cache)
+    actions_price_count = len(_price_cache)
+    actions_screener_count = len(_screener_cache)
+    screener_default = _screener_cache.get(_default_screener_cache_key(), {})
+    screener_results_count = len(screener_default.get("data", [])) if isinstance(screener_default, dict) else 0
+
+    # Crypto caches
+    try:
+        crypto_ohlcv_count = len(_crypto_data_module._ohlcv_daily_cache) if hasattr(_crypto_data_module, '_ohlcv_daily_cache') else 0
+        crypto_4h_count = len(_crypto_data_module._ohlcv_4h_cache) if hasattr(_crypto_data_module, '_ohlcv_4h_cache') else 0
+        crypto_price_count = len(_crypto_data_module._price_cache) if hasattr(_crypto_data_module, '_price_cache') else 0
+        crypto_screener_count = len(_crypto_service_module._screener_cache) if hasattr(_crypto_service_module, '_screener_cache') else 0
+        crypto_edge_count = len(_crypto_edge_cache) if _crypto_edge_cache else 0
+        crypto_edge_tickers = list(_crypto_edge_cache.keys()) if _crypto_edge_cache else []
+    except Exception:
+        crypto_ohlcv_count = 0
+        crypto_4h_count = 0
+        crypto_price_count = 0
+        crypto_screener_count = 0
+        crypto_edge_count = 0
+        crypto_edge_tickers = []
+
+    # Warmup progress
+    actions_warmup = _warmup_progress.get("actions", {})
+    crypto_warmup = _warmup_progress.get("crypto", {})
+
+    # Warnings
+    warnings = []
+
+    # Edge cache empty?
+    if actions_edge_count == 0:
+        warnings.append("WARNING: Actions edge_cache is empty (warmup not done)")
+
+    # Screener cache empty?
+    if screener_results_count == 0:
+        warnings.append("WARNING: Screener results cache is empty")
+
+    # Persistence issues?
+    if not persistence_status.get("persistence_enabled"):
+        warnings.append("WARNING: Persistence is disabled")
+
+    if not persistence_status.get("persistence_files_found"):
+        warnings.append("WARNING: Persistence file not found on disk")
+
+    if persistence_status.get("persistence_save_errors"):
+        warnings.append(f"WARNING: Persistence save error: {persistence_status.get('persistence_save_errors')[0]}")
+
+    if persistence_status.get("persistence_load_errors"):
+        warnings.append(f"WARNING: Persistence load error: {persistence_status.get('persistence_load_errors')[0]}")
+
+    # Recent restart?
+    if LAST_WARMUP_ACTIONS_FINISHED is None:
+        warnings.append("WARNING: Actions warmup not completed since app start")
+
+    if LAST_WARMUP_CRYPTO_FINISHED is None:
+        warnings.append("WARNING: Crypto warmup not completed since app start")
+
+    # Cache age checks
+    try:
+        screener_ts = max((v.get("ts", 0) for v in _screener_cache.values()), default=0)
+        if screener_ts:
+            screener_age = _time.time() - screener_ts
+            if screener_age > 3600:
+                warnings.append(f"WARNING: Screener cache is stale ({int(screener_age / 60)} min old)")
+    except Exception:
+        pass
+
+    try:
+        edge_ts = max((v.get("ts", 0) for v in _ticker_edge_module._edge_cache.values()), default=0)
+        if edge_ts:
+            edge_age = _time.time() - edge_ts
+            if edge_age > 86400:
+                warnings.append(f"WARNING: Edge cache is very old ({int(edge_age / 3600)} hours)")
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "app_started_at": app_started_at_iso,
+        "uptime_seconds": round(uptime_seconds, 1),
+        "persistence": {
+            "enabled": persistence_status.get("persistence_enabled", False),
+            "directory": persistence_status.get("persistence_dir", "unknown"),
+            "file": persistence_status.get("persistence_file", "unknown"),
+            "file_exists": bool(persistence_status.get("persistence_files_found")),
+            "last_save": persistence_status.get("last_persistence_save"),
+            "last_load": persistence_status.get("last_persistence_load"),
+            "last_save_ok": persistence_status.get("persistence_last_save_ok", False),
+            "last_load_ok": persistence_status.get("persistence_last_load_ok", False),
+            "save_attempts": persistence_status.get("save_attempts", 0),
+            "load_attempts": persistence_status.get("load_attempts", 0),
+            "last_save_error": persistence_status.get("persistence_save_errors", [None])[0] if persistence_status.get("persistence_save_errors") else None,
+            "last_load_error": persistence_status.get("persistence_load_errors", [None])[0] if persistence_status.get("persistence_load_errors") else None,
+        },
+        "caches": {
+            "actions": {
+                "ohlcv_count": actions_ohlcv_count,
+                "price_count": actions_price_count,
+                "screener_cache_keys": actions_screener_count,
+                "screener_results": screener_results_count,
+                "edge_cache_count": actions_edge_count,
+                "edge_tickers": actions_edge_tickers,
+            },
+            "crypto": {
+                "ohlcv_daily_count": crypto_ohlcv_count,
+                "ohlcv_4h_count": crypto_4h_count,
+                "price_count": crypto_price_count,
+                "screener_cache_count": crypto_screener_count,
+                "edge_cache_count": crypto_edge_count,
+                "edge_tickers": crypto_edge_tickers,
+            },
+        },
+        "warmup_progress": {
+            "actions": {
+                "started_at": _iso(LAST_WARMUP_ACTIONS_STARTED),
+                "finished_at": _iso(LAST_WARMUP_ACTIONS_FINISHED),
+                "total_tickers": actions_warmup.get("total_tickers"),
+                "warmed_tickers": actions_warmup.get("warmed_tickers"),
+                "missing_tickers": actions_warmup.get("missing_tickers"),
+                "errors_count": len(actions_warmup.get("errors", [])),
+            },
+            "crypto": {
+                "started_at": _iso(LAST_WARMUP_CRYPTO_STARTED),
+                "finished_at": _iso(LAST_WARMUP_CRYPTO_FINISHED),
+                "total_symbols": crypto_warmup.get("total_symbols"),
+                "warmed_symbols": crypto_warmup.get("warmed_symbols"),
+                "errors_count": len(crypto_warmup.get("errors", [])),
+            },
+        },
+        "warnings": warnings,
+    }
+
+
 # ── Market Status (ouvert / fermé) ────────────────────────────────────────────
 @app.get("/api/market-status")
 def market_status():
@@ -3089,6 +3241,9 @@ def compute_strategy_edge_single(
             result = compute_ticker_edge(ticker_upper, df, period_months=24)
             edge_data = result if isinstance(result, dict) else {}
             edge_status = edge_data.get("ticker_edge_status", "NO_EDGE")
+
+            # BUGFIX: Persist the edge cache after computing
+            _persist_runtime_cache_state()
 
             return {
                 "status": "ok",
