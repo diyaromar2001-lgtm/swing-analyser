@@ -2940,20 +2940,40 @@ def warmup_edge_actions(
 
     try:
         # Get current screener cache (contains all evaluated tickers)
-        current_cache = _screener_cache.get(_default_screener_cache_key(), {}).get("data", [])
+        # Try multiple cache keys to find screener results (user may have filtered by sector/score/signal)
+        current_cache = []
+        default_key = _default_screener_cache_key()
+
+        # First try default cache
+        if default_key in _screener_cache:
+            cache_entry = _screener_cache[default_key]
+            if isinstance(cache_entry, dict) and "data" in cache_entry:
+                current_cache = cache_entry.get("data", [])
+
+        # If default cache empty, try other cache keys
         if not current_cache:
-            # Try to run a quick screener pass to populate
+            for cache_key, cache_entry in _screener_cache.items():
+                if isinstance(cache_entry, dict) and "data" in cache_entry:
+                    data = cache_entry.get("data", [])
+                    if isinstance(data, list) and data:
+                        current_cache = data
+                        warnings.append(f"Using cache key: {cache_key[:50]}")
+                        break
+
+        # If still empty, try to run a quick screener pass to populate
+        if not current_cache:
             try:
-                _run_with_timeout(
+                screener_results = _run_with_timeout(
                     "warmup_edge_screener",
-                    lambda: _run_screener_impl(fast=True, limit=None),
+                    lambda: screener(strategy="standard", exclude_earnings=False, sector=None, min_score=0, signal=None, fast=True),
                     45,
                     warnings,
                     errors,
                 )
-                current_cache = _screener_cache.get(_default_screener_cache_key(), {}).get("data", [])
+                if screener_results:
+                    current_cache = screener_results
             except Exception as e:
-                warnings.append(f"Could not pre-warm screener: {type(e).__name__}")
+                warnings.append(f"Could not pre-warm screener: {type(e).__name__}: {str(e)[:100]}")
 
         # Filter for target grades
         filtered_tickers = []
