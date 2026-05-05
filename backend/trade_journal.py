@@ -618,4 +618,122 @@ def create_scalp_trade(
     return create_trade(payload)
 
 
+def close_scalp_trade(
+    trade_id: str,
+    exit_price: float,
+    closure_reason: str = "TARGET_HIT",
+) -> Dict[str, Any]:
+    """
+    Close a SCALP_PAPER_PLANNED trade and compute net PnL after costs.
+
+    Args:
+        trade_id: Trade ID (e.g., scalp_MKR_1714867200000)
+        exit_price: Exit price (actual fill price)
+        closure_reason: Reason for closure (TARGET_HIT, STOP_HIT, MANUAL_EXIT, etc.)
+
+    Returns:
+        Updated trade dict with status=SCALP_PAPER_CLOSED and actual_pnl_pct_net
+    """
+    with _LOCK:
+        conn = _connect()
+        try:
+            # Fetch existing trade
+            cursor = conn.execute("SELECT * FROM trades WHERE id = ?", (trade_id,))
+            trade_row = cursor.fetchone()
+
+            if not trade_row:
+                raise ValueError(f"Trade not found: {trade_id}")
+
+            trade = dict(trade_row)
+
+            # Calculate net PnL
+            entry_price = trade.get("entry_price")
+            direction = trade.get("direction", "LONG")
+            entry_fee_pct = trade.get("entry_fee_pct", 0.1)
+            exit_fee_pct = trade.get("exit_fee_pct", 0.1)
+            slippage_pct = trade.get("slippage_pct", 0.0)
+            estimated_roundtrip_cost_pct = trade.get("estimated_roundtrip_cost_pct", 0.2)
+
+            if not entry_price or not exit_price:
+                raise ValueError(f"Entry/exit prices required: entry={entry_price}, exit={exit_price}")
+
+            # Calculate gross PnL
+            if direction == "LONG":
+                gross_profit_pct = ((exit_price - entry_price) / entry_price) * 100
+            elif direction == "SHORT":
+                gross_profit_pct = ((entry_price - exit_price) / entry_price) * 100
+            else:
+                gross_profit_pct = 0.0
+
+            # Calculate net PnL (deduct costs)
+            net_pnl_pct = gross_profit_pct - estimated_roundtrip_cost_pct
+
+            # Calculate R multiple (for future analysis)
+            # R = (exit_price - entry_price) / (entry_price - stop_loss) for LONG
+            # R = (entry_price - exit_price) / (stop_loss - entry_price) for SHORT
+            stop_loss = trade.get("stop_loss")
+            if stop_loss and stop_loss != entry_price:
+                if direction == "LONG":
+                    risk = entry_price - stop_loss
+                    reward = exit_price - entry_price
+                    r_multiple = reward / risk if risk > 0 else 0.0
+                elif direction == "SHORT":
+                    risk = stop_loss - entry_price
+                    reward = entry_price - exit_price
+                    r_multiple = reward / risk if risk > 0 else 0.0
+                else:
+                    r_multiple = 0.0
+            else:
+                r_multiple = 0.0
+
+            # Update trade record
+            now = utc_now_iso()
+            conn.execute(
+                """
+                UPDATE trades SET
+                    status = 'SCALP_PAPER_CLOSED',
+                    closed_at = ?,
+                    exit_price = ?,
+                    exit_reason = ?,
+                    closure_reason = ?,
+                    pnl_pct = ?,
+                    actual_pnl_pct_net = ?,
+                    r_multiple = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    now,
+                    exit_price,
+                    closure_reason,
+                    closure_reason,
+                    gross_profit_pct,
+                    net_pnl_pct,
+                    r_multiple,
+                    now,
+                    trade_id,
+                ),
+            )
+            conn.commit()
+
+            return {
+                "ok": True,
+                "trade_id": trade_id,
+                "gross_pnl_pct": round(gross_profit_pct, 4),
+                "net_pnl_pct": round(net_pnl_pct, 4),
+                "r_multiple": round(r_multiple, 4),
+                "exit_price": exit_price,
+                "closure_reason": closure_reason,
+            }
+
+        except Exception as e:
+            conn.rollback()
+            return {
+                "ok": False,
+                "error": str(e),
+            }
+        finally:
+            conn.close()
+
+
 init_db()
