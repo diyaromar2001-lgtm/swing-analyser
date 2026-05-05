@@ -25,6 +25,13 @@ export interface CryptoScalpResult {
   watchlist_allowed: boolean;
   blocked_reasons: string[];
   signal_reasons: string[];
+  // Cost fields (Phase 2)
+  spread_bps?: number;
+  entry_fee_pct?: number;
+  exit_fee_pct?: number;
+  slippage_pct?: number;
+  estimated_roundtrip_cost_pct?: number;
+  estimated_net_rr?: number;
 }
 
 export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) {
@@ -123,12 +130,62 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
             </div>
           </div>
 
-          {result.rr_ratio && (
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <p className="text-[10px] text-gray-600 mb-1">Risk/Reward Ratio</p>
-              <p className="text-lg font-black text-cyan-400">1:{result.rr_ratio}</p>
+              <p className="text-[10px] text-gray-600 mb-1">Gross R/R Ratio</p>
+              <p className="text-lg font-black text-cyan-400">1:{result.rr_ratio?.toFixed(2) ?? "—"}</p>
             </div>
-          )}
+            {result.estimated_net_rr && (
+              <div>
+                <p className="text-[10px] text-gray-600 mb-1">Net R/R (after costs)</p>
+                <p className="text-lg font-black text-green-400">1:{result.estimated_net_rr.toFixed(2)}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Cost Estimate Section */}
+      {result.side !== "NONE" && result.estimated_roundtrip_cost_pct !== undefined && (
+        <div className="rounded-xl p-6 mb-6" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
+          <h3 className="text-lg font-black text-white mb-4">💰 Cost Estimate (Paper Trading)</h3>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div className="rounded-lg p-3 bg-gray-900">
+              <p className="text-[10px] font-bold text-gray-600 mb-1">Spread</p>
+              <p className="text-lg font-black text-cyan-400">{(result.spread_bps ?? 0).toFixed(0)} BPS</p>
+            </div>
+            <div className="rounded-lg p-3 bg-gray-900">
+              <p className="text-[10px] font-bold text-gray-600 mb-1">Entry Fee</p>
+              <p className="text-lg font-black text-orange-400">{(result.entry_fee_pct ?? 0).toFixed(3)}%</p>
+            </div>
+            <div className="rounded-lg p-3 bg-gray-900">
+              <p className="text-[10px] font-bold text-gray-600 mb-1">Exit Fee</p>
+              <p className="text-lg font-black text-orange-400">{(result.exit_fee_pct ?? 0).toFixed(3)}%</p>
+            </div>
+            <div className="rounded-lg p-3 bg-gray-900">
+              <p className="text-[10px] font-bold text-gray-600 mb-1">Slippage</p>
+              <p className="text-lg font-black text-red-400">{(result.slippage_pct ?? 0).toFixed(3)}%</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="rounded-lg p-4" style={{ background: "#1a1a2e" }}>
+              <p className="text-xs text-gray-600 mb-2">Roundtrip Cost Total</p>
+              <p className="text-2xl font-black text-amber-400">{(result.estimated_roundtrip_cost_pct ?? 0).toFixed(3)}%</p>
+              <p className="text-[10px] text-gray-500 mt-2">Combined spread + fees + slippage</p>
+            </div>
+            {result.estimated_roundtrip_cost_pct && result.estimated_roundtrip_cost_pct > 0.02 && (
+              <div className="rounded-lg p-4" style={{ background: "#2a1a0a", border: "1px solid #f59e0b44" }}>
+                <p className="text-xs text-amber-600 font-bold mb-2">⚠️ Cost Warning</p>
+                <p className="text-[11px] text-amber-400">
+                  {result.estimated_roundtrip_cost_pct > 0.03
+                    ? "High cost (>0.3%) may reduce profitability for small targets (<1% R)"
+                    : "Moderate cost - ensure target move is >1% to maintain edge"}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -216,7 +273,7 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
               onClick={() => setToPaper(true)}
               className="px-4 py-2 rounded-lg text-sm font-bold bg-green-900 border border-green-600 text-green-300 hover:bg-green-800 transition"
             >
-              📝 Add to Paper Journal
+              📝 Add to Paper Journal (costs tracked)
             </button>
           )}
 

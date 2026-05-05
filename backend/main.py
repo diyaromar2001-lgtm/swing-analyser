@@ -1896,6 +1896,62 @@ def crypto_scalp_journal_endpoint(payload: dict):
         return {"error": str(e)}
 
 
+# Scope: CRYPTO SCALP (List all paper trades)
+@app.get("/api/crypto/scalp/journal/trades")
+def crypto_scalp_trades_endpoint():
+    """List all SCALP paper trades (PLANNED, CLOSED, WATCHLIST)."""
+    from trade_journal import _connect
+    try:
+        conn = _connect()
+        cursor = conn.execute("""
+            SELECT
+                id, symbol, direction, entry_price, exit_price,
+                stop_loss, tp1, tp2, status, created_at, closed_at,
+                entry_fee_pct, exit_fee_pct, slippage_pct, spread_bps,
+                pnl_pct, actual_pnl_pct_net, r_multiple, closure_reason
+            FROM trades
+            WHERE signal_type = 'SCALP'
+            ORDER BY created_at DESC
+            LIMIT 100
+        """)
+        trades = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return {"trades": trades, "count": len(trades)}
+    except Exception as e:
+        return {"error": str(e), "trades": []}
+
+
+# Scope: CRYPTO SCALP (Close a paper trade)
+@app.post("/api/crypto/scalp/journal/close/{trade_id}")
+def crypto_scalp_close_endpoint(trade_id: str, payload: dict):
+    """Close a SCALP_PAPER_PLANNED trade and compute net PnL."""
+    from trade_journal import close_scalp_trade
+    try:
+        exit_price = payload.get("exit_price")
+        closure_reason = payload.get("closure_reason", "MANUAL_EXIT")
+        if not exit_price:
+            return {"error": "exit_price required"}
+        result = close_scalp_trade(trade_id, exit_price, closure_reason)
+        return result
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# Scope: CRYPTO SCALP (Portfolio performance)
+@app.get("/api/crypto/scalp/journal/performance")
+def crypto_scalp_performance_endpoint(symbol: str = None):
+    """Get portfolio performance stats for closed SCALP_PAPER trades."""
+    from crypto_paper_metrics import compute_paper_portfolio_stats, get_symbol_performance
+    try:
+        if symbol:
+            stats = get_symbol_performance(symbol.upper())
+        else:
+            stats = compute_paper_portfolio_stats()
+        return stats
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # Scope: CRYPTO
 @app.get("/api/crypto/prices")
 def crypto_prices_endpoint(symbols: str = Query(..., description="BTC,ETH,SOL")):
