@@ -130,7 +130,13 @@ function getExecutionAuthorization(row: TickerResult) {
   if (!edgeOk) {
     const edgeMsg = row.ticker_edge_status === "EDGE_NOT_COMPUTED"
       ? "Edge non calculé (cliquer Calculer Edge)"
-      : "Edge non validé";
+      : row.ticker_edge_status === "INSUFFICIENT_SAMPLE"
+        ? `Historique insuffisant (${row.edge_trades ?? 0} occurrence${row.edge_trades !== 1 ? "s" : ""} — besoin ≥15)`
+        : row.ticker_edge_status === "WEAK_EDGE"
+          ? "Edge faible (profit factor insuffisant)"
+          : row.ticker_edge_status === "OVERFITTED"
+            ? "Backtest suspect (overfit)"
+            : "Edge non validé";
     reasons.push(edgeMsg);
   }
   if (!setupOk) reasons.push("Setup technique insuffisant");
@@ -147,6 +153,7 @@ function getExecutionAuthorization(row: TickerResult) {
     edgeLabel:
       row.ticker_edge_status === "STRONG_EDGE" ? "Edge robuste" :
       row.ticker_edge_status === "VALID_EDGE" ? "Edge valide" :
+      row.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "Historique insuffisant" :
       row.ticker_edge_status === "WEAK_EDGE" ? "Edge faible" :
       row.ticker_edge_status === "OVERFITTED" ? "Backtest suspect" :
       row.ticker_edge_status === "EDGE_NOT_COMPUTED" ? "Edge non calculé" : "Edge non validé",
@@ -197,16 +204,19 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
         ? "Edge robuste"
         : row.ticker_edge_status === "VALID_EDGE"
           ? "Edge valide"
-          : row.ticker_edge_status === "WEAK_EDGE"
-            ? "Edge faible"
-            : row.ticker_edge_status === "OVERFITTED"
-              ? "Backtest suspect - eviter"
-              : row.ticker_edge_status === "EDGE_NOT_COMPUTED"
-                ? "Edge non calculé"
-                : "Edge non valide";
+          : row.ticker_edge_status === "INSUFFICIENT_SAMPLE"
+            ? "Historique insuffisant"
+            : row.ticker_edge_status === "WEAK_EDGE"
+              ? "Edge faible"
+              : row.ticker_edge_status === "OVERFITTED"
+                ? "Backtest suspect - eviter"
+                : row.ticker_edge_status === "EDGE_NOT_COMPUTED"
+                  ? "Edge non calculé"
+                  : "Edge non valide";
   const edgeColor =
     row.ticker_edge_status === "STRONG_EDGE" ? "#4ade80" :
     row.ticker_edge_status === "VALID_EDGE"  ? "#86efac" :
+    row.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "#a78bfa" :
     row.ticker_edge_status === "WEAK_EDGE"   ? "#fde047" :
     row.ticker_edge_status === "OVERFITTED"  ? "#f59e0b" :
     row.ticker_edge_status === "EDGE_NOT_COMPUTED" ? "#60a5fa" : "#9ca3af";
@@ -243,7 +253,12 @@ export function TradePlan({ row, onClose }: { row: TickerResult; onClose: () => 
   const readinessItems = [
     { label: "Régime marché favorable", ok: marketOk },
     { label: "Setup technique A/A+", ok: setupOk },
-    { label: "Edge validé", ok: edgeOk },
+    {
+      label: row.ticker_edge_status === "INSUFFICIENT_SAMPLE"
+        ? `Historique suffisant (${row.edge_trades ?? 0}/15)`
+        : "Edge validé",
+      ok: edgeOk
+    },
     { label: "Décision BUY / BUY NEAR ENTRY / BUY NOW", ok: decisionOk },
     { label: "Prix proche de l'entrée", ok: priceNear },
     { label: "Pas d'earnings proches", ok: earningsOk },
