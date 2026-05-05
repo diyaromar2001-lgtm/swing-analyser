@@ -1952,6 +1952,36 @@ def crypto_scalp_performance_endpoint(symbol: str = None):
         return {"error": str(e)}
 
 
+# Scope: CRYPTO SCALP (Health check)
+@app.get("/api/crypto/scalp/journal/health")
+def crypto_scalp_health_endpoint():
+    """Lightweight health check for scalp journal."""
+    from trade_journal import _connect
+    try:
+        conn = _connect()
+        cursor = conn.execute("SELECT COUNT(*) as total FROM trades WHERE signal_type = 'SCALP'")
+        row = cursor.fetchone()
+        total_trades = row["total"] if row else 0
+
+        cursor2 = conn.execute("SELECT COUNT(*) as planned FROM trades WHERE signal_type = 'SCALP' AND status = 'SCALP_PAPER_PLANNED'")
+        row2 = cursor2.fetchone()
+        planned_trades = row2["planned"] if row2 else 0
+
+        cursor3 = conn.execute("SELECT COUNT(*) as closed FROM trades WHERE signal_type = 'SCALP' AND status = 'SCALP_PAPER_CLOSED'")
+        row3 = cursor3.fetchone()
+        closed_trades = row3["closed"] if row3 else 0
+
+        conn.close()
+        return {
+            "status": "ok",
+            "total_scalp_trades": total_trades,
+            "planned_trades": planned_trades,
+            "closed_trades": closed_trades,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 # Scope: CRYPTO
 @app.get("/api/crypto/prices")
 def crypto_prices_endpoint(symbols: str = Query(..., description="BTC,ETH,SOL")):

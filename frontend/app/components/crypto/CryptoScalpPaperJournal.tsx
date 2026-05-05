@@ -25,10 +25,57 @@ export interface ScalpTrade {
   estimated_roundtrip_cost_pct?: number;
 }
 
+function exportTradesToCSV(trades: ScalpTrade[]) {
+  if (trades.length === 0) {
+    alert("Aucun trade à exporter");
+    return;
+  }
+
+  const headers = ["Symbol", "Side", "Status", "Entry Price", "Exit Price", "Stop Loss", "TP1", "Entry Fee %", "Exit Fee %", "Slippage %", "Roundtrip Cost %", "Gross PnL %", "Net PnL %", "R Multiple", "Created", "Closed"];
+  const rows = trades.map(t => [
+    t.symbol,
+    t.direction,
+    t.status,
+    t.entry_price.toFixed(4),
+    t.exit_price ? t.exit_price.toFixed(4) : "—",
+    t.stop_loss.toFixed(4),
+    t.tp1.toFixed(4),
+    (t.entry_fee_pct ?? 0).toFixed(3),
+    (t.exit_fee_pct ?? 0).toFixed(3),
+    (t.slippage_pct ?? 0).toFixed(3),
+    (t.estimated_roundtrip_cost_pct ?? 0).toFixed(3),
+    (t.pnl_pct ?? 0).toFixed(3),
+    (t.actual_pnl_pct_net ?? 0).toFixed(3),
+    (t.r_multiple ?? 0).toFixed(2),
+    new Date(t.created_at).toLocaleString("fr-FR"),
+    t.closed_at ? new Date(t.closed_at).toLocaleString("fr-FR") : "—",
+  ]);
+
+  const csvContent = [
+    headers.join(","),
+    ...rows.map(row => row.map(cell => `"${cell}"`).join(",")),
+  ].join("\n");
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.setAttribute("href", url);
+  link.setAttribute("download", `scalp-paper-journal-${new Date().toISOString().split("T")[0]}.csv`);
+  link.style.visibility = "hidden";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
 export function CryptoScalpPaperJournal() {
   const [trades, setTrades] = useState<ScalpTrade[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterSymbol, setFilterSymbol] = useState("");
+  const [filterSide, setFilterSide] = useState<"" | "LONG" | "SHORT">("");
+
+  // Unique symbols for filter dropdown
+  const uniqueSymbols = Array.from(new Set(trades.map(t => t.symbol))).sort();
 
   useEffect(() => {
     loadTrades();
@@ -72,8 +119,10 @@ export function CryptoScalpPaperJournal() {
   };
 
   const filteredTrades = trades.filter((t) => {
-    if (filterStatus === "all") return true;
-    return t.status === filterStatus;
+    if (filterStatus !== "all" && t.status !== filterStatus) return false;
+    if (filterSymbol && t.symbol !== filterSymbol) return false;
+    if (filterSide && t.direction !== filterSide) return false;
+    return true;
   });
 
   const openTrades = filteredTrades.filter((t) => t.status === "SCALP_PAPER_PLANNED");
@@ -85,20 +134,54 @@ export function CryptoScalpPaperJournal() {
         <h2 className="text-2xl font-bold text-white mb-4">📓 Paper Journal</h2>
 
         {/* Filters */}
-        <div className="flex gap-2 mb-4">
-          {["all", "SCALP_PAPER_PLANNED", "SCALP_PAPER_CLOSED"].map((status) => (
-            <button
-              key={status}
-              onClick={() => setFilterStatus(status)}
-              className={`px-4 py-2 rounded-lg font-bold text-sm ${
-                filterStatus === status
-                  ? "bg-cyan-600 text-white"
-                  : "bg-gray-900 text-gray-400 hover:bg-gray-800"
-              }`}
-            >
-              {status === "all" ? "Tous" : status === "SCALP_PAPER_PLANNED" ? "Ouverts" : "Fermés"}
-            </button>
-          ))}
+        <div className="flex gap-2 mb-4 flex-wrap">
+          {/* Status Filter */}
+          <div className="flex gap-1">
+            {["all", "SCALP_PAPER_PLANNED", "SCALP_PAPER_CLOSED"].map((status) => (
+              <button
+                key={status}
+                onClick={() => setFilterStatus(status as any)}
+                className={`px-4 py-2 rounded-lg font-bold text-sm ${
+                  filterStatus === status
+                    ? "bg-cyan-600 text-white"
+                    : "bg-gray-900 text-gray-400 hover:bg-gray-800"
+                }`}
+              >
+                {status === "all" ? "Tous" : status === "SCALP_PAPER_PLANNED" ? "Ouverts" : "Fermés"}
+              </button>
+            ))}
+          </div>
+
+          {/* Symbol Filter */}
+          <select
+            value={filterSymbol}
+            onChange={(e) => setFilterSymbol(e.target.value)}
+            className="px-3 py-2 rounded-lg text-sm bg-gray-900 border border-gray-700 text-white"
+          >
+            <option value="">Tous symboles</option>
+            {uniqueSymbols.map((sym) => (
+              <option key={sym} value={sym}>{sym}</option>
+            ))}
+          </select>
+
+          {/* Side Filter */}
+          <select
+            value={filterSide}
+            onChange={(e) => setFilterSide(e.target.value as any)}
+            className="px-3 py-2 rounded-lg text-sm bg-gray-900 border border-gray-700 text-white"
+          >
+            <option value="">Tous côtés</option>
+            <option value="LONG">LONG</option>
+            <option value="SHORT">SHORT</option>
+          </select>
+
+          {/* Export CSV Button */}
+          <button
+            onClick={() => exportTradesToCSV(filteredTrades)}
+            className="px-4 py-2 rounded-lg font-bold text-sm bg-green-900 border border-green-600 text-green-300 hover:bg-green-800 transition"
+          >
+            📥 Export CSV
+          </button>
         </div>
 
         {/* Open Trades */}
