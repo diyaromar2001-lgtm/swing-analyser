@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { getApiUrl } from "../../lib/api";
+
+const API_URL = getApiUrl();
 
 export function CryptoScalpPerformance() {
   const [stats, setStats] = useState(null);
@@ -14,8 +17,8 @@ export function CryptoScalpPerformance() {
   const loadPerformance = async () => {
     try {
       const url = selectedSymbol
-        ? `/api/crypto/scalp/journal/performance?symbol=${selectedSymbol}`
-        : "/api/crypto/scalp/journal/performance";
+        ? `${API_URL}/api/crypto/scalp/journal/performance?symbol=${selectedSymbol}`
+        : `${API_URL}/api/crypto/scalp/journal/performance`;
       const response = await fetch(url);
       const data = await response.json();
       setStats(data);

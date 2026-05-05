@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { getApiUrl } from "../../lib/api";
+
+const API_URL = getApiUrl();
 
 export interface ScalpTrade {
   id: string;
@@ -83,7 +86,7 @@ export function CryptoScalpPaperJournal() {
 
   const loadTrades = async () => {
     try {
-      const response = await fetch("/api/crypto/scalp/journal/trades");
+      const response = await fetch(`${API_URL}/api/crypto/scalp/journal/trades`);
       const data = await response.json();
       setTrades(data.trades || []);
     } catch (error) {
@@ -98,7 +101,7 @@ export function CryptoScalpPaperJournal() {
     if (!exitPrice) return;
 
     try {
-      const response = await fetch(`/api/crypto/scalp/journal/close/${tradeId}`, {
+      const response = await fetch(`${API_URL}/api/crypto/scalp/journal/close/${tradeId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
