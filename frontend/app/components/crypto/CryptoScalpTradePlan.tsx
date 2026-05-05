@@ -33,8 +33,13 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
 
   const gradeColor = result.scalp_grade === "SCALP_A+" ? "#4ade80"
     : result.scalp_grade === "SCALP_A" ? "#bef264"
-    : result.scalp_grade === "SCALP_B" ? "#fde047"
+    : result.scalp_grade === "SCALP_B" ? "#fbbf24"
     : "#6b7280";
+
+  const confidenceLabel = result.scalp_grade === "SCALP_A+" ? "High Confidence"
+    : result.scalp_grade === "SCALP_A" ? "Good Confidence"
+    : result.scalp_grade === "SCALP_B" ? "Medium Confidence (Test Setup)"
+    : "Not Suitable";
 
   const tierColor = result.tier === 1 ? "#4ade80" : result.tier === 2 ? "#fde047" : "#6b7280";
   const sideColor = result.side === "LONG" ? "#4ade80" : result.side === "SHORT" ? "#ef4444" : "#6b7280";
@@ -46,7 +51,7 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-3xl font-black text-white mb-2">{result.symbol}</h2>
-            <p className="text-xs text-gray-500">Crypto Scalp Analysis (Phase 1 — Paper Only)</p>
+            <p className="text-xs text-gray-500">Crypto Scalp Analysis (Phase 1 — Paper Only) — {confidenceLabel}</p>
           </div>
           <div className="flex gap-2">
             <div className="px-3 py-2 rounded-lg text-center" style={{ background: `${tierColor}22`, border: `1px solid ${tierColor}` }}>
@@ -229,7 +234,11 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
         </div>
 
         <p className="text-[10px] text-gray-600 mt-3">
-          💡 Paper Journal tracks paper trades for performance validation. Real trading is disabled in Phase 1.
+          {result.scalp_grade === "SCALP_B"
+            ? "💡 SCALP_B: Paper test setup — add to Paper Journal to validate medium-confidence setups. Real trading disabled."
+            : result.paper_allowed
+            ? "💡 Paper Journal tracks paper trades for performance validation. Real trading is disabled in Phase 1."
+            : "💡 Grade too low for Paper trading. Add to Watchlist to monitor."}
         </p>
       </div>
     </div>

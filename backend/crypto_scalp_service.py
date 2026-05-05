@@ -177,12 +177,23 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
             if risk > 0:
                 result["rr_ratio"] = round(reward / risk, 2)
 
-    # ─ Paper allowed if grade is A+ or A ────────────────────────────────
-    if result["scalp_grade"] in ("SCALP_A+", "SCALP_A"):
+    # ─ Paper allowed if grade is A+, A, or B (Phase 1 Paper Mode) ──────
+    # B = Medium confidence, test worthy
+    # A = Good confidence, recommended
+    # A+ = High confidence, priority
+    if result["scalp_grade"] in ("SCALP_A+", "SCALP_A", "SCALP_B"):
         result["paper_allowed"] = True
+        # Add confidence label
+        if result["scalp_grade"] == "SCALP_A+":
+            result["paper_confidence"] = "HIGH"
+        elif result["scalp_grade"] == "SCALP_A":
+            result["paper_confidence"] = "GOOD"
+        else:  # SCALP_B
+            result["paper_confidence"] = "MEDIUM"
     else:
         result["paper_allowed"] = False
-        result["blocked_reasons"].append(f"Grade {result['scalp_grade']} does not qualify for paper")
+        result["paper_confidence"] = "NONE"
+        result["blocked_reasons"].append(f"Grade {result['scalp_grade']} — watchlist only")
 
     # ─ Spread status (placeholder for Phase 1) ──────────────────────────
     # In Phase 2, we'll check actual bid-ask spread from exchange
