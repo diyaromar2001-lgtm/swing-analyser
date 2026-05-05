@@ -340,6 +340,14 @@ def _trade_payload_from_input(payload: Dict[str, Any]) -> Dict[str, Any]:
         "r_multiple": _to_float(payload.get("r_multiple")),
         "notes": notes,
         "source_snapshot_json": source_snapshot_json,
+        # Phase 2 cost fields for paper trading
+        "entry_fee_pct": _to_float(payload.get("entry_fee_pct")),
+        "exit_fee_pct": _to_float(payload.get("exit_fee_pct")),
+        "slippage_pct": _to_float(payload.get("slippage_pct")),
+        "spread_bps": _to_int(payload.get("spread_bps")),
+        "estimated_roundtrip_cost_pct": _to_float(payload.get("estimated_roundtrip_cost_pct")),
+        "closure_reason": payload.get("closure_reason"),
+        "actual_pnl_pct_net": _to_float(payload.get("actual_pnl_pct_net")),
     }
 
 
@@ -381,9 +389,14 @@ def _update_fields(trade: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, 
             trade["entry_price"] = _to_float(value)
         elif key in {"stop_loss", "tp1", "tp2", "trailing_stop", "risk_amount", "risk_pct", "quantity", "exit_price", "pnl_amount", "pnl_pct", "r_multiple"}:
             trade[key] = _to_float(value)
+        # Phase 2 cost fields
+        elif key in {"entry_fee_pct", "exit_fee_pct", "slippage_pct", "estimated_roundtrip_cost_pct", "actual_pnl_pct_net"}:
+            trade[key] = _to_float(value)
+        elif key in {"spread_bps"}:
+            trade[key] = _to_int(value)
         elif key in {"execution_authorized"}:
             trade[key] = 1 if bool(value) else 0
-        elif key in {"status", "direction", "setup_grade", "signal_type", "strategy_name", "edge_status", "final_decision", "position_size", "exit_reason", "notes", "opened_at", "closed_at", "sector"}:
+        elif key in {"status", "direction", "setup_grade", "signal_type", "strategy_name", "edge_status", "final_decision", "position_size", "exit_reason", "notes", "opened_at", "closed_at", "sector", "closure_reason"}:
             trade[key] = value
         elif key in {"source_snapshot", "source_snapshot_json"}:
             trade["source_snapshot_json"] = _json_dumps(value)
