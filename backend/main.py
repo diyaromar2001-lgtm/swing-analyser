@@ -67,6 +67,10 @@ from crypto_service import (
     crypto_prices,
     crypto_screener,
 )
+from crypto_scalp_service import (
+    analyze_crypto_scalp_symbol,
+    crypto_scalp_screener,
+)
 from crypto_strategy_lab import compute_crypto_strategy_lab, evaluate_crypto_strategy_for_symbol
 from crypto_universe import CRYPTO_SECTORS, CRYPTO_SYMBOLS
 from trade_journal import (
@@ -1849,6 +1853,47 @@ def crypto_screener_endpoint(
     fast: bool = Query(False),
 ):
     return crypto_screener(sector=sector, min_score=min_score, signal=signal, fast=fast)
+
+
+# Scope: CRYPTO SCALP (Phase 1 — lightweight scanner)
+@app.get("/api/crypto/scalp/screener")
+def crypto_scalp_screener_endpoint(
+    sort_by: str = Query("scalp_score", description="scalp_score, long_score, short_score, tier"),
+    reverse: bool = Query(True),
+    limit: int = Query(50),
+    min_score: int = Query(0),
+    tier_filter: Optional[int] = Query(None, description="1, 2, or 3"),
+):
+    return crypto_scalp_screener(
+        sort_by=sort_by,
+        reverse=reverse,
+        limit=limit,
+        min_score=min_score,
+        tier_filter=tier_filter,
+    )
+
+
+# Scope: CRYPTO SCALP (Single symbol analysis)
+@app.get("/api/crypto/scalp/analyze/{symbol}")
+def crypto_scalp_analyze_endpoint(symbol: str):
+    return analyze_crypto_scalp_symbol(symbol.upper())
+
+
+# Scope: CRYPTO SCALP (Create journal entry)
+@app.post("/api/crypto/scalp/journal")
+def crypto_scalp_journal_endpoint(payload: dict):
+    """Create a SCALP trade entry in the journal."""
+    from trade_journal import create_scalp_trade
+    try:
+        symbol = payload.get("symbol", "").upper()
+        scalp_result = payload.get("scalp_result", {})
+        status = payload.get("status", "SCALP_WATCHLIST")
+        if not symbol:
+            return {"error": "symbol required"}
+        trade = create_scalp_trade(symbol, scalp_result, status)
+        return {"ok": True, "trade_id": trade.get("id"), "status": trade.get("status")}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # Scope: CRYPTO

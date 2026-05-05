@@ -548,4 +548,46 @@ def stats() -> Dict[str, Any]:
     }
 
 
+def create_scalp_trade(
+    symbol: str,
+    scalp_result: Dict[str, Any],
+    status: str = "SCALP_WATCHLIST",
+) -> Dict[str, Any]:
+    """
+    Create a SCALP trade entry from CryptoScalpResult.
+
+    Args:
+        symbol: Crypto symbol (BTC, ETH, etc.)
+        scalp_result: CryptoScalpResult dict from crypto_scalp_service
+        status: Trade status (SCALP_WATCHLIST or SCALP_PAPER_PLANNED)
+
+    Returns:
+        Created trade dict
+    """
+    if status not in ("SCALP_WATCHLIST", "SCALP_PAPER_PLANNED"):
+        status = "SCALP_WATCHLIST"
+
+    trade_id = f"scalp_{symbol.upper()}_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+
+    payload = {
+        "id": trade_id,
+        "symbol": symbol.upper(),
+        "universe": "CRYPTO",
+        "status": status,
+        "direction": scalp_result.get("side", "NONE"),
+        "setup_grade": scalp_result.get("scalp_grade"),
+        "signal_type": "SCALP",
+        "strategy_name": scalp_result.get("strategy_name"),
+        "entry_price": scalp_result.get("entry"),
+        "stop_loss": scalp_result.get("stop_loss"),
+        "tp1": scalp_result.get("tp1"),
+        "tp2": scalp_result.get("tp2"),
+        "execution_authorized": False,
+        "notes": f"Scalp {scalp_result.get('side')} — Score: {scalp_result.get('scalp_score')}, Grade: {scalp_result.get('scalp_grade')}, Timeframe: {scalp_result.get('timeframe')}",
+        "source_snapshot_json": scalp_result,
+    }
+
+    return create_trade(payload)
+
+
 init_db()

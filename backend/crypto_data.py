@@ -25,6 +25,9 @@ COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 _price_cache: Dict[str, dict] = {}
 _ohlcv_daily_cache: Dict[str, dict] = {}
 _ohlcv_4h_cache: Dict[str, dict] = {}
+_ohlcv_1m_cache: Dict[str, dict] = {}
+_ohlcv_5m_cache: Dict[str, dict] = {}
+_ohlcv_15m_cache: Dict[str, dict] = {}
 _markets_cache: dict = {}
 _global_cache: dict = {}
 _last_price_update_ts: float = 0.0
@@ -32,10 +35,14 @@ _last_daily_update_ts: float = 0.0
 _last_h4_update_ts: float = 0.0
 _last_market_update_ts: float = 0.0
 _last_global_update_ts: float = 0.0
+_last_intraday_update_ts: float = 0.0
 
 PRICE_TTL = 60
 OHLCV_4H_TTL = 900
 OHLCV_DAILY_TTL = 3600
+OHLCV_1M_TTL = 300  # 5 min cache for 1m data (fresh)
+OHLCV_5M_TTL = 600  # 10 min cache for 5m data
+OHLCV_15M_TTL = 900  # 15 min cache for 15m data
 MARKETS_TTL = 300
 GLOBAL_TTL = 900
 
@@ -529,6 +536,67 @@ def debug_crypto_sources() -> Dict[str, object]:
     }
 
 
+def get_crypto_ohlcv_intraday(symbol: str, interval: str = "5m", allow_download: bool = True) -> Optional[pd.DataFrame]:
+    """
+    Fetch intraday OHLCV data (1m, 5m, 15m) for scalp analysis.
+    Tries Binance 1m, fallback to 5m if 1m unavailable.
+
+    Args:
+        symbol: Crypto symbol (e.g., "BTC", "ETH")
+        interval: "1m", "5m", or "15m"
+        allow_download: If False, use cache only
+
+    Returns:
+        DataFrame with OHLCV data, or None if unavailable
+    """
+    global _last_intraday_update_ts
+    sym = _normalize_symbol(symbol)
+    now = _time.time()
+
+    # Select cache based on interval
+    if interval == "1m":
+        cache = _ohlcv_1m_cache
+        ttl = OHLCV_1M_TTL
+    elif interval == "5m":
+        cache = _ohlcv_5m_cache
+        ttl = OHLCV_5M_TTL
+    elif interval == "15m":
+        cache = _ohlcv_15m_cache
+        ttl = OHLCV_15M_TTL
+    else:
+        return None
+
+    # Check cache
+    entry = cache.get(sym)
+    if entry and ((now - entry["ts"]) < ttl or not allow_download):
+        return entry["df"]
+
+    if not allow_download:
+        return None
+
+    # Try to fetch
+    pair = _binance_pair(sym)
+    df = None
+
+    # Try Binance for requested interval
+    if interval in ("1m", "5m", "15m"):
+        df = _fetch_binance_klines(pair, interval, 300, sym)  # Last 300 candles (5h @ 1m, 25h @ 5m, 75h @ 15m)
+
+    # Fallback: if 1m requested but failed, try 5m
+    if df is None and interval == "1m":
+        df = _fetch_binance_klines(pair, "5m", 300, sym)
+        if df is not None:
+            _log_source_event("OK", "binance", sym, "ohlcv_intraday_fallback", 0, "1m unavailable, using 5m", rows=len(df))
+
+    # Store in cache if successful
+    if df is not None and len(df) >= 20:
+        cache[sym] = {"df": df, "ts": now}
+        _last_intraday_update_ts = now
+        return df
+
+    return None
+
+
 def get_crypto_data_freshness() -> Dict[str, Optional[float]]:
     daily_ts = max((v.get("ts", 0) for v in _ohlcv_daily_cache.values()), default=0)
     h4_ts = max((v.get("ts", 0) for v in _ohlcv_4h_cache.values()), default=0)
@@ -545,10 +613,13 @@ def get_crypto_data_freshness() -> Dict[str, Optional[float]]:
 
 
 def clear_crypto_caches() -> None:
-    global _last_price_update_ts, _last_daily_update_ts, _last_h4_update_ts, _last_market_update_ts, _last_global_update_ts
+    global _last_price_update_ts, _last_daily_update_ts, _last_h4_update_ts, _last_market_update_ts, _last_global_update_ts, _last_intraday_update_ts
     _price_cache.clear()
     _ohlcv_daily_cache.clear()
     _ohlcv_4h_cache.clear()
+    _ohlcv_1m_cache.clear()
+    _ohlcv_5m_cache.clear()
+    _ohlcv_15m_cache.clear()
     _markets_cache.clear()
     _global_cache.clear()
     _last_price_update_ts = 0.0
@@ -556,6 +627,7 @@ def clear_crypto_caches() -> None:
     _last_h4_update_ts = 0.0
     _last_market_update_ts = 0.0
     _last_global_update_ts = 0.0
+    _last_intraday_update_ts = 0.0
 
 
 def available_crypto_symbols() -> List[str]:

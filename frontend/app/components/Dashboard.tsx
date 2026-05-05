@@ -17,6 +17,7 @@ import { AdminPanel } from "./AdminPanel";
 import { ensureApiResponse, getAdminApiKey, getAdminHeaders, getApiUrl, isAdminProtectedError } from "../lib/api";
 import { getActionsCacheStatus, getCryptoCacheStatus } from "../lib/cacheStatus";
 import { CryptoCommandCenter } from "./crypto/CryptoCommandCenter";
+import { CryptoScalpCommandCenter } from "./crypto/CryptoScalpCommandCenter";
 import { applyCryptoResearchV2Overlay } from "../lib/cryptoResearchV2";
 import { CryptoResearchV2Panel } from "./crypto/CryptoResearchV2Panel";
 import { formatCryptoPrice } from "../lib/cryptoFormat";
@@ -275,6 +276,7 @@ function GlobalStatusBar({
 
 export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
   const [universe, setUniverse]     = useState<UniverseScope>("actions");
+  const [cryptoMode, setCryptoMode] = useState<"swing" | "scalp">("swing");  // Phase 1: Scalp mode toggle
   const initialScreenerCache = typeof window === "undefined" ? null : loadScreenerCache("actions");
   const [data, setData]             = useState<TickerResult[]>(initialScreenerCache?.data?.length ? initialScreenerCache.data : initialData);
   const [loading, setLoading]       = useState((initialScreenerCache?.data?.length ? false : initialData.length === 0));
@@ -1403,22 +1405,55 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
 
       {uiMode === "simple" && (
         isCrypto ? (
-          <CryptoCommandCenter
-            data={dataWithLivePrices}
-            loading={loading}
-            screenerNotice={screenerNotice}
-            onRefresh={() => void repairCaches()}
-            onRefreshPrices={refreshPricesOnly}
-            onAdvancedView={() => {
-              setUiMode("pro");
-              localStorage.setItem("swing_ui_mode", "pro");
-            }}
-            onGoToLab={() => {
-              setUiMode("pro");
-              setView("lab");
-              localStorage.setItem("swing_ui_mode", "pro");
-            }}
-          />
+          <>
+            {/* Crypto Mode Toggle (Phase 1: Swing vs Scalp) */}
+            <div className="flex items-center gap-2 mb-4 rounded-lg p-3" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
+              <span className="text-xs font-bold text-gray-600">Mode:</span>
+              <button
+                onClick={() => setCryptoMode("swing")}
+                className="px-3 py-1 rounded-lg text-xs font-bold transition-all"
+                style={{
+                  background: cryptoMode === "swing" ? "#1e3a8a" : "#1a1a28",
+                  color: cryptoMode === "swing" ? "#60a5fa" : "#6b7280",
+                  border: cryptoMode === "swing" ? "1px solid #3b82f6" : "1px solid #444",
+                }}
+              >
+                🔄 Swing
+              </button>
+              <button
+                onClick={() => setCryptoMode("scalp")}
+                className="px-3 py-1 rounded-lg text-xs font-bold transition-all"
+                style={{
+                  background: cryptoMode === "scalp" ? "#1f2937" : "#1a1a28",
+                  color: cryptoMode === "scalp" ? "#fbbf24" : "#6b7280",
+                  border: cryptoMode === "scalp" ? "1px solid #f59e0b" : "1px solid #444",
+                }}
+              >
+                ⚡ Scalp (Phase 1 — Paper Only)
+              </button>
+            </div>
+
+            {cryptoMode === "scalp" ? (
+              <CryptoScalpCommandCenter loading={loading} />
+            ) : (
+              <CryptoCommandCenter
+                data={dataWithLivePrices}
+                loading={loading}
+                screenerNotice={screenerNotice}
+                onRefresh={() => void repairCaches()}
+                onRefreshPrices={refreshPricesOnly}
+                onAdvancedView={() => {
+                  setUiMode("pro");
+                  localStorage.setItem("swing_ui_mode", "pro");
+                }}
+                onGoToLab={() => {
+                  setUiMode("pro");
+                  setView("lab");
+                  localStorage.setItem("swing_ui_mode", "pro");
+                }}
+              />
+            )}
+          </>
         ) : (
           <CommandCenter
             data={dataWithLivePrices}
