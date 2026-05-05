@@ -22,6 +22,10 @@ from crypto_scalp_universe import (
     get_scalp_tier,
     is_scalp_watchable,
 )
+from crypto_cost_calculator import (
+    compute_roundtrip_cost_pct,
+    estimate_net_rr,
+)
 
 _screener_cache: Dict[str, dict] = {}
 _SCREENER_TTL = 60
@@ -30,7 +34,7 @@ _last_screener_update_ts: float = 0.0
 
 def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     """
-    Analyze a single crypto symbol for scalp trading (Phase 1 — lightweight).
+    Analyze a single crypto symbol for scalp trading (Phase 1-2).
 
     Returns:
         {
@@ -56,6 +60,12 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
             "watchlist_allowed": bool,
             "blocked_reasons": list,
             "signal_reasons": list,
+            "spread_bps": int,  # Phase 2: Bid-ask spread in basis points
+            "slippage_pct": float,  # Phase 2: Slippage percentage
+            "entry_fee_pct": float,  # Phase 2: Entry fee percentage
+            "exit_fee_pct": float,  # Phase 2: Exit fee percentage
+            "estimated_roundtrip_cost_pct": float,  # Phase 2: Total roundtrip cost
+            "estimated_net_rr": float | None,  # Phase 2: Net R/R after costs
         }
     """
 
@@ -194,6 +204,20 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
         result["paper_allowed"] = False
         result["paper_confidence"] = "NONE"
         result["blocked_reasons"].append(f"Grade {result['scalp_grade']} — watchlist only")
+
+    # ─ Cost Calculations (Phase 2 Paper Trading Enhancement) ────────────
+    cost_data = compute_roundtrip_cost_pct(symbol, result["tier"], include_spread=False)
+    result["spread_bps"] = cost_data.get("spread_bps")
+    result["slippage_pct"] = cost_data.get("slippage_pct")
+    result["entry_fee_pct"] = cost_data.get("entry_fee_pct")
+    result["exit_fee_pct"] = cost_data.get("exit_fee_pct")
+    result["estimated_roundtrip_cost_pct"] = cost_data.get("estimated_roundtrip_cost_pct")
+
+    # Calculate estimated net R/R after costs
+    if result.get("rr_ratio"):
+        result["estimated_net_rr"] = estimate_net_rr(result["rr_ratio"], cost_data.get("estimated_roundtrip_cost_pct"))
+    else:
+        result["estimated_net_rr"] = None
 
     # ─ Spread status (placeholder for Phase 1) ──────────────────────────
     # In Phase 2, we'll check actual bid-ask spread from exchange

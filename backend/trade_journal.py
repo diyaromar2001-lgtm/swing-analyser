@@ -22,6 +22,15 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _add_column_if_not_exists(conn: sqlite3.Connection, table: str, column: str, col_type: str) -> None:
+    """Helper to add column if it doesn't exist (SQLite safe)."""
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+    except sqlite3.OperationalError:
+        # Column already exists, silently continue
+        pass
+
+
 def init_db() -> None:
     with _LOCK:
         conn = _connect()
@@ -82,6 +91,19 @@ def init_db() -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_events_trade_id ON trade_events(trade_id)")
+
+            # Phase 2 cost fields (Paper Trading Enhancement)
+            _add_column_if_not_exists(conn, "trades", "entry_fee_pct", "REAL")
+            _add_column_if_not_exists(conn, "trades", "exit_fee_pct", "REAL")
+            _add_column_if_not_exists(conn, "trades", "slippage_pct", "REAL")
+            _add_column_if_not_exists(conn, "trades", "spread_bps", "INTEGER")
+            _add_column_if_not_exists(conn, "trades", "estimated_roundtrip_cost_pct", "REAL")
+            _add_column_if_not_exists(conn, "trades", "simulated_entry_price", "REAL")
+            _add_column_if_not_exists(conn, "trades", "simulated_exit_price", "REAL")
+            _add_column_if_not_exists(conn, "trades", "filled_quantity", "REAL")
+            _add_column_if_not_exists(conn, "trades", "closure_reason", "TEXT")
+            _add_column_if_not_exists(conn, "trades", "actual_pnl_pct_net", "REAL")
+
             conn.commit()
         finally:
             conn.close()
@@ -583,6 +605,12 @@ def create_scalp_trade(
         "tp1": scalp_result.get("tp1"),
         "tp2": scalp_result.get("tp2"),
         "execution_authorized": False,
+        # Cost fields (Phase 2 enhancement)
+        "entry_fee_pct": scalp_result.get("entry_fee_pct"),
+        "exit_fee_pct": scalp_result.get("exit_fee_pct"),
+        "slippage_pct": scalp_result.get("slippage_pct"),
+        "spread_bps": scalp_result.get("spread_bps"),
+        "estimated_roundtrip_cost_pct": scalp_result.get("estimated_roundtrip_cost_pct"),
         "notes": f"Scalp {scalp_result.get('side')} — Score: {scalp_result.get('scalp_score')}, Grade: {scalp_result.get('scalp_grade')}, Timeframe: {scalp_result.get('timeframe')}",
         "source_snapshot_json": scalp_result,
     }
