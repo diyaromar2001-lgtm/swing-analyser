@@ -103,6 +103,7 @@ def init_db() -> None:
             _add_column_if_not_exists(conn, "trades", "filled_quantity", "REAL")
             _add_column_if_not_exists(conn, "trades", "closure_reason", "TEXT")
             _add_column_if_not_exists(conn, "trades", "actual_pnl_pct_net", "REAL")
+            _add_column_if_not_exists(conn, "trades", "hold_time_minutes", "REAL")
 
             conn.commit()
         finally:
@@ -699,6 +700,18 @@ def close_scalp_trade(
             else:
                 r_multiple = 0.0
 
+            # Calculate hold time (minutes)
+            created_at_str = trade.get("created_at")
+            hold_time_minutes = None
+            try:
+                if created_at_str:
+                    created_dt = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                    now_dt = datetime.now(timezone.utc)
+                    duration = now_dt - created_dt
+                    hold_time_minutes = duration.total_seconds() / 60
+            except Exception:
+                hold_time_minutes = None
+
             # Update trade record
             now = utc_now_iso()
             conn.execute(
@@ -712,6 +725,7 @@ def close_scalp_trade(
                     pnl_pct = ?,
                     actual_pnl_pct_net = ?,
                     r_multiple = ?,
+                    hold_time_minutes = ?,
                     updated_at = ?
                 WHERE id = ?
                 """,
@@ -723,6 +737,7 @@ def close_scalp_trade(
                     gross_profit_pct,
                     net_pnl_pct,
                     r_multiple,
+                    hold_time_minutes,
                     now,
                     trade_id,
                 ),
@@ -737,6 +752,7 @@ def close_scalp_trade(
                 "r_multiple": round(r_multiple, 4),
                 "exit_price": exit_price,
                 "closure_reason": closure_reason,
+                "hold_time_minutes": round(hold_time_minutes, 2) if hold_time_minutes else None,
             }
 
         except Exception as e:
