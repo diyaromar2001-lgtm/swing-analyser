@@ -34,7 +34,7 @@ function exportTradesToCSV(trades: ScalpTrade[]) {
     return;
   }
 
-  const headers = ["Symbol", "Side", "Status", "Entry Price", "Exit Price", "Stop Loss", "TP1", "Entry Fee %", "Exit Fee %", "Slippage %", "Roundtrip Cost %", "Gross PnL %", "Net PnL %", "R Multiple", "Created", "Closed"];
+  const headers = ["Symbol", "Side", "Status", "Entry Price", "Exit Price", "Stop Loss", "TP1", "Entry Fee %", "Exit Fee %", "Slippage %", "Spread BPS", "Roundtrip Cost %", "Gross PnL %", "Net PnL %", "R Multiple", "Hold Time (min)", "Closure Reason", "Created", "Closed"];
   const rows = trades.map(t => [
     t.symbol,
     t.direction,
@@ -46,10 +46,13 @@ function exportTradesToCSV(trades: ScalpTrade[]) {
     (t.entry_fee_pct ?? 0).toFixed(3),
     (t.exit_fee_pct ?? 0).toFixed(3),
     (t.slippage_pct ?? 0).toFixed(3),
+    (t.spread_bps ?? 0).toString(),
     (t.estimated_roundtrip_cost_pct ?? 0).toFixed(3),
     (t.pnl_pct ?? 0).toFixed(3),
     (t.actual_pnl_pct_net ?? 0).toFixed(3),
     (t.r_multiple ?? 0).toFixed(2),
+    (t.r_multiple && t.closed_at ? ((new Date(t.closed_at).getTime() - new Date(t.created_at).getTime()) / 60000).toFixed(2) : "—"),
+    t.closure_reason ?? "—",
     new Date(t.created_at).toLocaleString("fr-FR"),
     t.closed_at ? new Date(t.closed_at).toLocaleString("fr-FR") : "—",
   ]);
@@ -246,26 +249,33 @@ export function CryptoScalpPaperJournal() {
                     <th className="text-right p-2 text-gray-500">PnL Brut</th>
                     <th className="text-right p-2 text-gray-500">PnL Net</th>
                     <th className="text-right p-2 text-gray-500">R/R</th>
+                    <th className="text-right p-2 text-gray-500">Hold (min)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {closedTrades.map((trade) => (
-                    <tr key={trade.id} style={{ borderBottom: "1px solid #1e1e2a" }}>
-                      <td className="p-2 font-bold text-white">{trade.symbol}</td>
-                      <td className={`p-2 font-bold ${trade.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>
-                        {trade.direction}
-                      </td>
-                      <td className="text-right p-2 text-gray-300">${trade.entry_price?.toFixed(2)}</td>
-                      <td className="text-right p-2 text-gray-300">${trade.exit_price?.toFixed(2)}</td>
-                      <td className={`text-right p-2 font-bold ${(trade.pnl_pct || 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
-                        {trade.pnl_pct?.toFixed(3)}%
-                      </td>
-                      <td className={`text-right p-2 font-bold ${(trade.actual_pnl_pct_net || 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
-                        {trade.actual_pnl_pct_net?.toFixed(3)}%
-                      </td>
-                      <td className="text-right p-2 text-cyan-400">{trade.r_multiple?.toFixed(2)}</td>
-                    </tr>
-                  ))}
+                  {closedTrades.map((trade) => {
+                    const holdTimeMinutes = trade.closed_at && trade.created_at
+                      ? ((new Date(trade.closed_at).getTime() - new Date(trade.created_at).getTime()) / 60000).toFixed(2)
+                      : null;
+                    return (
+                      <tr key={trade.id} style={{ borderBottom: "1px solid #1e1e2a" }}>
+                        <td className="p-2 font-bold text-white">{trade.symbol}</td>
+                        <td className={`p-2 font-bold ${trade.direction === "LONG" ? "text-green-400" : "text-red-400"}`}>
+                          {trade.direction}
+                        </td>
+                        <td className="text-right p-2 text-gray-300">${trade.entry_price?.toFixed(2)}</td>
+                        <td className="text-right p-2 text-gray-300">${trade.exit_price?.toFixed(2)}</td>
+                        <td className={`text-right p-2 font-bold ${(trade.pnl_pct || 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                          {trade.pnl_pct?.toFixed(3)}%
+                        </td>
+                        <td className={`text-right p-2 font-bold ${(trade.actual_pnl_pct_net || 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                          {trade.actual_pnl_pct_net?.toFixed(3)}%
+                        </td>
+                        <td className="text-right p-2 text-cyan-400">{trade.r_multiple?.toFixed(2)}</td>
+                        <td className="text-right p-2 text-orange-400">{holdTimeMinutes ?? "—"}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
