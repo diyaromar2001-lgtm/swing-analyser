@@ -189,6 +189,11 @@ def enhance_scalp_signal(
         # Already added "Conflicting signals" above
         pass
 
+    # ─ STEP 7: Force paper_allowed=false if signal is REJECT ──
+    # If any veto rule triggered REJECT, paper trading not allowed
+    if signal_strength == "REJECT":
+        paper_allowed = False
+
     return EnhancedSignal(
         long_strength=long_strength,
         short_strength=short_strength,

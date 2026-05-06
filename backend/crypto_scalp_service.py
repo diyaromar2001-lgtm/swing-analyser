@@ -130,45 +130,53 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     # Try 5m first (safer, more stable than 1m)
     ohlcv = get_crypto_ohlcv_intraday(sym, interval="5m")
     timeframe = "5m"
+    has_valid_data = ohlcv is not None and len(ohlcv) >= 20
 
-    if ohlcv is None or len(ohlcv) < 20:
+    if not has_valid_data:
         result["data_status"] = "UNAVAILABLE"
         result["blocked_reasons"].append("Intraday data unavailable (< 20 candles)")
-        return result
+        # DON'T return early - continue to apply Phase 3A enhancement
+        result["scalp_score"] = 0
+        result["scalp_grade"] = "SCALP_REJECT"
+        result["long_score"] = 0
+        result["short_score"] = 0
+        result["signal_reasons"] = []
+        score_warnings = []
+        ohlcv = None  # Mark as no valid data for later checks
+    else:
+        result["timeframe"] = timeframe
 
-    result["timeframe"] = timeframe
+        # ─ Compute scalp score ──────────────────────────────────────────────
+        score_result = compute_scalp_score(
+            ohlcv_df=ohlcv,
+            current_price=current_price,
+            volume_24h=volume_24h,
+            change_24h_pct=change_24h,
+        )
 
-    # ─ Compute scalp score ──────────────────────────────────────────────
-    score_result = compute_scalp_score(
-        ohlcv_df=ohlcv,
-        current_price=current_price,
-        volume_24h=volume_24h,
-        change_24h_pct=change_24h,
-    )
+        result["scalp_score"] = score_result.get("scalp_score", 0)
+        result["scalp_grade"] = score_result.get("grade", "SCALP_REJECT")
+        result["long_score"] = score_result.get("long_score", 0)
+        result["short_score"] = score_result.get("short_score", 0)
+        result["signal_reasons"] = score_result.get("signals", [])
 
-    result["scalp_score"] = score_result.get("scalp_score", 0)
-    result["scalp_grade"] = score_result.get("grade", "SCALP_REJECT")
-    result["long_score"] = score_result.get("long_score", 0)
-    result["short_score"] = score_result.get("short_score", 0)
-    result["signal_reasons"] = score_result.get("signals", [])
-
-    # Extract warnings separately for Phase 3A enhancement
-    score_warnings = score_result.get("warnings", [])
-    result["blocked_reasons"].extend(score_warnings)  # Keep for API response (backward compat)
+        # Extract warnings separately for Phase 3A enhancement
+        score_warnings = score_result.get("warnings", [])
+        result["blocked_reasons"].extend(score_warnings)  # Keep for API response (backward compat)
 
     # ─ Determine side (LONG/SHORT/NONE) ─────────────────────────────────
     if result["long_score"] >= 60 and result["short_score"] < 50:
         result["side"] = "LONG"
-        result["strategy_name"] = _detect_strategy_long(ohlcv, current_price)
+        result["strategy_name"] = _detect_strategy_long(ohlcv, current_price) if ohlcv is not None else None
     elif result["short_score"] >= 60 and result["long_score"] < 50:
         result["side"] = "SHORT"
-        result["strategy_name"] = _detect_strategy_short(ohlcv, current_price)
+        result["strategy_name"] = _detect_strategy_short(ohlcv, current_price) if ohlcv is not None else None
     else:
         result["side"] = "NONE"
         result["blocked_reasons"].append("No clear LONG or SHORT signal")
 
     # ─ Calculate entry/SL/TP ───────────────────────────────────────────
-    if result["side"] != "NONE" and len(ohlcv) >= 10:
+    if result["side"] != "NONE" and ohlcv is not None and len(ohlcv) >= 10:
         high_10 = ohlcv["High"].tail(10).max()
         low_10 = ohlcv["Low"].tail(10).min()
         atr_10 = (high_10 - low_10) / 2  # Simple ATR proxy
