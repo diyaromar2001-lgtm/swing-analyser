@@ -549,6 +549,138 @@ def debug_crypto_sources() -> Dict[str, object]:
     }
 
 
+# ── Intraday Provider Fallback Chain ──────────────────────────────────────────
+
+def _fetch_coinbase_klines(symbol: str, granularity: int = 300, limit: int = 300) -> Optional[pd.DataFrame]:
+    """Fetch 5m candles from Coinbase Pro API (public, no auth)."""
+    pair = f"{symbol}-USD"
+    url = "https://api.exchange.coinbase.com/products/{}/candles".format(pair)
+    started = _time.perf_counter()
+
+    try:
+        with _client() as client:
+            r = client.get(url, params={"granularity": granularity, "limit": limit})
+            r.raise_for_status()
+            raw = r.json()
+
+        if not raw or not isinstance(raw, list):
+            ms = (_time.perf_counter() - started) * 1000
+            _log_source_event("FAIL", "coinbase", symbol, "ohlcv_5m", ms, "empty response", url=url, rows=0)
+            return None
+
+        # Coinbase format: [[time, low, high, open, close, volume], ...]
+        df = pd.DataFrame(
+            raw,
+            columns=["open_time", "Low", "High", "Open", "Close", "Volume"],
+        )
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df["Date"] = pd.to_datetime(df["open_time"], unit="s", utc=True)
+        df = df.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]].dropna()
+
+        ms = (_time.perf_counter() - started) * 1000
+        _log_source_event("OK", "coinbase", symbol, "ohlcv_5m", ms, "success", url=url, rows=len(df))
+        return df
+
+    except Exception as exc:
+        ms = (_time.perf_counter() - started) * 1000
+        error_detail = f"{type(exc).__name__}: {str(exc)[:100]}"
+        _log_source_event("FAIL", "coinbase", symbol, "ohlcv_5m", ms, error_detail, url=url, rows=0)
+        return None
+
+
+def _fetch_kraken_ohlc(symbol: str, interval: int = 5) -> Optional[pd.DataFrame]:
+    """Fetch 5m candles from Kraken API (public, no auth)."""
+    # Kraken pair format: XXBTZUSD, XETHZUSD, SOLDUSD, etc.
+    kraken_pairs = {
+        "BTC": "XXBTZUSD",
+        "ETH": "XETHZUSD",
+        "SOL": "SOLDUSD",
+        "BNB": "BNBUSD",
+        "XRP": "XXRPZUSD",
+    }
+    pair = kraken_pairs.get(symbol, symbol + "USD")
+    url = "https://api.kraken.com/0/public/OHLC"
+    started = _time.perf_counter()
+
+    try:
+        with _client() as client:
+            r = client.get(url, params={"pair": pair, "interval": interval})
+            r.raise_for_status()
+            data = r.json()
+
+        ohlc_data = data.get("result", {}).get(pair, [])
+        if not ohlc_data:
+            ms = (_time.perf_counter() - started) * 1000
+            _log_source_event("FAIL", "kraken", symbol, "ohlcv_5m", ms, "empty response", url=url, rows=0)
+            return None
+
+        # Kraken format: [[time, open, high, low, close, vwap, volume, count], ...]
+        df = pd.DataFrame(
+            ohlc_data,
+            columns=["open_time", "Open", "High", "Low", "Close", "vwap", "Volume", "count"],
+        )
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df["Date"] = pd.to_datetime(df["open_time"], unit="s", utc=True)
+        df = df.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]].dropna()
+
+        ms = (_time.perf_counter() - started) * 1000
+        _log_source_event("OK", "kraken", symbol, "ohlcv_5m", ms, "success", url=url, rows=len(df))
+        return df
+
+    except Exception as exc:
+        ms = (_time.perf_counter() - started) * 1000
+        error_detail = f"{type(exc).__name__}: {str(exc)[:100]}"
+        _log_source_event("FAIL", "kraken", symbol, "ohlcv_5m", ms, error_detail, url=url, rows=0)
+        return None
+
+
+def _fetch_okx_candles(symbol: str, bar: str = "5m") -> Optional[pd.DataFrame]:
+    """Fetch 5m candles from OKX API (public, no auth)."""
+    inst_id = f"{symbol}-USD"
+    url = "https://www.okx.com/api/v5/market/candles"
+    started = _time.perf_counter()
+
+    try:
+        with _client() as client:
+            r = client.get(url, params={"instId": inst_id, "bar": bar, "limit": 100})
+            r.raise_for_status()
+            data = r.json()
+
+        candles = data.get("data", [])
+        if not candles:
+            ms = (_time.perf_counter() - started) * 1000
+            _log_source_event("FAIL", "okx", symbol, "ohlcv_5m", ms, "empty response", url=url, rows=0)
+            return None
+
+        # OKX format: [[timestamp_ms, open, high, low, close, vol, vol_ccy, vol_ccy_quote, confirm], ...]
+        df = pd.DataFrame(
+            candles,
+            columns=["open_time_ms", "Open", "High", "Low", "Close", "Volume", "vol_ccy", "vol_ccy_quote", "confirm"],
+        )
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        # OKX timestamp is in milliseconds as integer, convert to int first
+        df["open_time_ms"] = pd.to_numeric(df["open_time_ms"], errors="coerce").astype("int64")
+        df["Date"] = pd.to_datetime(df["open_time_ms"], unit="ms", utc=True)
+        df = df.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]].dropna()
+
+        ms = (_time.perf_counter() - started) * 1000
+        _log_source_event("OK", "okx", symbol, "ohlcv_5m", ms, "success", url=url, rows=len(df))
+        return df
+
+    except Exception as exc:
+        ms = (_time.perf_counter() - started) * 1000
+        error_detail = f"{type(exc).__name__}: {str(exc)[:100]}"
+        _log_source_event("FAIL", "okx", symbol, "ohlcv_5m", ms, error_detail, url=url, rows=0)
+        return None
+
+
+# Track which provider was used for each symbol (for diagnostics)
+_intraday_provider_used: Dict[str, str] = {}
+
+
 def get_crypto_ohlcv_intraday(symbol: str, interval: str = "5m", allow_download: bool = True) -> Optional[pd.DataFrame]:
     """
     Fetch intraday OHLCV data (1m, 5m, 15m) for scalp analysis.
@@ -587,25 +719,57 @@ def get_crypto_ohlcv_intraday(symbol: str, interval: str = "5m", allow_download:
     if not allow_download:
         return None
 
-    # Try to fetch
-    pair = _binance_pair(sym)
+    # Try to fetch with provider fallback chain
     df = None
+    provider_used = None
 
-    # Try Binance for requested interval
+    # 1. Try Binance first (works locally, may fail at Railway with HTTP 451)
     if interval in ("1m", "5m", "15m"):
-        df = _fetch_binance_klines(pair, interval, 300, sym)  # Last 300 candles (5h @ 1m, 25h @ 5m, 75h @ 15m)
+        pair = _binance_pair(sym)
+        df = _fetch_binance_klines(pair, interval, 300, sym)
+        if df is not None and len(df) >= 20:
+            provider_used = "BINANCE"
 
-    # Fallback: if 1m requested but failed, try 5m
+    # 2. Fallback: if Binance failed and 1m requested, try Binance 5m
     if df is None and interval == "1m":
+        pair = _binance_pair(sym)
         df = _fetch_binance_klines(pair, "5m", 300, sym)
-        if df is not None:
+        if df is not None and len(df) >= 20:
+            provider_used = "BINANCE_5M_FALLBACK"
             _log_source_event("OK", "binance", sym, "ohlcv_intraday_fallback", 0, "1m unavailable, using 5m", rows=len(df))
+
+    # 3. Provider fallback chain (Binance failed or HTTP 451 at Railway)
+    # Only use fallback for 5m interval
+    if df is None and interval == "5m":
+        # Try Coinbase
+        if df is None:
+            df = _fetch_coinbase_klines(sym, granularity=300, limit=300)
+            if df is not None and len(df) >= 20:
+                provider_used = "COINBASE"
+
+        # Try Kraken (skip SOL which is known to fail)
+        if df is None and sym != "SOL":
+            df = _fetch_kraken_ohlc(sym, interval=5)
+            if df is not None and len(df) >= 20:
+                provider_used = "KRAKEN"
+
+        # Try OKX
+        if df is None:
+            df = _fetch_okx_candles(sym, bar="5m")
+            if df is not None and len(df) >= 20:
+                provider_used = "OKX"
 
     # Store in cache if successful
     if df is not None and len(df) >= 20:
         cache[sym] = {"df": df, "ts": now}
         _last_intraday_update_ts = now
+        _intraday_provider_used[sym] = provider_used or "UNKNOWN"
         return df
+
+    # Log final failure
+    if provider_used is None:
+        _log_source_event("FAIL", "intraday-fallback", sym, "all_providers", 0, "all providers exhausted")
+        _intraday_provider_used[sym] = "NONE"
 
     return None
 

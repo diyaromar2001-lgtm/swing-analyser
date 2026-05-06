@@ -454,9 +454,12 @@ def warmup_crypto_scalp_intraday(
     else:  # "all"
         symbols = list(SCALP_WATCH_UNIVERSE)  # 37
 
+    from crypto_data import _intraday_provider_used
+
     started = _time.perf_counter()
     success_count = 0
     failed_symbols = {}
+    symbol_results = {}  # Track provider and candles per symbol
 
     def _warm_one(sym: str):
         """Warm one symbol's intraday cache."""
@@ -465,15 +468,16 @@ def warmup_crypto_scalp_intraday(
             df = get_crypto_ohlcv_intraday(sym, interval="5m", allow_download=True)
             elapsed_ms = (_time.perf_counter() - start) * 1000
             if df is not None and len(df) >= 20:
-                return (True, sym, f"{len(df)} candles in {elapsed_ms:.1f}ms")
+                provider = _intraday_provider_used.get(sym, "UNKNOWN")
+                return (True, sym, len(df), provider, elapsed_ms)
             else:
                 candle_count = len(df) if df is not None else 0
                 df_info = "None" if df is None else f"{candle_count} rows"
-                return (False, sym, f"insufficient data ({df_info}, {elapsed_ms:.1f}ms)")
+                return (False, sym, 0, "NONE", elapsed_ms, f"insufficient data ({df_info})")
         except Exception as exc:
             elapsed_ms = (_time.perf_counter() - start) * 1000
-            error_msg = f"{type(exc).__name__}: {str(exc)[:60]} ({elapsed_ms:.1f}ms)"
-            return (False, sym, error_msg)
+            error_msg = f"{type(exc).__name__}: {str(exc)[:60]}"
+            return (False, sym, 0, "NONE", elapsed_ms, error_msg)
 
     # Parallel warmup with timeout
     try:
@@ -481,24 +485,41 @@ def warmup_crypto_scalp_intraday(
             futures = {executor.submit(_warm_one, sym): sym for sym in symbols}
 
             for future in as_completed(futures, timeout=timeout_seconds):
-                ok, sym, info = future.result(timeout=1)
-                if ok:
+                result = future.result(timeout=1)
+                if result[0]:  # Success
+                    ok, sym, candles, provider, elapsed_ms = result
                     success_count += 1
+                    symbol_results[sym] = {
+                        "status": "success",
+                        "candles_count": candles,
+                        "provider": provider,
+                        "elapsed_ms": round(elapsed_ms, 1),
+                    }
                     try:
-                        _log_source_event("OK", "scalp-warmup", sym, "intraday_5m", 0, f"success ({info} candles)")
+                        _log_source_event("OK", "scalp-warmup", sym, "intraday_5m", 0, f"success ({candles} candles, {provider})")
                     except:
-                        pass  # Logging failure shouldn't break warmup
-                else:
-                    failed_symbols[sym] = info
+                        pass
+                else:  # Failure
+                    ok, sym, candles, provider, elapsed_ms, error_msg = result
+                    failed_symbols[sym] = error_msg
+                    symbol_results[sym] = {
+                        "status": "failed",
+                        "error": error_msg,
+                        "elapsed_ms": round(elapsed_ms, 1),
+                    }
                     try:
-                        _log_source_event("FAIL", "scalp-warmup", sym, "intraday_5m", 0, info)
+                        _log_source_event("FAIL", "scalp-warmup", sym, "intraday_5m", 0, error_msg)
                     except:
                         pass
     except Exception as exc:
         # Timeout or execution error
         for sym in symbols:
-            if sym not in failed_symbols and sym not in [f for f in failed_symbols]:
+            if sym not in failed_symbols:
                 failed_symbols[sym] = f"timeout ({type(exc).__name__})"
+                symbol_results[sym] = {
+                    "status": "timeout",
+                    "error": f"timeout ({type(exc).__name__})",
+                }
 
     elapsed_ms = (_time.perf_counter() - started) * 1000
 
@@ -508,6 +529,7 @@ def warmup_crypto_scalp_intraday(
         "success_count": success_count,
         "failed_count": len(failed_symbols),
         "failed_symbols": failed_symbols,
+        "symbol_results": symbol_results,
         "duration_ms": round(elapsed_ms, 1),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
