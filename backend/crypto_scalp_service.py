@@ -164,6 +164,50 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
         score_warnings = score_result.get("warnings", [])
         result["blocked_reasons"].extend(score_warnings)  # Keep for API response (backward compat)
 
+    # ─ Add price tracing fields (informational, no logic change) ──────────
+    # These fields are JSON-safe and help debug price sources
+    # Note: current_price selection logic unchanged (still uses snapshot)
+
+    # Extract intraday last close for comparison
+    intraday_last_close = None
+    if has_valid_data:
+        try:
+            intraday_last_close = float(ohlcv["Close"].iloc[-1])
+            if intraday_last_close is not None and intraday_last_close <= 0:
+                intraday_last_close = None
+        except (ValueError, TypeError, IndexError):
+            intraday_last_close = None
+
+    # Add price source and timestamp (DEFENSIVE: force numeric types)
+    result["price_source"] = "snapshot"  # Still using snapshot for current logic
+    result["displayed_price"] = current_price
+    result["intraday_last_close"] = intraday_last_close
+    result["snapshot_price"] = current_price  # Both same for now
+
+    # Timestamp: FORCE to numeric (prevent datetime serialization crash)
+    ts = price_snap.get("ts", 0)
+    try:
+        result["price_timestamp"] = float(ts) if ts else 0.0
+    except (ValueError, TypeError):
+        result["price_timestamp"] = 0.0
+
+    # Price divergence (informational only)
+    price_difference_pct = None
+    price_suspect = False
+    if intraday_last_close is not None and intraday_last_close > 0 and current_price > 0:
+        try:
+            diff = abs(current_price - intraday_last_close) / intraday_last_close * 100
+            if not (diff != diff or diff == float('inf') or diff == float('-inf')):  # Not NaN or Inf
+                price_difference_pct = round(diff, 2)
+                if diff > 5:
+                    price_suspect = True
+        except (ValueError, ZeroDivisionError, TypeError):
+            price_difference_pct = None
+            price_suspect = False
+
+    result["price_suspect"] = price_suspect
+    result["price_difference_pct"] = price_difference_pct
+
     # ─ Determine side (LONG/SHORT/NONE) ─────────────────────────────────
     if result["long_score"] >= 60 and result["short_score"] < 50:
         result["side"] = "LONG"
