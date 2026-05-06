@@ -2365,8 +2365,8 @@ def debug_network_test():
             }
 
     return {
-        "timestamp": _datetime.now(_timezone.utc).isoformat(),
-        "environment": "production" if "railway" in os.getenv("ENVIRONMENT", "").lower() else "unknown",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "environment": "production" if "railway" in _os.getenv("ENVIRONMENT", "").lower() else "unknown",
         "tests": results,
         "summary": {
             "total": len(results),
