@@ -32,6 +32,13 @@ export interface CryptoScalpResult {
   slippage_pct?: number;
   estimated_roundtrip_cost_pct?: number;
   estimated_net_rr?: number;
+  // Phase 3A: Signal Quality Enhancement
+  long_strength?: number;
+  short_strength?: number;
+  preferred_side?: "LONG" | "SHORT" | "NONE";
+  signal_strength?: "STRONG" | "NORMAL" | "WEAK" | "REJECT";
+  confidence_score?: number;
+  signal_warnings?: string[];
 }
 
 export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) {
@@ -186,6 +193,114 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* PHASE 3A: Signal Quality Enhancement */}
+      {(result.long_strength !== undefined || result.short_strength !== undefined) && (
+        <div className="rounded-xl p-6 mb-6" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
+          <h3 className="text-lg font-black text-white mb-4">⚡ Signal Quality (Phase 3A)</h3>
+
+          {/* LONG/SHORT Strengths */}
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="rounded-lg p-4" style={{ background: "#1a1a2e", borderLeft: "4px solid #4ade80" }}>
+              <p className="text-xs text-gray-600 mb-2 font-bold">LONG Strength</p>
+              <p className="text-3xl font-black text-green-400 mb-1">{result.long_strength ?? 0}</p>
+              <p className="text-[10px] text-gray-500">/100</p>
+            </div>
+            <div className="rounded-lg p-4" style={{ background: "#1a1a2e", borderLeft: "4px solid #ef4444" }}>
+              <p className="text-xs text-gray-600 mb-2 font-bold">SHORT Strength</p>
+              <p className="text-3xl font-black text-red-400 mb-1">{result.short_strength ?? 0}</p>
+              <p className="text-[10px] text-gray-500">/100</p>
+            </div>
+          </div>
+
+          {/* Signal Strength Badge */}
+          {result.signal_strength && (
+            <div className="mb-6">
+              <p className="text-xs text-gray-600 mb-2 font-bold">Signal Strength Classification</p>
+              <div className="inline-block rounded-lg px-4 py-2 font-black text-sm" style={{
+                background: result.signal_strength === "STRONG" ? "#10b98122" :
+                            result.signal_strength === "NORMAL" ? "#f59e0b22" :
+                            result.signal_strength === "WEAK" ? "#ef444422" : "#6b728022",
+                color: result.signal_strength === "STRONG" ? "#10b981" :
+                       result.signal_strength === "NORMAL" ? "#f59e0b" :
+                       result.signal_strength === "WEAK" ? "#ef4444" : "#6b7280",
+                border: `1px solid ${result.signal_strength === "STRONG" ? "#10b981" :
+                                   result.signal_strength === "NORMAL" ? "#f59e0b" :
+                                   result.signal_strength === "WEAK" ? "#ef4444" : "#6b7280"}`
+              }}>
+                {result.signal_strength}
+              </div>
+            </div>
+          )}
+
+          {/* Confidence Score */}
+          {result.confidence_score !== undefined && (
+            <div className="mb-6">
+              <p className="text-xs text-gray-600 mb-2 font-bold">Overall Confidence</p>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 bg-gray-900 rounded-full h-3 overflow-hidden">
+                  <div
+                    className="h-3 bg-gradient-to-r from-blue-500 to-cyan-400 rounded-full transition-all"
+                    style={{ width: `${result.confidence_score}%` }}
+                  />
+                </div>
+                <p className="text-lg font-black text-blue-400" style={{ minWidth: "50px" }}>
+                  {result.confidence_score}%
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Preferred Side */}
+          {result.preferred_side && result.preferred_side !== "NONE" && (
+            <div className="mb-6">
+              <p className="text-xs text-gray-600 mb-2 font-bold">Preferred Side</p>
+              <div style={{
+                display: "inline-block",
+                padding: "0.5rem 1rem",
+                borderRadius: "0.5rem",
+                fontWeight: "900",
+                fontSize: "0.875rem",
+                color: result.preferred_side === "LONG" ? "#4ade80" : "#ef4444",
+                background: result.preferred_side === "LONG" ? "#4ade8022" : "#ef444422",
+                border: `1px solid ${result.preferred_side === "LONG" ? "#4ade80" : "#ef4444"}`
+              }}>
+                {result.preferred_side}
+              </div>
+            </div>
+          )}
+
+          {/* Reasons (from enhancement) */}
+          {result.signal_reasons && result.signal_reasons.length > 0 && (
+            <div className="mb-4">
+              <p className="text-xs text-gray-600 mb-2 font-bold">Why This Signal</p>
+              <ul className="space-y-2">
+                {result.signal_reasons.map((reason, i) => (
+                  <li key={i} className="text-[11px] text-green-300 flex gap-2">
+                    <span className="text-green-400 font-black">✓</span>
+                    <span>{reason}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Warnings (from enhancement) */}
+          {result.signal_warnings && result.signal_warnings.length > 0 && (
+            <div>
+              <p className="text-xs text-gray-600 mb-2 font-bold">Cautions</p>
+              <ul className="space-y-2">
+                {result.signal_warnings.map((warning, i) => (
+                  <li key={i} className="text-[11px] text-yellow-300 flex gap-2">
+                    <span className="text-yellow-500 font-black">⚠</span>
+                    <span>{warning}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 

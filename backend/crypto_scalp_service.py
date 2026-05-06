@@ -26,6 +26,7 @@ from crypto_cost_calculator import (
     compute_roundtrip_cost_pct,
     estimate_net_rr,
 )
+from crypto_signal_enhancer import enhance_scalp_signal
 
 _screener_cache: Dict[str, dict] = {}
 _SCREENER_TTL = 60
@@ -150,7 +151,10 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     result["long_score"] = score_result.get("long_score", 0)
     result["short_score"] = score_result.get("short_score", 0)
     result["signal_reasons"] = score_result.get("signals", [])
-    result["blocked_reasons"].extend(score_result.get("warnings", []))
+
+    # Extract warnings separately for Phase 3A enhancement
+    score_warnings = score_result.get("warnings", [])
+    result["blocked_reasons"].extend(score_warnings)  # Keep for API response (backward compat)
 
     # ─ Determine side (LONG/SHORT/NONE) ─────────────────────────────────
     if result["long_score"] >= 60 and result["short_score"] < 50:
@@ -219,10 +223,59 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     else:
         result["estimated_net_rr"] = None
 
-    # ─ Spread status (placeholder for Phase 1) ──────────────────────────
-    # In Phase 2, we'll check actual bid-ask spread from exchange
-    # For now, mark as UNKNOWN (not placeholder "OK")
-    result["spread_status"] = "UNKNOWN"
+    # ─ Volatility Status (Phase 3A: derived from score warnings) ────────
+    # Infer from warnings to avoid recalculating ATR
+    if "Very low ATR" in score_warnings or "dead market" in " ".join(score_warnings).lower():
+        result["volatility_status"] = "LOW"
+    elif "High ATR" in score_warnings or "choppy" in " ".join(score_warnings).lower():
+        result["volatility_status"] = "HIGH"
+    else:
+        result["volatility_status"] = "NORMAL"
+
+    # ─ Spread Status (Phase 3A: derived from spread_bps) ────────────────
+    spread_bps = result.get("spread_bps")
+    if spread_bps is None:
+        result["spread_status"] = "UNAVAILABLE"
+    elif spread_bps > 100:  # > 100 bps = 1% spread = warning threshold
+        result["spread_status"] = "WARNING"
+    else:
+        result["spread_status"] = "OK"
+
+    # ─ PHASE 3A: Signal Quality Enhancement ──────────────────────────────
+    # Separate hard blockers from soft warnings
+    hard_blockers = []
+    if result["side"] == "NONE":
+        hard_blockers.append("No clear LONG or SHORT signal")
+    if result["scalp_grade"] == "SCALP_REJECT" or not result["paper_allowed"]:
+        # These are already handled by veto rules in enhancer, but keep for consistency
+        pass
+
+    # Call enhancer with hard blockers and soft warnings separated
+    enhanced = enhance_scalp_signal(
+        long_score=result["long_score"],
+        short_score=result["short_score"],
+        scalp_grade=result["scalp_grade"],
+        tier=result["tier"],
+        data_status=result["data_status"],
+        volatility_status=result["volatility_status"],
+        spread_status=result["spread_status"],
+        spread_bps=result.get("spread_bps", 0),
+        estimated_roundtrip_cost_pct=result.get("estimated_roundtrip_cost_pct", 0.0),
+        paper_allowed=result["paper_allowed"],
+        blocked_reasons=hard_blockers,  # Only hard blockers (not soft warnings)
+        signals=result["signal_reasons"],
+        warnings=score_warnings,  # Soft warnings passed separately
+    )
+
+    # Add enhancement fields to response
+    result["long_strength"] = enhanced.long_strength
+    result["short_strength"] = enhanced.short_strength
+    result["preferred_side"] = enhanced.preferred_side
+    result["signal_strength"] = enhanced.signal_strength
+    result["confidence_score"] = enhanced.confidence_score
+    result["signal_reasons"] = enhanced.signal_reasons  # May be enriched by enhancer
+    result["signal_warnings"] = enhanced.signal_warnings
+    result["paper_allowed"] = enhanced.paper_allowed
 
     return result
 
