@@ -417,3 +417,93 @@ def _detect_strategy_short(df: pd.DataFrame, price: float) -> Optional[str]:
         return "Resistance Rejection"
     else:
         return "Trend Reverse"
+
+
+def warmup_crypto_scalp_intraday(
+    tier: str = "all",
+    max_workers: int = 6,
+    timeout_seconds: int = 90
+) -> Dict[str, Any]:
+    """
+    Warm intraday 5m cache for Crypto Scalp symbols.
+
+    Args:
+        tier: "1" (5 symbols), "2" (27 symbols), "all" (37 symbols)
+        max_workers: Parallel fetch workers (6 default)
+        timeout_seconds: Total timeout for all symbols
+
+    Returns:
+        {
+            "tier": str,
+            "total_symbols": int,
+            "success_count": int,
+            "failed_count": int,
+            "failed_symbols": {symbol: error_msg},
+            "duration_ms": float,
+            "timestamp": str (ISO),
+        }
+    """
+    from datetime import datetime, timezone
+    from crypto_data import _log_source_event
+
+    # Select symbols by tier
+    if tier == "1":
+        symbols = list(SCALP_TIER1_SET)  # 5
+    elif tier == "2":
+        symbols = list(SCALP_TIER1_SET | SCALP_TIER2_SET)  # 27
+    else:  # "all"
+        symbols = list(SCALP_WATCH_UNIVERSE)  # 37
+
+    started = _time.perf_counter()
+    success_count = 0
+    failed_symbols = {}
+
+    def _warm_one(sym: str):
+        """Warm one symbol's intraday cache."""
+        try:
+            df = get_crypto_ohlcv_intraday(sym, interval="5m", allow_download=True)
+            if df is not None and len(df) >= 20:
+                return (True, sym, len(df))
+            else:
+                candle_count = len(df) if df is not None else 0
+                return (False, sym, f"< 20 candles ({candle_count})")
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {str(exc)[:60]}"
+            return (False, sym, error_msg)
+
+    # Parallel warmup with timeout
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_warm_one, sym): sym for sym in symbols}
+
+            for future in as_completed(futures, timeout=timeout_seconds):
+                ok, sym, info = future.result(timeout=1)
+                if ok:
+                    success_count += 1
+                    try:
+                        _log_source_event("OK", "scalp-warmup", sym, "intraday_5m", 0, f"success ({info} candles)")
+                    except:
+                        pass  # Logging failure shouldn't break warmup
+                else:
+                    failed_symbols[sym] = info
+                    try:
+                        _log_source_event("FAIL", "scalp-warmup", sym, "intraday_5m", 0, info)
+                    except:
+                        pass
+    except Exception as exc:
+        # Timeout or execution error
+        for sym in symbols:
+            if sym not in failed_symbols and sym not in [f for f in failed_symbols]:
+                failed_symbols[sym] = f"timeout ({type(exc).__name__})"
+
+    elapsed_ms = (_time.perf_counter() - started) * 1000
+
+    return {
+        "tier": tier,
+        "total_symbols": len(symbols),
+        "success_count": success_count,
+        "failed_count": len(failed_symbols),
+        "failed_symbols": failed_symbols,
+        "duration_ms": round(elapsed_ms, 1),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }

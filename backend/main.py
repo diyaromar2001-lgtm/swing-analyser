@@ -70,6 +70,7 @@ from crypto_service import (
 from crypto_scalp_service import (
     analyze_crypto_scalp_symbol,
     crypto_scalp_screener,
+    warmup_crypto_scalp_intraday,
 )
 from crypto_strategy_lab import compute_crypto_strategy_lab, evaluate_crypto_strategy_for_symbol
 from crypto_universe import CRYPTO_SECTORS, CRYPTO_SYMBOLS
@@ -642,6 +643,9 @@ def _crypto_cache_snapshot() -> Dict[str, Any]:
     edge_status = crypto_edge_status()
     daily_cache = getattr(_crypto_data_module, "_ohlcv_daily_cache", {})
     h4_cache = getattr(_crypto_data_module, "_ohlcv_4h_cache", {})
+    intraday_1m_cache = getattr(_crypto_data_module, "_ohlcv_1m_cache", {})
+    intraday_5m_cache = getattr(_crypto_data_module, "_ohlcv_5m_cache", {})
+    intraday_15m_cache = getattr(_crypto_data_module, "_ohlcv_15m_cache", {})
     price_cache = getattr(_crypto_data_module, "_price_cache", {})
     screener_cache = getattr(_crypto_service_module, "_screener_cache", {})
     regime_ts = getattr(_crypto_regime_cache, "get", lambda *_: 0)("ts", 0)
@@ -649,9 +653,17 @@ def _crypto_cache_snapshot() -> Dict[str, Any]:
     regime_status = _cache_state(regime_ts, 3600)
     if isinstance(regime_data, dict) and regime_data.get("data_status") == "MISSING":
         regime_status = "missing"
+
+    # Get last intraday warmup timestamp
+    last_intraday_warmup_ts = getattr(_crypto_data_module, "_last_intraday_update_ts", 0) or 0
+    last_intraday_warmup = _ts_to_iso(last_intraday_warmup_ts) if last_intraday_warmup_ts else None
+
     return {
         "crypto_ohlcv_cache_count": len(daily_cache),
         "crypto_ohlcv_4h_cache_count": len(h4_cache),
+        "crypto_intraday_1m_cache_count": len(intraday_1m_cache),
+        "crypto_intraday_5m_cache_count": len(intraday_5m_cache),
+        "crypto_intraday_15m_cache_count": len(intraday_15m_cache),
         "crypto_price_cache_count": len(price_cache),
         "crypto_screener_cache_count": len(screener_cache),
         "crypto_regime_cache_status": regime_status,
@@ -660,6 +672,7 @@ def _crypto_cache_snapshot() -> Dict[str, Any]:
         "last_crypto_price_update": _ts_to_iso(crypto_freshness["last_price_update"]),
         "last_crypto_regime_update": _ts_to_iso(crypto_freshness["last_regime_update"]),
         "last_crypto_edge_update": _ts_to_iso(crypto_freshness["last_edge_update"]),
+        "last_intraday_warmup": last_intraday_warmup,
     }
 
 
@@ -1982,6 +1995,32 @@ def crypto_scalp_health_endpoint():
         return {"status": "error", "error": str(e)}
 
 
+@app.post("/api/crypto/scalp/warmup-intraday")
+def crypto_scalp_warmup_intraday_endpoint(tier: str = Query("all")):
+    """
+    Manually warm Crypto Scalp intraday 5m cache.
+
+    Query params:
+    - tier: "1" (5 symbols: BTC,ETH,SOL,BNB,XRP), "2" (27 symbols), "all" (37 symbols, default)
+
+    Returns:
+        {
+            "tier": str,
+            "total_symbols": int,
+            "success_count": int,
+            "failed_count": int,
+            "failed_symbols": {symbol: error_reason},
+            "duration_ms": float,
+            "timestamp": str (ISO)
+        }
+    """
+    if tier not in ("1", "2", "all"):
+        tier = "all"
+
+    result = warmup_crypto_scalp_intraday(tier=tier, max_workers=6, timeout_seconds=120)
+    return result
+
+
 # Scope: CRYPTO
 @app.get("/api/crypto/prices")
 def crypto_prices_endpoint(symbols: str = Query(..., description="BTC,ETH,SOL")):
@@ -2954,6 +2993,64 @@ def _warmup_missing_actions(
     }
 
 
+def _warmup_crypto_intraday(symbols: List[str], interval: str = "5m", timeout_seconds: int = 60) -> Dict[str, Any]:
+    """
+    Warmup intraday OHLCV cache for specified symbols.
+
+    Returns:
+        {
+            "warmed": int,
+            "failed": int,
+            "symbols_ok": List[str],
+            "symbols_failed": Dict[str, str],  # {symbol: error_reason}
+        }
+    """
+    from crypto_data import get_crypto_ohlcv_intraday
+
+    warmed = []
+    failed = {}
+
+    def _warmup_one(symbol: str):
+        try:
+            df = get_crypto_ohlcv_intraday(symbol, interval=interval, allow_download=True)
+            if df is not None and len(df) >= 20:
+                return {"ok": True, "symbol": symbol, "rows": len(df)}
+            else:
+                return {"ok": False, "symbol": symbol, "error": f"< 20 candles ({len(df) if df is not None else 0})"}
+        except Exception as exc:
+            return {"ok": False, "symbol": symbol, "error": f"{type(exc).__name__}: {str(exc)[:80]}"}
+
+    started = _time.perf_counter()
+
+    # Parallel warmup with ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {executor.submit(_warmup_one, sym): sym for sym in symbols}
+
+        try:
+            for future in as_completed(futures, timeout=timeout_seconds):
+                result = future.result(timeout=1)
+                if result["ok"]:
+                    warmed.append(result["symbol"])
+                else:
+                    failed[result["symbol"]] = result["error"]
+        except FuturesTimeoutError:
+            # Timeout reached
+            for sym in symbols:
+                if sym not in warmed and sym not in failed:
+                    failed[sym] = "timeout"
+
+    elapsed_ms = round((_time.perf_counter() - started) * 1000)
+
+    return {
+        "warmed": len(warmed),
+        "failed": len(failed),
+        "symbols_ok": warmed,
+        "symbols_failed": failed,
+        "elapsed_ms": elapsed_ms,
+        "interval": interval,
+    }
+
+
 def _warmup_crypto(include_edge: bool, limit: Optional[int], warnings: List[str], errors: List[str]) -> Dict[str, Any]:
     global LAST_WARMUP_CRYPTO_STARTED, LAST_WARMUP_CRYPTO_FINISHED
     LAST_WARMUP_CRYPTO_STARTED = _time.time()
@@ -2974,6 +3071,20 @@ def _warmup_crypto(include_edge: bool, limit: Optional[int], warnings: List[str]
         errors,
     )
     screener_results = screener_run["value"] if screener_run["ok"] and isinstance(screener_run["value"], list) else []
+
+    # Warm Crypto Scalp intraday cache (Tier 1 only at startup)
+    intraday_result = _run_with_timeout(
+        "crypto_scalp_intraday_tier1",
+        lambda: warmup_crypto_scalp_intraday(tier="1", max_workers=6, timeout_seconds=60),
+        65,  # 65s timeout for _run_with_timeout wrapper
+        warnings,
+        errors,
+    )
+    if intraday_result["ok"]:
+        intraday_data = intraday_result["value"]
+        print(f"[warmup] Crypto Scalp Tier 1 intraday warmed: {intraday_data['success_count']}/{intraday_data['total_symbols']} success")
+    else:
+        warnings.append("crypto_scalp_intraday_tier1: failed to warm, will fall back to on-demand")
 
     regime_run = None
     if previous_regime_valid:
