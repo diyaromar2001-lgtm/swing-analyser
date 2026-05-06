@@ -556,15 +556,20 @@ def _fetch_coinbase_klines(symbol: str, granularity: int = 300, limit: int = 300
     pair = f"{symbol}-USD"
     url = "https://api.exchange.coinbase.com/products/{}/candles".format(pair)
     started = _time.perf_counter()
+    print(f"[COINBASE_DEBUG] {symbol} request started: pair={pair} granularity={granularity} limit={limit}")
 
     try:
         with _client() as client:
+            print(f"[COINBASE_DEBUG] {symbol} making HTTP request to {url}")
             r = client.get(url, params={"granularity": granularity, "limit": limit})
+            print(f"[COINBASE_DEBUG] {symbol} HTTP {r.status_code}")
             r.raise_for_status()
             raw = r.json()
+            print(f"[COINBASE_DEBUG] {symbol} got response: {type(raw)} len={len(raw) if isinstance(raw, list) else 'N/A'}")
 
         if not raw or not isinstance(raw, list):
             ms = (_time.perf_counter() - started) * 1000
+            print(f"[COINBASE_DEBUG] {symbol} FAIL: empty or non-list response after {ms:.1f}ms")
             _log_source_event("FAIL", "coinbase", symbol, "ohlcv_5m", ms, "empty response", url=url, rows=0)
             return None
 
@@ -579,12 +584,14 @@ def _fetch_coinbase_klines(symbol: str, granularity: int = 300, limit: int = 300
         df = df.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]].dropna()
 
         ms = (_time.perf_counter() - started) * 1000
+        print(f"[COINBASE_DEBUG] {symbol} SUCCESS: {len(df)} candles in {ms:.1f}ms")
         _log_source_event("OK", "coinbase", symbol, "ohlcv_5m", ms, "success", url=url, rows=len(df))
         return df
 
     except Exception as exc:
         ms = (_time.perf_counter() - started) * 1000
         error_detail = f"{type(exc).__name__}: {str(exc)[:100]}"
+        print(f"[COINBASE_DEBUG] {symbol} EXCEPTION after {ms:.1f}ms: {error_detail}")
         _log_source_event("FAIL", "coinbase", symbol, "ohlcv_5m", ms, error_detail, url=url, rows=0)
         return None
 
@@ -602,16 +609,21 @@ def _fetch_kraken_ohlc(symbol: str, interval: int = 5) -> Optional[pd.DataFrame]
     pair = kraken_pairs.get(symbol, symbol + "USD")
     url = "https://api.kraken.com/0/public/OHLC"
     started = _time.perf_counter()
+    print(f"[KRAKEN_DEBUG] {symbol} request started: pair={pair} interval={interval}")
 
     try:
         with _client() as client:
+            print(f"[KRAKEN_DEBUG] {symbol} making HTTP request to {url}")
             r = client.get(url, params={"pair": pair, "interval": interval})
+            print(f"[KRAKEN_DEBUG] {symbol} HTTP {r.status_code}")
             r.raise_for_status()
             data = r.json()
 
         ohlc_data = data.get("result", {}).get(pair, [])
+        print(f"[KRAKEN_DEBUG] {symbol} got response: ohlc_data len={len(ohlc_data) if ohlc_data else 0}")
         if not ohlc_data:
             ms = (_time.perf_counter() - started) * 1000
+            print(f"[KRAKEN_DEBUG] {symbol} FAIL: empty response after {ms:.1f}ms")
             _log_source_event("FAIL", "kraken", symbol, "ohlcv_5m", ms, "empty response", url=url, rows=0)
             return None
 
@@ -626,12 +638,14 @@ def _fetch_kraken_ohlc(symbol: str, interval: int = 5) -> Optional[pd.DataFrame]
         df = df.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]].dropna()
 
         ms = (_time.perf_counter() - started) * 1000
+        print(f"[KRAKEN_DEBUG] {symbol} SUCCESS: {len(df)} candles in {ms:.1f}ms")
         _log_source_event("OK", "kraken", symbol, "ohlcv_5m", ms, "success", url=url, rows=len(df))
         return df
 
     except Exception as exc:
         ms = (_time.perf_counter() - started) * 1000
         error_detail = f"{type(exc).__name__}: {str(exc)[:100]}"
+        print(f"[KRAKEN_DEBUG] {symbol} EXCEPTION after {ms:.1f}ms: {error_detail}")
         _log_source_event("FAIL", "kraken", symbol, "ohlcv_5m", ms, error_detail, url=url, rows=0)
         return None
 
@@ -641,16 +655,22 @@ def _fetch_okx_candles(symbol: str, bar: str = "5m") -> Optional[pd.DataFrame]:
     inst_id = f"{symbol}-USD"
     url = "https://www.okx.com/api/v5/market/candles"
     started = _time.perf_counter()
+    print(f"[OKX_DEBUG] {symbol} request started: inst_id={inst_id} bar={bar}")
 
     try:
         with _client() as client:
+            print(f"[OKX_DEBUG] {symbol} making HTTP request to {url}")
             r = client.get(url, params={"instId": inst_id, "bar": bar, "limit": 100})
+            print(f"[OKX_DEBUG] {symbol} HTTP {r.status_code}")
             r.raise_for_status()
             data = r.json()
+            print(f"[OKX_DEBUG] {symbol} got response: type={type(data)}")
 
         candles = data.get("data", [])
+        print(f"[OKX_DEBUG] {symbol} got response: candles len={len(candles) if candles else 0}")
         if not candles:
             ms = (_time.perf_counter() - started) * 1000
+            print(f"[OKX_DEBUG] {symbol} FAIL: empty response after {ms:.1f}ms")
             _log_source_event("FAIL", "okx", symbol, "ohlcv_5m", ms, "empty response", url=url, rows=0)
             return None
 
@@ -667,12 +687,14 @@ def _fetch_okx_candles(symbol: str, bar: str = "5m") -> Optional[pd.DataFrame]:
         df = df.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]].dropna()
 
         ms = (_time.perf_counter() - started) * 1000
+        print(f"[OKX_DEBUG] {symbol} SUCCESS: {len(df)} candles in {ms:.1f}ms")
         _log_source_event("OK", "okx", symbol, "ohlcv_5m", ms, "success", url=url, rows=len(df))
         return df
 
     except Exception as exc:
         ms = (_time.perf_counter() - started) * 1000
         error_detail = f"{type(exc).__name__}: {str(exc)[:100]}"
+        print(f"[OKX_DEBUG] {symbol} EXCEPTION after {ms:.1f}ms: {error_detail}")
         _log_source_event("FAIL", "okx", symbol, "ohlcv_5m", ms, error_detail, url=url, rows=0)
         return None
 
@@ -723,51 +745,85 @@ def get_crypto_ohlcv_intraday(symbol: str, interval: str = "5m", allow_download:
     df = None
     provider_used = None
 
+    # DEBUG: Log entry point
+    print(f"[INTRADAY_DEBUG] {sym} interval={interval} allow_download={allow_download} cache_entry={entry is not None}")
+
     # 1. Try Binance first (works locally, may fail at Railway with HTTP 451)
     if interval in ("1m", "5m", "15m"):
         pair = _binance_pair(sym)
+        print(f"[INTRADAY_DEBUG] {sym} trying BINANCE pair={pair} interval={interval}")
         df = _fetch_binance_klines(pair, interval, 300, sym)
         if df is not None and len(df) >= 20:
             provider_used = "BINANCE"
+            print(f"[INTRADAY_DEBUG] {sym} BINANCE SUCCESS: {len(df)} candles")
+        else:
+            candles = len(df) if df is not None else 0
+            print(f"[INTRADAY_DEBUG] {sym} BINANCE FAILED: df={df is not None} candles={candles}")
 
     # 2. Fallback: if Binance failed and 1m requested, try Binance 5m
     if df is None and interval == "1m":
         pair = _binance_pair(sym)
+        print(f"[INTRADAY_DEBUG] {sym} trying BINANCE 5m fallback (1m failed)")
         df = _fetch_binance_klines(pair, "5m", 300, sym)
         if df is not None and len(df) >= 20:
             provider_used = "BINANCE_5M_FALLBACK"
+            print(f"[INTRADAY_DEBUG] {sym} BINANCE 5m FALLBACK SUCCESS: {len(df)} candles")
             _log_source_event("OK", "binance", sym, "ohlcv_intraday_fallback", 0, "1m unavailable, using 5m", rows=len(df))
+        else:
+            candles = len(df) if df is not None else 0
+            print(f"[INTRADAY_DEBUG] {sym} BINANCE 5m FALLBACK FAILED: candles={candles}")
 
     # 3. Provider fallback chain (Binance failed or HTTP 451 at Railway)
     # Only use fallback for 5m interval
     if df is None and interval == "5m":
+        print(f"[INTRADAY_DEBUG] {sym} starting provider fallback chain (5m interval)")
+
         # Try Coinbase
         if df is None:
+            print(f"[INTRADAY_DEBUG] {sym} trying COINBASE")
             df = _fetch_coinbase_klines(sym, granularity=300, limit=300)
             if df is not None and len(df) >= 20:
                 provider_used = "COINBASE"
+                print(f"[INTRADAY_DEBUG] {sym} COINBASE SUCCESS: {len(df)} candles")
+            else:
+                candles = len(df) if df is not None else 0
+                print(f"[INTRADAY_DEBUG] {sym} COINBASE FAILED: df={df is not None} candles={candles}")
 
         # Try Kraken (skip SOL which is known to fail)
         if df is None and sym != "SOL":
+            print(f"[INTRADAY_DEBUG] {sym} trying KRAKEN")
             df = _fetch_kraken_ohlc(sym, interval=5)
             if df is not None and len(df) >= 20:
                 provider_used = "KRAKEN"
+                print(f"[INTRADAY_DEBUG] {sym} KRAKEN SUCCESS: {len(df)} candles")
+            else:
+                candles = len(df) if df is not None else 0
+                print(f"[INTRADAY_DEBUG] {sym} KRAKEN FAILED: df={df is not None} candles={candles}")
+        elif sym == "SOL":
+            print(f"[INTRADAY_DEBUG] {sym} SKIPPING KRAKEN (SOL known to fail)")
 
         # Try OKX
         if df is None:
+            print(f"[INTRADAY_DEBUG] {sym} trying OKX")
             df = _fetch_okx_candles(sym, bar="5m")
             if df is not None and len(df) >= 20:
                 provider_used = "OKX"
+                print(f"[INTRADAY_DEBUG] {sym} OKX SUCCESS: {len(df)} candles")
+            else:
+                candles = len(df) if df is not None else 0
+                print(f"[INTRADAY_DEBUG] {sym} OKX FAILED: df={df is not None} candles={candles}")
 
     # Store in cache if successful
     if df is not None and len(df) >= 20:
         cache[sym] = {"df": df, "ts": now}
         _last_intraday_update_ts = now
         _intraday_provider_used[sym] = provider_used or "UNKNOWN"
+        print(f"[INTRADAY_DEBUG] {sym} CACHED with provider={provider_used}")
         return df
 
     # Log final failure
     if provider_used is None:
+        print(f"[INTRADAY_DEBUG] {sym} ALL PROVIDERS EXHAUSTED - returning None")
         _log_source_event("FAIL", "intraday-fallback", sym, "all_providers", 0, "all providers exhausted")
         _intraday_provider_used[sym] = "NONE"
 
