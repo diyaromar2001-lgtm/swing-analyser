@@ -140,7 +140,20 @@ def _fetch_binance_klines(pair: str, interval: str, limit: int, symbol: str) -> 
         return df
     except Exception as exc:
         ms = (_time.perf_counter() - started) * 1000
-        _log_source_event("FAIL", "binance", symbol, f"ohlcv_{interval}", ms, f"{type(exc).__name__}: {exc}", url=url, rows=0)
+        exc_type = type(exc).__name__
+        exc_detail = str(exc)[:200]  # First 200 chars of exception
+
+        # Try to extract HTTP status if available
+        http_status = ""
+        if hasattr(exc, "response") and exc.response is not None:
+            http_status = f" [HTTP {exc.response.status_code}]"
+
+        error_msg = f"{exc_type}: {exc_detail}{http_status}"
+        _log_source_event("FAIL", "binance", symbol, f"ohlcv_{interval}", ms, error_msg, url=url, rows=0)
+
+        # Also print to stdout for visibility in logs
+        print(f"[BINANCE_DEBUG] {symbol} {interval}: {error_msg} | URL: {url}?symbol={pair}&interval={interval}&limit={limit} | Duration: {ms:.1f}ms")
+
         return None
 
 

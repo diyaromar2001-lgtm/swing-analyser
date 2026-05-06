@@ -460,15 +460,19 @@ def warmup_crypto_scalp_intraday(
 
     def _warm_one(sym: str):
         """Warm one symbol's intraday cache."""
+        start = _time.perf_counter()
         try:
             df = get_crypto_ohlcv_intraday(sym, interval="5m", allow_download=True)
+            elapsed_ms = (_time.perf_counter() - start) * 1000
             if df is not None and len(df) >= 20:
-                return (True, sym, len(df))
+                return (True, sym, f"{len(df)} candles in {elapsed_ms:.1f}ms")
             else:
                 candle_count = len(df) if df is not None else 0
-                return (False, sym, f"< 20 candles ({candle_count})")
+                df_info = "None" if df is None else f"{candle_count} rows"
+                return (False, sym, f"insufficient data ({df_info}, {elapsed_ms:.1f}ms)")
         except Exception as exc:
-            error_msg = f"{type(exc).__name__}: {str(exc)[:60]}"
+            elapsed_ms = (_time.perf_counter() - start) * 1000
+            error_msg = f"{type(exc).__name__}: {str(exc)[:60]} ({elapsed_ms:.1f}ms)"
             return (False, sym, error_msg)
 
     # Parallel warmup with timeout

@@ -2294,6 +2294,154 @@ def api_status():
     }
 
 
+# ── DIAGNOSTIC: Network & API Tests (Temporary) ───────────────────────────────
+@app.get("/api/debug/network-test")
+def debug_network_test():
+    """
+    Test network connectivity to various APIs from Railway.
+    DIAGNOSTIC ONLY - for troubleshooting warmup failures.
+    """
+    import httpx
+    import json
+
+    tests = {
+        "binance_time": "https://api.binance.com/api/v3/time",
+        "binance_klines": "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=5m&limit=1",
+        "coingecko_ping": "https://api.coingecko.com/api/v3/ping",
+        "yahoo_basic": "https://query1.finance.yahoo.com",
+        "httpbin": "https://httpbin.org/get",
+    }
+
+    results = {}
+
+    for test_name, url in tests.items():
+        started = _time.perf_counter()
+        try:
+            with httpx.Client(timeout=10) as client:
+                r = client.get(url)
+                elapsed_ms = (_time.perf_counter() - started) * 1000
+
+                result = {
+                    "status": r.status_code,
+                    "reason": r.reason_phrase if hasattr(r, 'reason_phrase') else "OK" if r.status_code == 200 else "ERROR",
+                    "elapsed_ms": round(elapsed_ms, 1),
+                    "content_length": len(r.content),
+                    "success": r.status_code < 400,
+                }
+
+                # Try to parse response if JSON
+                if r.status_code == 200 and test_name == "binance_klines":
+                    try:
+                        data = r.json()
+                        result["rows"] = len(data) if isinstance(data, list) else "not a list"
+                    except:
+                        result["parse"] = "not JSON"
+
+                results[test_name] = result
+
+        except httpx.ConnectError as e:
+            elapsed_ms = (_time.perf_counter() - started) * 1000
+            results[test_name] = {
+                "error": "ConnectError",
+                "detail": str(e)[:100],
+                "elapsed_ms": round(elapsed_ms, 1),
+                "success": False,
+            }
+        except httpx.TimeoutException as e:
+            elapsed_ms = (_time.perf_counter() - started) * 1000
+            results[test_name] = {
+                "error": "TimeoutException",
+                "detail": str(e)[:100],
+                "elapsed_ms": round(elapsed_ms, 1),
+                "success": False,
+            }
+        except Exception as e:
+            elapsed_ms = (_time.perf_counter() - started) * 1000
+            results[test_name] = {
+                "error": type(e).__name__,
+                "detail": str(e)[:100],
+                "elapsed_ms": round(elapsed_ms, 1),
+                "success": False,
+            }
+
+    return {
+        "timestamp": _datetime.now(_timezone.utc).isoformat(),
+        "environment": "production" if "railway" in os.getenv("ENVIRONMENT", "").lower() else "unknown",
+        "tests": results,
+        "summary": {
+            "total": len(results),
+            "success": sum(1 for r in results.values() if r.get("success", False)),
+            "failed": sum(1 for r in results.values() if not r.get("success", True)),
+        }
+    }
+
+
+@app.get("/api/debug/binance-test/{symbol}")
+def debug_binance_test(symbol: str):
+    """
+    Test direct Binance API call for a symbol.
+    Returns exact error details.
+    """
+    import httpx
+
+    sym = symbol.upper()
+    pair = sym + "USDT"
+    url = "https://api.binance.com/api/v3/klines"
+    params = {
+        "symbol": pair,
+        "interval": "5m",
+        "limit": 5,
+    }
+
+    started = _time.perf_counter()
+    try:
+        with httpx.Client(timeout=15, headers={"User-Agent": "swing-analyser-crypto/1.0"}) as client:
+            r = client.get(url, params=params)
+            elapsed_ms = (_time.perf_counter() - started) * 1000
+
+            result = {
+                "symbol": sym,
+                "pair": pair,
+                "url": url,
+                "params": params,
+                "status_code": r.status_code,
+                "reason": r.reason_phrase if hasattr(r, 'reason_phrase') else "OK",
+                "elapsed_ms": round(elapsed_ms, 1),
+                "headers_received": dict(r.headers),
+                "content_length": len(r.content),
+                "success": r.status_code == 200,
+            }
+
+            # Try to read response
+            if r.status_code == 200:
+                try:
+                    data = r.json()
+                    result["response"] = {
+                        "type": "list" if isinstance(data, list) else type(data).__name__,
+                        "length": len(data) if isinstance(data, list) else "N/A",
+                        "first_item_sample": str(data[0])[:100] if isinstance(data, list) and data else None,
+                    }
+                except Exception as e:
+                    result["response"] = f"Parse error: {type(e).__name__}"
+            else:
+                # Get text response for debugging
+                result["response_text"] = r.text[:500]
+
+            return result
+
+    except Exception as e:
+        elapsed_ms = (_time.perf_counter() - started) * 1000
+        return {
+            "symbol": sym,
+            "pair": pair,
+            "url": url,
+            "error": type(e).__name__,
+            "error_detail": str(e),
+            "elapsed_ms": round(elapsed_ms, 1),
+            "success": False,
+        }
+
+
 # ── Social Sentiment ──────────────────────────────────────────────────────────
 
 @app.get("/api/social-sentiment")
