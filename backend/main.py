@@ -2442,6 +2442,258 @@ def debug_binance_test(symbol: str):
         }
 
 
+@app.get("/api/debug/intraday-providers/{symbol}")
+def debug_intraday_providers(symbol: str):
+    """
+    Test multiple intraday data providers from Railway.
+    Diagnostic endpoint - tests Coinbase, Kraken, CryptoCompare, etc.
+    """
+    import httpx
+
+    sym = symbol.upper()
+    results = {}
+
+    # Test 1: Coinbase Pro API (public, no auth required for basic data)
+    try:
+        start = _time.perf_counter()
+        with httpx.Client(timeout=10) as client:
+            # Coinbase product ID: BTC-USD, ETH-USD, etc.
+            product_id = f"{sym}-USD"
+            url = f"https://api.exchange.coinbase.com/products/{product_id}/candles"
+            params = {
+                "granularity": 300,  # 300 seconds = 5 minutes
+                "limit": 300,
+            }
+            r = client.get(url, params=params)
+            elapsed_ms = (_time.perf_counter() - start) * 1000
+
+            result = {
+                "status": r.status_code,
+                "elapsed_ms": round(elapsed_ms, 1),
+                "content_length": len(r.content),
+                "url": url,
+            }
+
+            if r.status_code == 200:
+                try:
+                    data = r.json()
+                    result["data_points"] = len(data) if isinstance(data, list) else 0
+                    result["sample"] = data[0][:5] if isinstance(data, list) and data else None  # [time, low, high, open, close, volume]
+                    result["success"] = True
+                except Exception as e:
+                    result["parse_error"] = str(e)[:50]
+                    result["success"] = False
+            else:
+                result["response"] = r.text[:200]
+                result["success"] = False
+
+            results["coinbase"] = result
+    except Exception as e:
+        results["coinbase"] = {
+            "error": type(e).__name__,
+            "detail": str(e)[:100],
+            "success": False,
+        }
+
+    # Test 2: Kraken API (public, no auth for OHLC)
+    try:
+        start = _time.perf_counter()
+        with httpx.Client(timeout=10) as client:
+            # Kraken pair format: XXBTUSDT, XETHUSDT, etc.
+            kraken_pair_map = {
+                "BTC": "XXBTZUSD",
+                "ETH": "XETHZUSD",
+                "SOL": "SOLDUSD",
+                "BNB": "BNBUSD",
+                "XRP": "XXRPZUSD",
+            }
+            kraken_pair = kraken_pair_map.get(sym, sym + "USD")
+
+            url = "https://api.kraken.com/0/public/OHLC"
+            params = {
+                "pair": kraken_pair,
+                "interval": 5,  # 5 minutes
+            }
+            r = client.get(url, params=params)
+            elapsed_ms = (_time.perf_counter() - start) * 1000
+
+            result = {
+                "status": r.status_code,
+                "elapsed_ms": round(elapsed_ms, 1),
+                "content_length": len(r.content),
+                "url": url,
+                "pair": kraken_pair,
+            }
+
+            if r.status_code == 200:
+                try:
+                    data = r.json()
+                    # Kraken returns: {"result": {pair: [[time, open, high, low, close, vwap, volume, count], ...]}}
+                    ohlc_data = data.get("result", {}).get(kraken_pair, [])
+                    result["data_points"] = len(ohlc_data)
+                    result["sample"] = ohlc_data[0] if ohlc_data else None
+                    result["success"] = len(ohlc_data) > 0
+                except Exception as e:
+                    result["parse_error"] = str(e)[:50]
+                    result["success"] = False
+            else:
+                result["response"] = r.text[:200]
+                result["success"] = False
+
+            results["kraken"] = result
+    except Exception as e:
+        results["kraken"] = {
+            "error": type(e).__name__,
+            "detail": str(e)[:100],
+            "success": False,
+        }
+
+    # Test 3: CryptoCompare API (public, free tier available)
+    try:
+        start = _time.perf_counter()
+        with httpx.Client(timeout=10) as client:
+            url = "https://min-api.cryptocompare.com/data/v2/histominute"
+            params = {
+                "fsym": sym,
+                "tsym": "USD",
+                "limit": 60,  # Get 60 minutes of 1m candles (can aggregate to 5m)
+                "aggregate": 1,
+            }
+            r = client.get(url, params=params)
+            elapsed_ms = (_time.perf_counter() - start) * 1000
+
+            result = {
+                "status": r.status_code,
+                "elapsed_ms": round(elapsed_ms, 1),
+                "content_length": len(r.content),
+                "url": url,
+            }
+
+            if r.status_code == 200:
+                try:
+                    data = r.json()
+                    candles = data.get("Data", {}).get("Data", [])
+                    result["data_points"] = len(candles)
+                    result["sample"] = candles[0] if candles else None
+                    result["success"] = len(candles) > 0
+                    result["note"] = "1m data (can aggregate to 5m)"
+                except Exception as e:
+                    result["parse_error"] = str(e)[:50]
+                    result["success"] = False
+            else:
+                result["response"] = r.text[:200]
+                result["success"] = False
+
+            results["cryptocompare"] = result
+    except Exception as e:
+        results["cryptocompare"] = {
+            "error": type(e).__name__,
+            "detail": str(e)[:100],
+            "success": False,
+        }
+
+    # Test 4: ByBit API (public OHLC)
+    try:
+        start = _time.perf_counter()
+        with httpx.Client(timeout=10) as client:
+            url = "https://api.bybit.com/v5/market/kline"
+            params = {
+                "category": "spot",
+                "symbol": f"{sym}USDT",
+                "interval": "5",  # 5 minutes
+                "limit": 200,
+            }
+            r = client.get(url, params=params)
+            elapsed_ms = (_time.perf_counter() - start) * 1000
+
+            result = {
+                "status": r.status_code,
+                "elapsed_ms": round(elapsed_ms, 1),
+                "content_length": len(r.content),
+                "url": url,
+            }
+
+            if r.status_code == 200:
+                try:
+                    data = r.json()
+                    candles = data.get("result", {}).get("list", [])
+                    result["data_points"] = len(candles)
+                    result["sample"] = candles[0] if candles else None
+                    result["success"] = len(candles) > 0
+                except Exception as e:
+                    result["parse_error"] = str(e)[:50]
+                    result["success"] = False
+            else:
+                result["response"] = r.text[:200]
+                result["success"] = False
+
+            results["bybit"] = result
+    except Exception as e:
+        results["bybit"] = {
+            "error": type(e).__name__,
+            "detail": str(e)[:100],
+            "success": False,
+        }
+
+    # Test 5: OKX (OKCoin) Public API
+    try:
+        start = _time.perf_counter()
+        with httpx.Client(timeout=10) as client:
+            url = "https://www.okx.com/api/v5/market/candles"
+            params = {
+                "instId": f"{sym}-USD",
+                "bar": "5m",
+                "limit": 100,
+            }
+            r = client.get(url, params=params)
+            elapsed_ms = (_time.perf_counter() - start) * 1000
+
+            result = {
+                "status": r.status_code,
+                "elapsed_ms": round(elapsed_ms, 1),
+                "content_length": len(r.content),
+                "url": url,
+            }
+
+            if r.status_code == 200:
+                try:
+                    data = r.json()
+                    candles = data.get("data", [])
+                    result["data_points"] = len(candles)
+                    result["sample"] = candles[0] if candles else None
+                    result["success"] = len(candles) > 0
+                except Exception as e:
+                    result["parse_error"] = str(e)[:50]
+                    result["success"] = False
+            else:
+                result["response"] = r.text[:200]
+                result["success"] = False
+
+            results["okx"] = result
+    except Exception as e:
+        results["okx"] = {
+            "error": type(e).__name__,
+            "detail": str(e)[:100],
+            "success": False,
+        }
+
+    # Summary
+    successful = [k for k, v in results.items() if v.get("success", False)]
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "symbol": sym,
+        "providers_tested": list(results.keys()),
+        "successful_providers": successful,
+        "details": results,
+        "summary": {
+            "total": len(results),
+            "working": len(successful),
+            "failed": len(results) - len(successful),
+        }
+    }
+
+
 # ── Social Sentiment ──────────────────────────────────────────────────────────
 
 @app.get("/api/social-sentiment")
