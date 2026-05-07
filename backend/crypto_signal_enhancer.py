@@ -100,7 +100,18 @@ def enhance_scalp_signal(
     # Initialize warning collection (copy existing, add new)
     all_warnings = list(warnings) if warnings else []
 
-    # ─ STEP 1: Calculate long_strength and short_strength with soft penalties ──
+    # ─ STEP 1A: Determine preferred_side BEFORE applying penalties ──
+    # Use original scores to determine direction clarity
+    # This ensures penalties don't artificially affect side determination
+    if long_score >= short_score + 5:
+        preferred_side = "LONG"
+    elif short_score >= long_score + 5:
+        preferred_side = "SHORT"
+    else:
+        preferred_side = "NONE"
+        all_warnings.append("Conflicting signals (LONG/SHORT too close)")
+
+    # ─ STEP 1B: Calculate long_strength and short_strength with soft penalties ──
     long_strength = long_score
     short_strength = short_score
 
@@ -162,18 +173,6 @@ def enhance_scalp_signal(
     # Clamp to valid range
     long_strength = max(0, min(long_strength, 100))
     short_strength = max(0, min(short_strength, 100))
-
-    # ─ STEP 2: Determine preferred_side ──
-    max_strength = max(long_strength, short_strength)
-    delta = abs(long_strength - short_strength)
-
-    if long_strength >= short_strength + 5:
-        preferred_side = "LONG"
-    elif short_strength >= long_strength + 5:
-        preferred_side = "SHORT"
-    else:
-        preferred_side = "NONE"
-        all_warnings.append("Conflicting signals (LONG/SHORT too close)")
 
     # ─ STEP 3: Classify signal_strength ──
     signal_strength = _classify_signal_strength(
