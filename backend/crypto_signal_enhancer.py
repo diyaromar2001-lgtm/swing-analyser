@@ -60,6 +60,8 @@ def enhance_scalp_signal(
     data_status: str,
     volatility_status: str,
     spread_status: str,
+    data_quality_status: str,
+    data_quality_blocked: bool,
     spread_bps: int,
     estimated_roundtrip_cost_pct: float,
     paper_allowed: bool,
@@ -68,7 +70,11 @@ def enhance_scalp_signal(
     warnings: List[str],
 ) -> EnhancedSignal:
     """
-    Enhance crypto scalp signal with strength, confidence, and clarity.
+    Enhance crypto scalp signal with strength, confidence, and clarity (Phase 3A).
+
+    Separates HARD BLOCKERS (critical failures) from SOFT WARNINGS (penalties):
+    - Hard blockers: data_quality BLOCKED, grade REJECT, data UNAVAILABLE/STALE
+    - Soft warnings: ATR, Volume, Data Quality WARNING, no clear direction
 
     Args:
         long_score: LONG directional bias (0-100) from crypto_scalp_score
@@ -78,12 +84,14 @@ def enhance_scalp_signal(
         data_status: FRESH/STALE/UNAVAILABLE
         volatility_status: NORMAL/HIGH/LOW
         spread_status: OK/WARNING/UNAVAILABLE
+        data_quality_status: OK/WARNING/BLOCKED (intraday vs snapshot divergence)
+        data_quality_blocked: True if divergence > 10%
         spread_bps: Bid-ask spread in basis points
         estimated_roundtrip_cost_pct: Total transaction cost
-        paper_allowed: True if grade allows paper trading
-        blocked_reasons: List of blocking reasons
+        paper_allowed: Preliminary check from service (refined here)
+        blocked_reasons: List of HARD BLOCKERS only (not soft warnings)
         signals: Existing signals from compute_scalp_score
-        warnings: Existing warnings from compute_scalp_score
+        warnings: Existing SOFT WARNINGS (ATR, Volume, DQ WARNING, etc.)
 
     Returns:
         EnhancedSignal with all enhancement fields
@@ -92,39 +100,56 @@ def enhance_scalp_signal(
     # Initialize warning collection (copy existing, add new)
     all_warnings = list(warnings) if warnings else []
 
-    # ─ STEP 1: Calculate long_strength and short_strength with penalties ──
+    # ─ STEP 1: Calculate long_strength and short_strength with soft penalties ──
     long_strength = long_score
     short_strength = short_score
 
-    # Data quality penalty
+    # Apply soft warning penalties from warnings list
+    # These reduce strength but don't auto-reject
+    for warning in (warnings or []):
+        warning_lower = warning.lower()
+
+        # Very low ATR penalty
+        if "very low atr" in warning_lower or "dead market" in warning_lower:
+            long_strength = max(long_strength - 15, 0)
+            short_strength = max(short_strength - 15, 0)
+
+        # Volume declining penalty
+        if "volume declining" in warning_lower:
+            long_strength = max(long_strength - 10, 0)
+            short_strength = max(short_strength - 10, 0)
+
+        # Data quality warning penalty
+        if "data quality warning" in warning_lower or "intraday divergence" in warning_lower:
+            long_strength = max(long_strength - 10, 0)
+            short_strength = max(short_strength - 10, 0)
+
+        # Low volatility penalty
+        if "low volatility" in warning_lower and "very low" not in warning_lower:
+            long_strength = max(long_strength - 5, 0)
+            short_strength = max(short_strength - 5, 0)
+
+        # No clear direction soft warning
+        if "no clear" in warning_lower and "long or short" in warning_lower:
+            # Reduce slightly but don't eliminate entirely
+            long_strength = max(long_strength - 10, 0)
+            short_strength = max(short_strength - 10, 0)
+
+    # Hard data quality penalty (if status is STALE/UNAVAILABLE - not BLOCKED which is hard blocker)
     if data_status == "STALE":
         long_strength = max(long_strength - 15, 0)
         short_strength = max(short_strength - 15, 0)
-        all_warnings.append("Data is stale (>2h old)")
     elif data_status == "UNAVAILABLE":
         long_strength = max(long_strength - 25, 0)
         short_strength = max(short_strength - 25, 0)
-        all_warnings.append("Data unavailable")
-
-    # Volatility penalty
-    if volatility_status == "HIGH":
-        long_strength = max(long_strength - 10, 0)
-        short_strength = max(short_strength - 10, 0)
-        all_warnings.append("High volatility")
-    elif volatility_status == "LOW":
-        long_strength = max(long_strength - 5, 0)
-        short_strength = max(short_strength - 5, 0)
-        all_warnings.append("Low volatility")
 
     # Cost penalty (tiered)
     if estimated_roundtrip_cost_pct > 2.0:
-        long_strength = max(long_strength - 20, 0)
-        short_strength = max(short_strength - 20, 0)
-        all_warnings.append("Very high costs (>2.0%)")
+        long_strength = max(long_strength - 15, 0)
+        short_strength = max(short_strength - 15, 0)
     elif estimated_roundtrip_cost_pct > 1.0:
         long_strength = max(long_strength - 10, 0)
         short_strength = max(short_strength - 10, 0)
-        all_warnings.append("High costs (1.0-2.0%)")
     elif estimated_roundtrip_cost_pct > 0.5:
         long_strength = max(long_strength - 5, 0)
         short_strength = max(short_strength - 5, 0)
@@ -133,7 +158,6 @@ def enhance_scalp_signal(
     if spread_status == "WARNING":
         long_strength = max(long_strength - 5, 0)
         short_strength = max(short_strength - 5, 0)
-        all_warnings.append("Elevated spread")
 
     # Clamp to valid range
     long_strength = max(0, min(long_strength, 100))
@@ -156,8 +180,8 @@ def enhance_scalp_signal(
         long_strength=long_strength,
         short_strength=short_strength,
         scalp_grade=scalp_grade,
-        paper_allowed=paper_allowed,
         data_status=data_status,
+        data_quality_blocked=data_quality_blocked,
         blocked_reasons=blocked_reasons,
     )
 
@@ -168,6 +192,8 @@ def enhance_scalp_signal(
         data_status=data_status,
         volatility_status=volatility_status,
         estimated_roundtrip_cost_pct=estimated_roundtrip_cost_pct,
+        preferred_side=preferred_side,
+        data_quality_status=data_quality_status,
     )
 
     # ─ STEP 5: Generate reasons ──
@@ -189,10 +215,19 @@ def enhance_scalp_signal(
         # Already added "Conflicting signals" above
         pass
 
-    # ─ STEP 7: Force paper_allowed=false if signal is REJECT ──
-    # If any veto rule triggered REJECT, paper trading not allowed
-    if signal_strength == "REJECT":
-        paper_allowed = False
+    # ─ STEP 7: Finalize paper_allowed based on comprehensive rules ──
+    # Paper trading requires: data FRESH, no DQ BLOCKED, good grade, clear side,
+    # confidence >= 40, signal NORMAL/STRONG, no hard blockers
+    final_paper_allowed = (
+        data_status == "FRESH"
+        and not data_quality_blocked
+        and scalp_grade in ("SCALP_A+", "SCALP_A", "SCALP_B")
+        and preferred_side in ("LONG", "SHORT")
+        and confidence_score >= 40
+        and signal_strength in ("NORMAL", "STRONG")
+        and not blocked_reasons  # No hard blockers
+        and paper_allowed  # Respect preliminary check from service
+    )
 
     return EnhancedSignal(
         long_strength=long_strength,
@@ -202,7 +237,7 @@ def enhance_scalp_signal(
         confidence_score=confidence_score,
         signal_reasons=signal_reasons,
         signal_warnings=all_warnings,
-        paper_allowed=paper_allowed,
+        paper_allowed=final_paper_allowed,
     )
 
 
@@ -210,35 +245,32 @@ def _classify_signal_strength(
     long_strength: int,
     short_strength: int,
     scalp_grade: str,
-    paper_allowed: bool,
     data_status: str,
+    data_quality_blocked: bool,
     blocked_reasons: List[str],
 ) -> str:
     """
     Classify signal strength: STRONG / NORMAL / WEAK / REJECT
 
-    Veto rules (immediate REJECT):
+    Hard blocker rules (immediate REJECT):
     - scalp_grade == "SCALP_REJECT"
-    - paper_allowed == False
-    - blocked_reasons not empty
+    - data_quality_blocked == True (>10% divergence)
     - data_status == "UNAVAILABLE" or "STALE"
+    - blocked_reasons contains critical hard blockers
 
-    Score thresholds:
+    Score-based classification (if no hard blockers):
     - STRONG: max_strength >= 75 AND grade in [A+, A]
-    - NORMAL: max_strength >= 60 AND grade in [A+, A, B]
-    - WEAK: max_strength >= 45
-    - REJECT: otherwise
+    - NORMAL: max_strength >= 55 AND grade in [A+, A, B]
+    - WEAK: max_strength >= 35
+    - REJECT: otherwise or confidence < 30
     """
 
-    # Veto checks
+    # Hard blocker checks - these are critical failures
     if scalp_grade == "SCALP_REJECT":
         return "REJECT"
 
-    if paper_allowed is False:
-        return "REJECT"
-
-    if blocked_reasons:
-        return "REJECT"
+    if data_quality_blocked:
+        return "REJECT"  # Data quality BLOCKED is a critical hard blocker
 
     if data_status == "UNAVAILABLE":
         return "REJECT"
@@ -246,16 +278,20 @@ def _classify_signal_strength(
     if data_status == "STALE":
         return "REJECT"  # Conservative: stale data = reject
 
-    # Score-based classification
+    if blocked_reasons and "Grade" in " ".join(blocked_reasons):
+        # Grade-based hard blockers
+        return "REJECT"
+
+    # Score-based classification (soft warnings are applied as penalties, not auto-rejects)
     max_strength = max(long_strength, short_strength)
 
     if max_strength >= 75 and scalp_grade in ["SCALP_A+", "SCALP_A"]:
         return "STRONG"
 
-    elif max_strength >= 60 and scalp_grade in ["SCALP_A+", "SCALP_A", "SCALP_B"]:
+    elif max_strength >= 55 and scalp_grade in ["SCALP_A+", "SCALP_A", "SCALP_B"]:
         return "NORMAL"
 
-    elif max_strength >= 45:
+    elif max_strength >= 35:
         return "WEAK"
 
     else:
@@ -268,44 +304,71 @@ def _calculate_confidence(
     data_status: str,
     volatility_status: str,
     estimated_roundtrip_cost_pct: float,
+    preferred_side: str,
+    data_quality_status: str,
 ) -> int:
     """
-    Calculate confidence score (0-100, clamped 20-95).
+    Calculate confidence score (0-100) using progressive formula.
+
+    Creates variation based on grade, direction clarity, and soft penalties.
+    No uniform floor at 20 - confidence reflects actual signal quality.
 
     Formula:
-    1. Grade-based base (75 for A+, 60 for A, 45 for B, 20 for REJECT)
-    2. Signal strength adjustment (+15 STRONG, +5 NORMAL, -5 WEAK, =20 REJECT)
-    3. Data quality penalty (-20 STALE, -25 UNAVAILABLE)
-    4. Volatility penalty (-10 HIGH, -5 LOW)
-    5. Cost penalty (-15 >2%, -8 1-2%, -3 0.5-1%)
-    6. Clamp to [20, 95]
+    1. Grade + Side base (A+/LONG 80, A/LONG 65, B/LONG 50, LONG/NONE 35, etc.)
+    2. Soft penalties:
+       - Very low ATR: -15
+       - Volume declining: -10
+       - Data Quality WARNING: -10
+       - Low volatility (if not already from ATR): -5
+       - No clear direction (side=NONE): -5 to -15
+       - Data STALE: -15
+       - Data UNAVAILABLE: -25
+       - High costs: -5 to -15
+    3. Signal strength adjustment (if not already REJECT):
+       - STRONG: +10
+       - NORMAL: +0
+       - WEAK: -10
+    4. Clamp to [0, 100]
     """
 
-    # Step 1: Grade-based confidence
+    # Step 1: Grade + Side base confidence
+    # Higher base for clear directions, lower for NONE
     if scalp_grade == "SCALP_A+":
-        confidence = 75
+        if preferred_side in ("LONG", "SHORT"):
+            confidence = 80
+        else:  # NONE
+            confidence = 35
     elif scalp_grade == "SCALP_A":
-        confidence = 60
+        if preferred_side in ("LONG", "SHORT"):
+            confidence = 65
+        else:  # NONE
+            confidence = 25
     elif scalp_grade == "SCALP_B":
-        confidence = 45
+        if preferred_side in ("LONG", "SHORT"):
+            confidence = 50
+        else:  # NONE
+            confidence = 20
     else:  # SCALP_REJECT
         confidence = 20
 
-    # Step 2: Signal strength adjustment
+    # Step 2: Signal strength adjustment (before penalties for transparency)
     if signal_strength == "STRONG":
-        confidence += 15
+        confidence += 10
     elif signal_strength == "NORMAL":
-        confidence += 5
+        confidence += 0  # No adjustment
     elif signal_strength == "WEAK":
-        confidence -= 5
+        confidence -= 10
     elif signal_strength == "REJECT":
-        confidence = 20  # Floor for REJECT
+        confidence = max(confidence, 20)  # Floor at 20 for REJECT, but don't reduce if already < 20
 
-    # Step 3: Data quality penalty
+    # Step 3: Data quality penalties
     if data_status == "STALE":
-        confidence -= 20
+        confidence -= 15
     elif data_status == "UNAVAILABLE":
         confidence -= 25
+
+    if data_quality_status == "WARNING":
+        confidence -= 10  # Soft penalty for data quality warning (5-10% divergence)
 
     # Step 4: Volatility penalty
     if volatility_status == "HIGH":
@@ -317,12 +380,12 @@ def _calculate_confidence(
     if estimated_roundtrip_cost_pct > 2.0:
         confidence -= 15
     elif estimated_roundtrip_cost_pct > 1.0:
-        confidence -= 8
+        confidence -= 10
     elif estimated_roundtrip_cost_pct > 0.5:
-        confidence -= 3
+        confidence -= 5
 
-    # Step 6: Clamp to [20, 95]
-    confidence = max(20, min(confidence, 95))
+    # Step 6: Clamp to [0, 100]
+    confidence = max(0, min(confidence, 100))
 
     return confidence
 

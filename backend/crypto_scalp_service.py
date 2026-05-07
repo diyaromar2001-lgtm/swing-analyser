@@ -230,16 +230,20 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     result["data_quality_status"] = data_quality_status
     result["data_quality_blocked"] = data_quality_blocked
 
-    # ─ Determine side (LONG/SHORT/NONE) ─────────────────────────────────
-    if result["long_score"] >= 60 and result["short_score"] < 50:
+    # ─ Determine side (LONG/SHORT/NONE) using Option A thresholds ──────────
+    # Option A: LONG if long_score >= 50 AND long_score >= short_score + 10
+    #           SHORT if short_score >= 50 AND short_score >= long_score + 10
+    #           NONE otherwise
+    if result["long_score"] >= 50 and result["long_score"] >= result["short_score"] + 10:
         result["side"] = "LONG"
         result["strategy_name"] = _detect_strategy_long(ohlcv, current_price) if ohlcv is not None else None
-    elif result["short_score"] >= 60 and result["long_score"] < 50:
+    elif result["short_score"] >= 50 and result["short_score"] >= result["long_score"] + 10:
         result["side"] = "SHORT"
         result["strategy_name"] = _detect_strategy_short(ohlcv, current_price) if ohlcv is not None else None
     else:
         result["side"] = "NONE"
-        result["blocked_reasons"].append("No clear LONG or SHORT signal")
+        # NOTE: This is a soft warning in Phase 3A, not a hard blocker
+        # Will be handled with penalties in enhance_scalp_signal()
 
     # ─ Calculate entry/SL/TP ───────────────────────────────────────────
     if result["side"] != "NONE" and ohlcv is not None and len(ohlcv) >= 10:
@@ -265,28 +269,33 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
             if risk > 0:
                 result["rr_ratio"] = round(reward / risk, 2)
 
-    # ─ Paper allowed if grade is A+, A, or B (Phase 1 Paper Mode) ──────
-    # B = Medium confidence, test worthy
-    # A = Good confidence, recommended
-    # A+ = High confidence, priority
-    # BUT: Blocked if data_quality is BLOCKED (intraday divergence > 10%)
-    if data_quality_blocked:
-        # HARD BLOCK: Do not allow paper trading if data quality is bad
-        result["paper_allowed"] = False
-        result["paper_confidence"] = "NONE"
-    elif result["scalp_grade"] in ("SCALP_A+", "SCALP_A", "SCALP_B"):
-        result["paper_allowed"] = True
-        # Add confidence label
-        if result["scalp_grade"] == "SCALP_A+":
-            result["paper_confidence"] = "HIGH"
-        elif result["scalp_grade"] == "SCALP_A":
-            result["paper_confidence"] = "GOOD"
-        else:  # SCALP_B
-            result["paper_confidence"] = "MEDIUM"
+    # ─ Pre-calculate paper_allowed preliminary state ──────────────────────
+    # NOTE: Final paper_allowed decision comes from enhance_scalp_signal()
+    # This is a preliminary check for basic requirements.
+    # Hard blockers that definitely prevent paper trading:
+    preliminary_paper_allowed = (
+        result["data_status"] == "FRESH"
+        and not data_quality_blocked
+        and result["scalp_grade"] in ("SCALP_A+", "SCALP_A", "SCALP_B")
+        and result["side"] in ("LONG", "SHORT")
+        and result["spread_status"] == "OK"
+        and result["entry"] is not None
+        and result["stop_loss"] is not None
+    )
+
+    result["paper_allowed"] = preliminary_paper_allowed
+
+    # Add paper_confidence label based on grade (for UI hints)
+    if result["scalp_grade"] == "SCALP_A+":
+        result["paper_confidence"] = "HIGH" if preliminary_paper_allowed else "NONE"
+    elif result["scalp_grade"] == "SCALP_A":
+        result["paper_confidence"] = "GOOD" if preliminary_paper_allowed else "NONE"
+    elif result["scalp_grade"] == "SCALP_B":
+        result["paper_confidence"] = "MEDIUM" if preliminary_paper_allowed else "NONE"
     else:
-        result["paper_allowed"] = False
         result["paper_confidence"] = "NONE"
-        result["blocked_reasons"].append(f"Grade {result['scalp_grade']} — watchlist only")
+        if result["scalp_grade"] == "SCALP_REJECT":
+            result["blocked_reasons"].append(f"Grade {result['scalp_grade']} — watchlist only")
 
     # ─ Cost Calculations (Phase 2 Paper Trading Enhancement) ────────────
     cost_data = compute_roundtrip_cost_pct(symbol, result["tier"], include_spread=False)
@@ -321,25 +330,33 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
         result["spread_status"] = "OK"
 
     # ─ PHASE 3A: Signal Quality Enhancement ──────────────────────────────
-    # Separate hard blockers from soft warnings
-    hard_blockers = []
-    if result["side"] == "NONE":
-        hard_blockers.append("No clear LONG or SHORT signal")
-    if data_quality_blocked:
-        # Add data quality blocker as hard blocker for enhancer
-        hard_blockers.append(f"Intraday data quality: divergence {price_difference_pct:.1f}% > 10%")
-    if result["scalp_grade"] == "SCALP_REJECT" or not result["paper_allowed"]:
-        # These are already handled by veto rules in enhancer, but keep for consistency
-        pass
+    # Separate HARD BLOCKERS (critical failures) from SOFT WARNINGS (penalties)
 
-    # Prepare soft warnings (including data quality WARNING if applicable)
-    soft_warnings = list(score_warnings)  # Copy existing warnings
+    # HARD BLOCKERS: Critical failures that prevent any trading or signal
+    hard_blockers = []
+
+    # Data quality BLOCKED is a hard blocker
+    if data_quality_blocked and price_difference_pct is not None:
+        hard_blockers.append(f"Data quality BLOCKED: intraday divergence {price_difference_pct:.1f}% > 10%")
+
+    # Grade REJECT is a hard blocker
+    if result["scalp_grade"] == "SCALP_REJECT":
+        hard_blockers.append(f"Grade {result['scalp_grade']} — not tradeable")
+
+    # SOFT WARNINGS: Issues that reduce confidence/signal_strength but don't auto-reject
+    soft_warnings = list(score_warnings)  # Copy existing warnings from compute_scalp_score
+
+    # "No clear LONG or SHORT signal" is now a SOFT WARNING, not a hard blocker
+    if result["side"] == "NONE":
+        soft_warnings.append("No clear LONG or SHORT signal")
+
+    # Data quality WARNING (5-10%) is a soft warning with penalty
     if data_quality_status == "WARNING" and price_difference_pct is not None:
         soft_warnings.append(
             f"Data quality warning: intraday divergence {price_difference_pct:.1f}% (5-10% range) — verify before trading"
         )
 
-    # Call enhancer with hard blockers and soft warnings separated
+    # Call enhancer with hard blockers and soft warnings properly separated
     enhanced = enhance_scalp_signal(
         long_score=result["long_score"],
         short_score=result["short_score"],
@@ -348,12 +365,14 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
         data_status=result["data_status"],
         volatility_status=result["volatility_status"],
         spread_status=result["spread_status"],
+        data_quality_status=data_quality_status,  # Pass DQ status explicitly
+        data_quality_blocked=data_quality_blocked,  # Pass DQ blocker explicitly
         spread_bps=result.get("spread_bps", 0),
         estimated_roundtrip_cost_pct=result.get("estimated_roundtrip_cost_pct", 0.0),
         paper_allowed=result["paper_allowed"],
-        blocked_reasons=hard_blockers,  # Hard blockers including data quality
+        blocked_reasons=hard_blockers,  # Only critical hard blockers
         signals=result["signal_reasons"],
-        warnings=soft_warnings,  # Soft warnings including data quality WARNING
+        warnings=soft_warnings,  # Soft warnings for penalties
     )
 
     # Add enhancement fields to response
