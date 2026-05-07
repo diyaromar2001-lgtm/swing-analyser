@@ -39,6 +39,127 @@ export interface CryptoScalpResult {
   signal_strength?: "STRONG" | "NORMAL" | "WEAK" | "REJECT";
   confidence_score?: number;
   signal_warnings?: string[];
+  // Phase 3C: Data Quality Fields
+  data_quality_blocked?: boolean;
+  data_quality_status?: string;
+  entry_price?: number | null;
+  take_profit?: number | null;
+}
+
+// Phase 3C: Trade Refusal Explanation Types & Functions
+interface RefusalExplanation {
+  badgeStatus: "Tradable Paper" | "Watchlist Only" | "Blocked";
+  mainCause: string;
+  secondaryCauses: string[];
+  technicalDetails: {
+    dataQualityDivergence?: number;
+    dataQualityThreshold?: number;
+    confidenceActual?: number;
+    confidenceRequired?: number;
+    rrRatio?: number;
+    spreadBps?: number;
+    estimatedCostPct?: number;
+    scalp_grade?: string;
+  };
+}
+
+// Helper function to extract divergence percentage from data_quality_status string
+function extractDivergence(status?: string): number | null {
+  if (!status) return null;
+  const match = status.match(/(\d+\.?\d*)\s*%/);
+  return match ? parseFloat(match[1]) : null;
+}
+
+// Analyze result and generate user-friendly explanation for why trade is blocked
+function generateRefusalExplanation(
+  result: CryptoScalpResult
+): RefusalExplanation | null {
+  // Returns null if paper_allowed = true (no explanation needed)
+  if (result.paper_allowed) return null;
+
+  let badgeStatus: "Tradable Paper" | "Watchlist Only" | "Blocked" = "Blocked";
+  let mainCause = "";
+  const secondaryCauses: string[] = [];
+  const technicalDetails: RefusalExplanation["technicalDetails"] = {};
+
+  // CASE 1: Data Quality BLOCKED
+  if (
+    result.data_quality_blocked === true ||
+    result.data_quality_status?.includes("BLOCKED")
+  ) {
+    badgeStatus = "Blocked";
+    const divergence = extractDivergence(result.data_quality_status);
+    mainCause =
+      "Les sources de prix ne sont pas cohérentes. L'écart dépasse 10%, donc le signal est bloqué par sécurité.";
+    if (divergence) {
+      technicalDetails.dataQualityDivergence = divergence;
+      technicalDetails.dataQualityThreshold = 10;
+    }
+  }
+  // CASE 2: Side = NONE (no clear direction)
+  else if (result.side === "NONE") {
+    badgeStatus = "Watchlist Only";
+    mainCause =
+      "Aucune direction LONG ou SHORT assez claire pour autoriser un Paper trade.";
+    secondaryCauses.push("Ajoutez ce symbole à Watchlist pour surveillance future.");
+  }
+  // CASE 3: Low confidence
+  else if (result.confidence_score && result.confidence_score < 40) {
+    badgeStatus = "Watchlist Only";
+    mainCause = `La confiance est trop faible pour autoriser un Paper trade. (Confidence ${result.confidence_score}%, seuil requis 40%)`;
+    technicalDetails.confidenceActual = result.confidence_score;
+    technicalDetails.confidenceRequired = 40;
+    secondaryCauses.push("Attendez une meilleure confirmation avant de trader.");
+  }
+  // CASE 4: SCALP_REJECT
+  else if (result.scalp_grade === "SCALP_REJECT") {
+    badgeStatus = "Watchlist Only";
+    mainCause =
+      "Le score technique est trop faible pour autoriser un Paper trade.";
+    technicalDetails.scalp_grade = result.scalp_grade;
+    secondaryCauses.push("Vérifiez les paramètres techniques du signal.");
+  }
+  // CASE 5: Weak R/R
+  else if (result.rr_ratio && result.rr_ratio < 1) {
+    badgeStatus = "Watchlist Only";
+    mainCause = `Le ratio risque/rendement est faible (${result.rr_ratio.toFixed(2)}:1). Le gain potentiel ne compense pas assez le risque.`;
+    technicalDetails.rrRatio = result.rr_ratio;
+  }
+  // CASE 6: High spread/costs
+  else if (
+    result.estimated_roundtrip_cost_pct &&
+    result.estimated_roundtrip_cost_pct > 0.5
+  ) {
+    badgeStatus = "Watchlist Only";
+    mainCause = `Les coûts ou le spread peuvent réduire fortement la rentabilité. (Coût estimé: ${result.estimated_roundtrip_cost_pct.toFixed(2)}%)`;
+    technicalDetails.estimatedCostPct = result.estimated_roundtrip_cost_pct;
+  }
+  // CASE 7: Invalid entry/SL/TP
+  else if (
+    result.entry === null ||
+    result.stop_loss === null ||
+    (result.tp1 === null && result.tp2 === null)
+  ) {
+    badgeStatus = "Blocked";
+    mainCause =
+      "Le plan de trade n'est pas complet ou pas valide. Entry, SL, ou TP manquant.";
+  }
+  // FALLBACK: Generic blocker
+  else {
+    badgeStatus = result.watchlist_allowed ? "Watchlist Only" : "Blocked";
+    mainCause =
+      "Ce trade ne peut pas être exécuté en Paper trading pour des raisons de sécurité.";
+    if (result.blocked_reasons && result.blocked_reasons.length > 0) {
+      secondaryCauses.push(...result.blocked_reasons.slice(0, 2));
+    }
+  }
+
+  return {
+    badgeStatus,
+    mainCause,
+    secondaryCauses,
+    technicalDetails,
+  };
 }
 
 export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) {
@@ -362,6 +483,87 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
               </ul>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Phase 3C: Trade Refusal Explanation Block */}
+      {!result.paper_allowed && (
+        <div className="rounded-xl p-6 mb-6" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
+          {/* Title */}
+          <h3 className="text-lg font-black text-white mb-4 flex items-center gap-2">
+            <span>❌</span>
+            <span>Pourquoi ce trade n&apos;est pas tradable ?</span>
+          </h3>
+
+          {/* Status Badge */}
+          <div className="mb-4">
+            <span
+              className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${
+                (() => {
+                  const explanation = generateRefusalExplanation(result);
+                  if (explanation?.badgeStatus === "Tradable Paper")
+                    return "bg-green-500/20 text-green-400";
+                  if (explanation?.badgeStatus === "Watchlist Only")
+                    return "bg-amber-500/20 text-amber-400";
+                  return "bg-red-500/20 text-red-400";
+                })()
+              }`}
+            >
+              {generateRefusalExplanation(result)?.badgeStatus || "Blocked"}
+            </span>
+          </div>
+
+          {/* Main Cause */}
+          <div className="mb-4">
+            <p className="text-sm text-white font-semibold">
+              {generateRefusalExplanation(result)?.mainCause}
+            </p>
+          </div>
+
+          {/* Secondary Causes */}
+          {generateRefusalExplanation(result)?.secondaryCauses &&
+            generateRefusalExplanation(result)!.secondaryCauses.length > 0 && (
+              <div className="mb-4">
+                <ul className="text-sm text-gray-400 list-disc list-inside space-y-1">
+                  {generateRefusalExplanation(result)?.secondaryCauses.map(
+                    (cause, idx) => (
+                      <li key={idx}>{cause}</li>
+                    )
+                  )}
+                </ul>
+              </div>
+            )}
+
+          {/* Technical Details */}
+          {(() => {
+            const explanation = generateRefusalExplanation(result);
+            if (!explanation?.technicalDetails || Object.keys(explanation.technicalDetails).length === 0) {
+              return null;
+            }
+            return (
+              <div className="text-xs text-gray-600 border-t border-gray-700 pt-3 space-y-1">
+                {explanation.technicalDetails.dataQualityDivergence !== undefined && (
+                  <p>
+                    Divergence données: {explanation.technicalDetails.dataQualityDivergence.toFixed(1)}% (seuil: {explanation.technicalDetails.dataQualityThreshold}%)
+                  </p>
+                )}
+                {explanation.technicalDetails.confidenceActual !== undefined && (
+                  <p>
+                    Confiance: {explanation.technicalDetails.confidenceActual}% (requis: {explanation.technicalDetails.confidenceRequired}%)
+                  </p>
+                )}
+                {explanation.technicalDetails.rrRatio !== undefined && (
+                  <p>Ratio R/R: 1:{explanation.technicalDetails.rrRatio.toFixed(2)}</p>
+                )}
+                {explanation.technicalDetails.estimatedCostPct !== undefined && (
+                  <p>Coût aller-retour estimé: {explanation.technicalDetails.estimatedCostPct.toFixed(2)}%</p>
+                )}
+                {explanation.technicalDetails.scalp_grade && (
+                  <p>Note technique: {explanation.technicalDetails.scalp_grade}</p>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
