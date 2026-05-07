@@ -2,11 +2,11 @@
 Phase 3A: Signal Quality Enhancement for Crypto Scalp
 
 Enhances crypto scalp signals with:
-- Separate LONG/SHORT strength calculation
+- Separate LONG/SHORT strength calculation (CENTRALIZED RULE v1.1)
 - Signal strength classification (STRONG/NORMAL/WEAK/REJECT)
 - Confidence score (0-100)
 - Explicit reasons and warnings
-- preferred_side determination
+- preferred_side determination (ALIGNED WITH SERVICE)
 
 Uses only existing fields from analyze_crypto_scalp_symbol() response.
 No new data sources. Defensive approach (penalties only).
