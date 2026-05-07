@@ -162,7 +162,8 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
 
         # Extract warnings separately for Phase 3A enhancement
         score_warnings = score_result.get("warnings", [])
-        result["blocked_reasons"].extend(score_warnings)  # Keep for API response (backward compat)
+        # DO NOT add soft warnings to blocked_reasons
+        # Only hard blockers should be in blocked_reasons
 
     # ─ Add price tracing fields (informational, no logic change) ──────────
     # These fields are JSON-safe and help debug price sources

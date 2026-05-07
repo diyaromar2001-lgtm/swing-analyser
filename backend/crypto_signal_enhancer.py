@@ -238,14 +238,21 @@ def enhance_scalp_signal(
 
     # ─ STEP 7: Finalize paper_allowed based on comprehensive rules ──
     # Paper trading requires: data FRESH, no DQ BLOCKED, good grade, clear side,
-    # confidence >= 40, signal NORMAL/STRONG, no hard blockers
+    # confidence >= 40, no hard blockers
+    # WEAK allowed only if: confidence >= 40 AND side is clear AND no hard blockers
+
+    # Determine if signal is tradeable for Paper
+    signal_acceptable = signal_strength in ("NORMAL", "STRONG") or (
+        signal_strength == "WEAK" and confidence_score >= 40
+    )
+
     final_paper_allowed = (
         data_status == "FRESH"
         and not data_quality_blocked
         and scalp_grade in ("SCALP_A+", "SCALP_A", "SCALP_B")
         and preferred_side in ("LONG", "SHORT")
         and confidence_score >= 40
-        and signal_strength in ("NORMAL", "STRONG")
+        and signal_acceptable  # NORMAL/STRONG always, or WEAK if conf >= 40
         and not blocked_reasons  # No hard blockers
         and paper_allowed  # Respect preliminary check from service
     )
