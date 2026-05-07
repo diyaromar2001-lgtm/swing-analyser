@@ -271,10 +271,46 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
             if risk > 0:
                 result["rr_ratio"] = round(reward / risk, 2)
 
+    # ─ Cost Calculations (Phase 2 Paper Trading Enhancement) ────────────
+    # MUST be done BEFORE preliminary_paper_allowed check
+    cost_data = compute_roundtrip_cost_pct(symbol, result["tier"], include_spread=False)
+    result["spread_bps"] = cost_data.get("spread_bps")
+    result["slippage_pct"] = cost_data.get("slippage_pct")
+    result["entry_fee_pct"] = cost_data.get("entry_fee_pct")
+    result["exit_fee_pct"] = cost_data.get("exit_fee_pct")
+    result["estimated_roundtrip_cost_pct"] = cost_data.get("estimated_roundtrip_cost_pct")
+
+    # Calculate estimated net R/R after costs
+    if result.get("rr_ratio"):
+        result["estimated_net_rr"] = estimate_net_rr(result["rr_ratio"], cost_data.get("estimated_roundtrip_cost_pct"))
+    else:
+        result["estimated_net_rr"] = None
+
+    # ─ Volatility Status (Phase 3A: derived from score warnings) ────────
+    # MUST be done BEFORE preliminary_paper_allowed check
+    # Infer from warnings to avoid recalculating ATR
+    if "Very low ATR" in score_warnings or "dead market" in " ".join(score_warnings).lower():
+        result["volatility_status"] = "LOW"
+    elif "High ATR" in score_warnings or "choppy" in " ".join(score_warnings).lower():
+        result["volatility_status"] = "HIGH"
+    else:
+        result["volatility_status"] = "NORMAL"
+
+    # ─ Spread Status (Phase 3A: derived from spread_bps) ────────────────
+    # MUST be done BEFORE preliminary_paper_allowed check
+    spread_bps = result.get("spread_bps")
+    if spread_bps is None:
+        result["spread_status"] = "UNAVAILABLE"
+    elif spread_bps > 100:  # > 100 bps = 1% spread = warning threshold
+        result["spread_status"] = "WARNING"
+    else:
+        result["spread_status"] = "OK"
+
     # ─ Pre-calculate paper_allowed preliminary state ──────────────────────
     # NOTE: Final paper_allowed decision comes from enhance_scalp_signal()
     # This is a preliminary check for basic requirements.
     # Hard blockers that definitely prevent paper trading:
+    # NOW spread_status has been calculated (was the 3rd bug!)
     check_data_fresh = result["data_status"] == "FRESH"
     check_dq_not_blocked = not data_quality_blocked
     check_grade = result["scalp_grade"] in ("SCALP_A+", "SCALP_A", "SCALP_B")
@@ -294,16 +330,7 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     )
 
     result["paper_allowed"] = preliminary_paper_allowed
-    result["_debug_checks"] = {  # DEBUG: Show which checks pass/fail
-        "data_fresh": check_data_fresh,
-        "dq_not_blocked": check_dq_not_blocked,
-        "grade_ok": check_grade,
-        "side_ok": check_side,
-        "spread_ok": check_spread,
-        "entry_not_none": check_entry,
-        "stop_not_none": check_stop,
-        "preliminary_result": preliminary_paper_allowed,
-    }
+    # DEBUG field removed - fix verified
 
     # Add paper_confidence label based on grade (for UI hints)
     if result["scalp_grade"] == "SCALP_A+":
@@ -316,38 +343,6 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
         result["paper_confidence"] = "NONE"
         if result["scalp_grade"] == "SCALP_REJECT":
             result["blocked_reasons"].append(f"Grade {result['scalp_grade']} — watchlist only")
-
-    # ─ Cost Calculations (Phase 2 Paper Trading Enhancement) ────────────
-    cost_data = compute_roundtrip_cost_pct(symbol, result["tier"], include_spread=False)
-    result["spread_bps"] = cost_data.get("spread_bps")
-    result["slippage_pct"] = cost_data.get("slippage_pct")
-    result["entry_fee_pct"] = cost_data.get("entry_fee_pct")
-    result["exit_fee_pct"] = cost_data.get("exit_fee_pct")
-    result["estimated_roundtrip_cost_pct"] = cost_data.get("estimated_roundtrip_cost_pct")
-
-    # Calculate estimated net R/R after costs
-    if result.get("rr_ratio"):
-        result["estimated_net_rr"] = estimate_net_rr(result["rr_ratio"], cost_data.get("estimated_roundtrip_cost_pct"))
-    else:
-        result["estimated_net_rr"] = None
-
-    # ─ Volatility Status (Phase 3A: derived from score warnings) ────────
-    # Infer from warnings to avoid recalculating ATR
-    if "Very low ATR" in score_warnings or "dead market" in " ".join(score_warnings).lower():
-        result["volatility_status"] = "LOW"
-    elif "High ATR" in score_warnings or "choppy" in " ".join(score_warnings).lower():
-        result["volatility_status"] = "HIGH"
-    else:
-        result["volatility_status"] = "NORMAL"
-
-    # ─ Spread Status (Phase 3A: derived from spread_bps) ────────────────
-    spread_bps = result.get("spread_bps")
-    if spread_bps is None:
-        result["spread_status"] = "UNAVAILABLE"
-    elif spread_bps > 100:  # > 100 bps = 1% spread = warning threshold
-        result["spread_status"] = "WARNING"
-    else:
-        result["spread_status"] = "OK"
 
     # ─ PHASE 3A: Signal Quality Enhancement ──────────────────────────────
     # Separate HARD BLOCKERS (critical failures) from SOFT WARNINGS (penalties)
