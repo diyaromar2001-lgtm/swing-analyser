@@ -12,7 +12,33 @@ Uses only existing fields from analyze_crypto_scalp_symbol() response.
 No new data sources. Defensive approach (penalties only).
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Literal
+
+
+def determine_scalp_side(long_score: float, short_score: float) -> Literal["LONG", "SHORT", "NONE"]:
+    """
+    Centralized rule for determining tradeable side.
+
+    Used consistently across crypto_scalp_service and crypto_signal_enhancer.
+
+    Prudent threshold (conservative):
+    - LONG if: long_score >= 50 AND long_score >= short_score + 10
+    - SHORT if: short_score >= 50 AND short_score >= long_score + 10
+    - NONE otherwise (conflicting or unclear direction)
+
+    Args:
+        long_score: Long directional bias (0-100)
+        short_score: Short directional bias (0-100)
+
+    Returns:
+        "LONG", "SHORT", or "NONE"
+    """
+    if long_score >= 50 and long_score >= short_score + 10:
+        return "LONG"
+    elif short_score >= 50 and short_score >= long_score + 10:
+        return "SHORT"
+    else:
+        return "NONE"
 
 
 class EnhancedSignal:
@@ -101,15 +127,14 @@ def enhance_scalp_signal(
     all_warnings = list(warnings) if warnings else []
 
     # ─ STEP 1A: Determine preferred_side BEFORE applying penalties ──
-    # Use original scores to determine direction clarity
-    # This ensures penalties don't artificially affect side determination
-    if long_score >= short_score + 5:
-        preferred_side = "LONG"
-    elif short_score >= long_score + 5:
-        preferred_side = "SHORT"
-    else:
-        preferred_side = "NONE"
-        all_warnings.append("Conflicting signals (LONG/SHORT too close)")
+    # Use centralized rule to determine direction clarity
+    # This ensures consistent thresholds across service and enhancer
+    # Rule: LONG if long_score >= 50 AND delta >= 10, etc.
+    preferred_side = determine_scalp_side(long_score, short_score)
+
+    # Add warning if direction is unclear (NONE)
+    if preferred_side == "NONE":
+        all_warnings.append("Conflicting signals or unclear direction")
 
     # ─ STEP 1B: Calculate long_strength and short_strength with soft penalties ──
     long_strength = long_score
@@ -182,6 +207,7 @@ def enhance_scalp_signal(
         data_status=data_status,
         data_quality_blocked=data_quality_blocked,
         blocked_reasons=blocked_reasons,
+        preferred_side=preferred_side,  # Enforce: if NONE, max is WEAK
     )
 
     # ─ STEP 4: Calculate confidence_score ──
@@ -243,9 +269,12 @@ def _classify_signal_strength(
     data_status: str,
     data_quality_blocked: bool,
     blocked_reasons: List[str],
+    preferred_side: str = "NONE",  # LONG, SHORT, or NONE
 ) -> str:
     """
     Classify signal strength: STRONG / NORMAL / WEAK / REJECT
+
+    Critical rule: If preferred_side=NONE (unclear direction), max is WEAK (never NORMAL/STRONG).
 
     Hard blocker rules (immediate REJECT):
     - scalp_grade == "SCALP_REJECT"
@@ -254,10 +283,10 @@ def _classify_signal_strength(
     - blocked_reasons contains critical hard blockers
 
     Score-based classification (if no hard blockers):
-    - STRONG: max_strength >= 75 AND grade in [A+, A]
-    - NORMAL: max_strength >= 55 AND grade in [A+, A, B]
+    - STRONG: max_strength >= 75 AND grade in [A+, A] AND preferred_side in [LONG, SHORT]
+    - NORMAL: max_strength >= 55 AND grade in [A+, A, B] AND preferred_side in [LONG, SHORT]
     - WEAK: max_strength >= 35
-    - REJECT: otherwise or confidence < 30
+    - REJECT: otherwise
     """
 
     # Hard blocker checks - these are critical failures
@@ -280,6 +309,15 @@ def _classify_signal_strength(
     # Score-based classification (soft warnings are applied as penalties, not auto-rejects)
     max_strength = max(long_strength, short_strength)
 
+    # CRITICAL: If preferred_side is NONE (unclear direction), cap at WEAK
+    if preferred_side == "NONE":
+        # Unclear direction - max is WEAK, never NORMAL/STRONG
+        if max_strength >= 35:
+            return "WEAK"
+        else:
+            return "REJECT"
+
+    # Direction is clear (LONG or SHORT) - allow full range
     if max_strength >= 75 and scalp_grade in ["SCALP_A+", "SCALP_A"]:
         return "STRONG"
 

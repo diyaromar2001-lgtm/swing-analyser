@@ -26,7 +26,7 @@ from crypto_cost_calculator import (
     compute_roundtrip_cost_pct,
     estimate_net_rr,
 )
-from crypto_signal_enhancer import enhance_scalp_signal
+from crypto_signal_enhancer import enhance_scalp_signal, determine_scalp_side
 
 _screener_cache: Dict[str, dict] = {}
 _SCREENER_TTL = 60
@@ -230,20 +230,21 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     result["data_quality_status"] = data_quality_status
     result["data_quality_blocked"] = data_quality_blocked
 
-    # ─ Determine side (LONG/SHORT/NONE) using Option A thresholds ──────────
-    # Option A: LONG if long_score >= 50 AND long_score >= short_score + 10
-    #           SHORT if short_score >= 50 AND short_score >= long_score + 10
-    #           NONE otherwise
-    if result["long_score"] >= 50 and result["long_score"] >= result["short_score"] + 10:
-        result["side"] = "LONG"
+    # ─ Determine side (LONG/SHORT/NONE) using centralized rule ──────────
+    # Rule: LONG if long_score >= 50 AND long_score >= short_score + 10
+    #       SHORT if short_score >= 50 AND short_score >= long_score + 10
+    #       NONE otherwise (unclear/conflicting direction)
+    result["side"] = determine_scalp_side(result["long_score"], result["short_score"])
+
+    if result["side"] == "LONG":
         result["strategy_name"] = _detect_strategy_long(ohlcv, current_price) if ohlcv is not None else None
-    elif result["short_score"] >= 50 and result["short_score"] >= result["long_score"] + 10:
-        result["side"] = "SHORT"
+    elif result["side"] == "SHORT":
         result["strategy_name"] = _detect_strategy_short(ohlcv, current_price) if ohlcv is not None else None
     else:
-        result["side"] = "NONE"
+        # side = NONE: unclear or conflicting direction
         # NOTE: This is a soft warning in Phase 3A, not a hard blocker
         # Will be handled with penalties in enhance_scalp_signal()
+        pass
 
     # ─ Calculate entry/SL/TP ───────────────────────────────────────────
     if result["side"] != "NONE" and ohlcv is not None and len(ohlcv) >= 10:
