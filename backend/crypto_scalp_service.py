@@ -208,6 +208,28 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     result["price_suspect"] = price_suspect
     result["price_difference_pct"] = price_difference_pct
 
+    # ─ DATA QUALITY CHECK: Intraday vs Snapshot Divergence ────────────────
+    # PROTECTION: Block/warn if intraday data is too different from snapshot
+    # This prevents false signals from stale or wrong intraday sources
+    data_quality_status = "OK"  # Default
+    data_quality_blocked = False
+
+    if price_difference_pct is not None:
+        if price_difference_pct > 10:
+            # HARD BLOCKER: Divergence too high (>10%)
+            data_quality_status = "BLOCKED"
+            data_quality_blocked = True
+            result["blocked_reasons"].append(
+                f"Data quality: intraday divergence {price_difference_pct:.1f}% > 10% threshold"
+            )
+        elif price_difference_pct > 5:
+            # SOFT WARNING: Moderate divergence (5-10%)
+            data_quality_status = "WARNING"
+            # Will add warning below when signal_warnings is accessible
+
+    result["data_quality_status"] = data_quality_status
+    result["data_quality_blocked"] = data_quality_blocked
+
     # ─ Determine side (LONG/SHORT/NONE) ─────────────────────────────────
     if result["long_score"] >= 60 and result["short_score"] < 50:
         result["side"] = "LONG"
@@ -247,7 +269,12 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     # B = Medium confidence, test worthy
     # A = Good confidence, recommended
     # A+ = High confidence, priority
-    if result["scalp_grade"] in ("SCALP_A+", "SCALP_A", "SCALP_B"):
+    # BUT: Blocked if data_quality is BLOCKED (intraday divergence > 10%)
+    if data_quality_blocked:
+        # HARD BLOCK: Do not allow paper trading if data quality is bad
+        result["paper_allowed"] = False
+        result["paper_confidence"] = "NONE"
+    elif result["scalp_grade"] in ("SCALP_A+", "SCALP_A", "SCALP_B"):
         result["paper_allowed"] = True
         # Add confidence label
         if result["scalp_grade"] == "SCALP_A+":
@@ -298,9 +325,19 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     hard_blockers = []
     if result["side"] == "NONE":
         hard_blockers.append("No clear LONG or SHORT signal")
+    if data_quality_blocked:
+        # Add data quality blocker as hard blocker for enhancer
+        hard_blockers.append(f"Intraday data quality: divergence {price_difference_pct:.1f}% > 10%")
     if result["scalp_grade"] == "SCALP_REJECT" or not result["paper_allowed"]:
         # These are already handled by veto rules in enhancer, but keep for consistency
         pass
+
+    # Prepare soft warnings (including data quality WARNING if applicable)
+    soft_warnings = list(score_warnings)  # Copy existing warnings
+    if data_quality_status == "WARNING" and price_difference_pct is not None:
+        soft_warnings.append(
+            f"Data quality warning: intraday divergence {price_difference_pct:.1f}% (5-10% range) — verify before trading"
+        )
 
     # Call enhancer with hard blockers and soft warnings separated
     enhanced = enhance_scalp_signal(
@@ -314,9 +351,9 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
         spread_bps=result.get("spread_bps", 0),
         estimated_roundtrip_cost_pct=result.get("estimated_roundtrip_cost_pct", 0.0),
         paper_allowed=result["paper_allowed"],
-        blocked_reasons=hard_blockers,  # Only hard blockers (not soft warnings)
+        blocked_reasons=hard_blockers,  # Hard blockers including data quality
         signals=result["signal_reasons"],
-        warnings=score_warnings,  # Soft warnings passed separately
+        warnings=soft_warnings,  # Soft warnings including data quality WARNING
     )
 
     # Add enhancement fields to response
