@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CryptoRegimeEngine, TickerResult } from "../../types";
 import { getApiUrl } from "../../lib/api";
 import { formatCryptoPrice, isCryptoDefensiveRegime } from "../../lib/cryptoFormat";
+import { CollapsibleCard } from "../CollapsibleCard";
 import { CryptoTradePlan } from "./CryptoTradePlan";
 
 const API_URL = getApiUrl();
@@ -245,71 +246,78 @@ export function CryptoCommandCenter({
       </div>
 
       {primaryCards.length > 0 && (
-        <div>
-          <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-2 px-1">
-            {defensiveRegime
-              ? "👁 Watchlist technique crypto — surveillance uniquement, aucun achat autorisé"
-              : "🎯 Meilleures cryptos à trader aujourd'hui — edge validé uniquement"}
-          </p>
-          {defensiveRegime && (
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest"
-              style={{ background: "#2b0f0f", border: "1px solid #ef444455", color: "#fca5a5" }}>
-              Régime crypto défensif — surveillance seulement
-            </div>
-          )}
-          {defensiveRegime && (
-            <p className="mb-3 text-xs text-red-300">
-              Le régime crypto actuel bloque les achats. Ces setups sont affichés pour suivi, pas pour exécution.
-            </p>
-          )}
-          {hasPreviousData && (
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest"
-              style={{ background: "#111118", border: "1px solid #f59e0b55", color: "#fcd34d" }}>
-              Données précédentes
-            </div>
-          )}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {primaryCards.map((row) => (
-              <button
-                key={row.ticker}
-                onClick={() => setSelected(row)}
-                className="rounded-xl p-4 text-left transition-all hover:opacity-90"
-                style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}
-              >
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="text-xl font-black text-white">{row.ticker}</span>
-                  {defensiveRegime ? (
-                    <span className="text-[10px] px-2 py-0.5 rounded font-black" style={{ background: "#3b1d07", color: "#fdba74" }}>
-                      Achat interdit par régime
-                    </span>
-                  ) : (
-                    <span className="text-[10px] px-2 py-0.5 rounded font-black" style={{ background: "#052e16", color: "#4ade80" }}>
-                      {row.ticker_edge_status}
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-gray-500">{row.signal_type} · {row.best_strategy_name ?? "Best strategy"}</p>
-                <div className="grid grid-cols-3 gap-1.5 mt-3 text-center">
-                  <div><p className="text-[9px] text-gray-600 uppercase">Entrée</p><p className="text-xs font-bold text-gray-300">${formatCryptoPrice(row.ticker, row.entry)}</p></div>
-                  <div><p className="text-[9px] text-gray-600 uppercase">TP2</p><p className="text-xs font-bold text-emerald-400">${formatCryptoPrice(row.ticker, row.tp2)}</p></div>
-                  <div><p className="text-[9px] text-gray-600 uppercase">SL</p><p className="text-xs font-bold text-red-400">${formatCryptoPrice(row.ticker, row.stop_loss)}</p></div>
-                </div>
-                {defensiveRegime && (
-                  <div className="mt-3 rounded-lg px-3 py-2 text-[10px] font-bold text-red-300"
-                    style={{ background: "#2a0d0d", border: "1px solid #ef444440" }}>
-                    Pas de trade — régime crypto défensif
+        <CollapsibleCard
+          title={defensiveRegime ? "👁 Watchlist Crypto" : "🎯 Opportunités Crypto"}
+          subtitle={`${primaryCards.length} setup${primaryCards.length > 1 ? 's' : ''} détectés`}
+          defaultOpen={true}
+          storageKey="crypto-cmdcenter-primary-open"
+        >
+          <div className="space-y-3">
+            {defensiveRegime && (
+              <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest"
+                style={{ background: "#2b0f0f", border: "1px solid #ef444455", color: "#fca5a5" }}>
+                ⚠️ Régime défensif — surveillance seulement
+              </div>
+            )}
+            {defensiveRegime && (
+              <p className="text-xs text-red-300">
+                Le régime crypto actuel bloque les achats. Ces setups sont affichés pour suivi, pas pour exécution.
+              </p>
+            )}
+            {hasPreviousData && (
+              <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-widest"
+                style={{ background: "#111118", border: "1px solid #f59e0b55", color: "#fcd34d" }}>
+                📊 Données précédentes
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {primaryCards.map((row) => (
+                <button
+                  key={row.ticker}
+                  onClick={() => setSelected(row)}
+                  className="rounded-xl p-4 text-left transition-all hover:opacity-90"
+                  style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-xl font-black text-white">{row.ticker}</span>
+                    {defensiveRegime ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded font-black" style={{ background: "#3b1d07", color: "#fdba74" }}>
+                        Bloqué
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-2 py-0.5 rounded font-black" style={{ background: "#052e16", color: "#4ade80" }}>
+                        ✓ Edge OK
+                      </span>
+                    )}
                   </div>
-                )}
-              </button>
-            ))}
+                  <p className="text-[11px] text-gray-500">{row.signal_type} · {row.best_strategy_name ?? "Strategy"}</p>
+                  <div className="grid grid-cols-3 gap-1.5 mt-3 text-center">
+                    <div><p className="text-[9px] text-gray-600 uppercase">Entry</p><p className="text-xs font-bold text-gray-300">${formatCryptoPrice(row.ticker, row.entry)}</p></div>
+                    <div><p className="text-[9px] text-gray-600 uppercase">TP2</p><p className="text-xs font-bold text-emerald-400">${formatCryptoPrice(row.ticker, row.tp2)}</p></div>
+                    <div><p className="text-[9px] text-gray-600 uppercase">SL</p><p className="text-xs font-bold text-red-400">${formatCryptoPrice(row.ticker, row.stop_loss)}</p></div>
+                  </div>
+                  {defensiveRegime && (
+                    <div className="mt-3 rounded-lg px-3 py-2 text-[10px] font-bold text-red-300"
+                      style={{ background: "#2a0d0d", border: "1px solid #ef444440" }}>
+                      Surveillance uniquement
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        </CollapsibleCard>
       )}
 
       {technicalWatchlist.length > 0 && (
-        <div className="rounded-xl px-5 py-4" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
-          <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-2">
-            👁 Watchlist technique — à surveiller, pas trade
+        <CollapsibleCard
+          title="👁 Watchlist Technique"
+          subtitle={`${technicalWatchlist.length} setup${technicalWatchlist.length > 1 ? 's' : ''} à surveiller`}
+          defaultOpen={false}
+          storageKey="crypto-cmdcenter-techwatch-open"
+        >
+          <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-3">
+            Setups sans edge validé — information seulement
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {technicalWatchlist.map((row) => (
@@ -338,18 +346,25 @@ export function CryptoCommandCenter({
               </button>
             ))}
           </div>
-        </div>
+        </CollapsibleCard>
       )}
 
-      <div className="flex items-center justify-between px-4 py-3 rounded-xl" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
-        <div>
-          <p className="text-[9px] text-gray-700 uppercase tracking-widest">Validation stratégie crypto</p>
-          <p className="text-xs font-black text-gray-400">Ouvrir le Crypto Strategy Lab pour vérifier les edges robustes</p>
+      <CollapsibleCard
+        title="🧪 Crypto Strategy Lab"
+        subtitle="Validation des edges robustes"
+        defaultOpen={false}
+        storageKey="crypto-cmdcenter-strategylab-open"
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-1">
+            <p className="text-xs font-bold text-gray-300 mb-1">Vérifier les stratégies crypto validées</p>
+            <p className="text-[11px] text-gray-500">Ouvrez le Crypto Strategy Lab pour analyser les backtests et les edges robustes des stratégies en production.</p>
+          </div>
+          <button onClick={onGoToLab} className="text-[10px] font-bold px-4 py-2 rounded-lg transition-colors flex-shrink-0" style={{ background: "#1a1a2e", border: "1px solid #2a2a4e", color: "#818cf8" }}>
+            Ouvrir le Lab →
+          </button>
         </div>
-        <button onClick={onGoToLab} className="text-[10px] font-bold text-gray-600 hover:text-gray-400 transition-colors">
-          Ouvrir le Lab →
-        </button>
-      </div>
+      </CollapsibleCard>
     </div>
   );
 }

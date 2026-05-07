@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { TickerResult, MarketRegime, MarketContext as MCType, RegimeEngine } from "../types";
 import { useJournal } from "../hooks/useJournal";
 import { TakeTradeModal } from "./TakeTradeModal";
+import { CollapsibleCard } from "./CollapsibleCard";
 import { getApiUrl } from "../lib/api";
 
 type TradableStatus = "TRADABLE" | "À CONFIRMER" | "NON TRADABLE" | null;
@@ -1183,10 +1184,12 @@ export function CommandCenter({
 
       {/* D — Top Opportunities */}
       {topOpps.length > 0 && (
-        <div>
-          <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest mb-2 px-1">
-            🎯 Meilleures actions à trader aujourd'hui — edge validé uniquement
-          </p>
+        <CollapsibleCard
+          title="🎯 Opportunités Principales"
+          subtitle={`${topOpps.length} setup${topOpps.length > 1 ? 's' : ''} avec edge validé`}
+          defaultOpen={true}
+          storageKey="cmdcenter-topopps-open"
+        >
           <div className="space-y-3">
             {topOpps.map((t, i) => (
               <OpportunityCard
@@ -1203,81 +1206,105 @@ export function CommandCenter({
               />
             ))}
           </div>
-        </div>
+        </CollapsibleCard>
       )}
 
       {/* No trade / technical watchlist */}
       {(topOpps.length === 0 || cannotTrade) && (
-        <div className="rounded-xl px-5 py-4" style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
-          <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-2">
-            🛑 NO TRADE — aucun setup avec edge validé aujourd'hui
-          </p>
-          <p className="text-[10px] text-gray-500 mb-3">
-            Le screener détecte des setups techniques, mais aucun n&apos;a une validation historique suffisante pour être proposé en trade.
-          </p>
-          {technicalWatchlist.length > 0 && (
-            <>
-              <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-2">
-                👁 Watchlist technique — à surveiller, pas trade
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {technicalWatchlist.map(t => (
-                  <button
-                    key={t.ticker}
-                    className="text-left px-3 py-2 rounded-lg transition-colors hover:bg-white/[0.03]"
-                    style={{ background: "#07070f", border: "1px solid #1a1a2e" }}
-                    onClick={() => setSelected(t)}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-black text-white">{t.ticker}</span>
-                        <span className="text-[9px] px-1.5 py-0.5 rounded font-black" style={{ background: "#052e16", color: "#4ade80" }}>
-                          Technique OK
-                        </span>
-                        <span
-                          className="text-[9px] px-1.5 py-0.5 rounded font-black"
-                          style={{
-                            background: t.ticker_edge_status === "OVERFITTED" ? "#1c1000" : t.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "#1e1230" : "#111118",
-                            color: t.ticker_edge_status === "OVERFITTED" ? "#f59e0b" : t.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "#a78bfa" : "#9ca3af",
-                          }}
-                        >
-                          {t.ticker_edge_status === "OVERFITTED" ? "Overfit — éviter" : t.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "Historique insuffisant" : "Edge non validé"}
-                        </span>
-                      </div>
-                      <span className="text-xs font-black text-gray-400">{t.score}</span>
-                    </div>
-                    <p className="text-[10px] text-gray-600 mt-1">
-                      {t.signal_type} · {t.setup_grade} · final {t.final_decision ?? "WAIT"}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        <CollapsibleCard
+          title="⚠️ Surveillance Uniquement"
+          subtitle="Aucun setup avec edge validé aujourd'hui"
+          defaultOpen={false}
+          storageKey="cmdcenter-watchlist-open"
+        >
+          <div className="space-y-4">
+            <p className="text-[10px] text-gray-500">
+              Le screener détecte des setups techniques, mais aucun n&apos;a une validation historique suffisante pour être proposé en trade.
+            </p>
+            {technicalWatchlist.length > 0 && (
+              <>
+                <div>
+                  <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-2">
+                    👁 Watchlist technique
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {technicalWatchlist.map(t => (
+                      <button
+                        key={t.ticker}
+                        className="text-left px-3 py-2 rounded-lg transition-colors hover:bg-white/[0.03]"
+                        style={{ background: "#07070f", border: "1px solid #1a1a2e" }}
+                        onClick={() => setSelected(t)}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-black text-white">{t.ticker}</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded font-black" style={{ background: "#052e16", color: "#4ade80" }}>
+                              Technique OK
+                            </span>
+                            <span
+                              className="text-[9px] px-1.5 py-0.5 rounded font-black"
+                              style={{
+                                background: t.ticker_edge_status === "OVERFITTED" ? "#1c1000" : t.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "#1e1230" : "#111118",
+                                color: t.ticker_edge_status === "OVERFITTED" ? "#f59e0b" : t.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "#a78bfa" : "#9ca3af",
+                              }}
+                            >
+                              {t.ticker_edge_status === "OVERFITTED" ? "Overfit — éviter" : t.ticker_edge_status === "INSUFFICIENT_SAMPLE" ? "Historique insuffisant" : "Edge non validé"}
+                            </span>
+                          </div>
+                          <span className="text-xs font-black text-gray-400">{t.score}</span>
+                        </div>
+                        <p className="text-[10px] text-gray-600 mt-1">
+                          {t.signal_type} · {t.setup_grade} · final {t.final_decision ?? "WAIT"}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </CollapsibleCard>
       )}
 
       {/* E — Risk Control */}
-      <RiskControlBlock tops={topOpps} engine={engine} />
+      <CollapsibleCard
+        title="🛡️ Contrôle du Risque"
+        subtitle="Exposition et limites de capital"
+        defaultOpen={false}
+        storageKey="cmdcenter-riskecontrol-open"
+      >
+        <RiskControlBlock tops={topOpps} engine={engine} />
+      </CollapsibleCard>
 
       {/* Strategy Lab link */}
-      <div className="flex items-center justify-between px-4 py-3 rounded-xl"
-        style={{ background: "#0c0c18", border: "1px solid #1a1a2e" }}>
-        <div>
-          <p className="text-[9px] text-gray-700 uppercase tracking-widest">Validation Stratégie</p>
-          <p className="text-xs font-black" style={{
-            color: backtestStatus === "TRADABLE" ? "#10b981" : backtestStatus === "À CONFIRMER" ? "#f59e0b" : "#ef4444"
-          }}>
-            {backtestStatus ?? "Non testé"} · Lancer le Strategy Lab pour valider
+      <CollapsibleCard
+        title="🧪 Validation Stratégie"
+        badge={
+          <div
+            className="text-[9px] px-2 py-1 rounded font-bold"
+            style={{
+              background: backtestStatus === "TRADABLE" ? "#10b98144" : backtestStatus === "À CONFIRMER" ? "#f59e0b44" : "#ef444444",
+              color: backtestStatus === "TRADABLE" ? "#10b981" : backtestStatus === "À CONFIRMER" ? "#f59e0b" : "#ef4444"
+            }}
+          >
+            {backtestStatus ?? "Non testé"}
+          </div>
+        }
+        defaultOpen={false}
+        storageKey="cmdcenter-strategylab-open"
+      >
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] text-gray-500">
+            Lancer le Strategy Lab pour valider la robustesse de votre edge.
           </p>
+          <button
+            onClick={onGoToLab}
+            className="text-[10px] font-bold text-gray-600 hover:text-gray-400 transition-colors whitespace-nowrap ml-3"
+          >
+            Ouvrir →
+          </button>
         </div>
-        <button
-          onClick={onGoToLab}
-          className="text-[10px] font-bold text-gray-600 hover:text-gray-400 transition-colors"
-        >
-          Ouvrir le Lab →
-        </button>
-      </div>
+      </CollapsibleCard>
 
       {/* Trade Plan Panel */}
       {selected && (

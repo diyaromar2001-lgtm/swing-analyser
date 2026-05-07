@@ -202,17 +202,45 @@ function CryptoScalpCard({ result, onSelect }: { result: CryptoScalpResult; onSe
     : result.scalp_grade === "SCALP_B" ? "#fde047"
     : "#6b7280";
 
+  // Determine data quality status and color
+  const hasBlockedReasons = result.blocked_reasons.length > 0;
+  const dataQualityStatus = hasBlockedReasons ? "BLOCKED"
+    : result.data_status === "FRESH" ? "OK"
+    : "WARNING";
+  const dataQualityColor = dataQualityStatus === "BLOCKED" ? "#ef4444"
+    : dataQualityStatus === "WARNING" ? "#f59e0b"
+    : "#4ade80";
+  const dataQualityMessage = dataQualityStatus === "BLOCKED"
+    ? "Données incohérentes — signal bloqué"
+    : dataQualityStatus === "WARNING"
+    ? "Données partielles — à vérifier"
+    : "✓ Données OK";
+
   return (
     <div className="rounded-lg p-4" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
       {/* Header */}
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-lg font-black text-white">{result.symbol}</span>
-        <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: `${tierColor}22`, color: tierColor }}>
-          Tier {result.tier}
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-lg font-black text-white">{result.symbol}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: `${tierColor}22`, color: tierColor }}>
+            Tier {result.tier}
+          </span>
+        </div>
+        {/* Data Quality Badge */}
+        <span className="text-[10px] px-2 py-0.5 rounded font-bold" style={{ background: `${dataQualityColor}22`, color: dataQualityColor }}>
+          {dataQualityMessage}
         </span>
-        <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: `${sideColor}22`, color: sideColor }}>
-          {result.side}
-        </span>
+      </div>
+
+      {/* Side indicator or "No clear direction" message */}
+      <div className="mb-3 pb-3 border-b border-gray-800">
+        {result.side === "NONE" ? (
+          <p className="text-xs text-gray-500 italic">Aucune direction claire pour le moment.</p>
+        ) : (
+          <span className="text-[10px] px-2 py-0.5 rounded inline-block" style={{ background: `${sideColor}22`, color: sideColor }}>
+            {result.side === "LONG" ? "📈 LONG" : "📉 SHORT"}
+          </span>
+        )}
       </div>
 
       {/* Score & Grade */}
@@ -252,11 +280,22 @@ function CryptoScalpCard({ result, onSelect }: { result: CryptoScalpResult; onSe
       )}
 
       {/* Status */}
-      <div className="text-[10px] space-y-1">
-        <p className="text-gray-600">Data: <span style={{ color: result.data_status === "FRESH" ? "#4ade80" : "#ef4444" }} className="font-bold">{result.data_status}</span></p>
+      <div className="text-[10px] space-y-1 mb-3 pb-3 border-b border-gray-800">
         <p className="text-gray-600">Spread: <span style={{ color: result.spread_status === "OK" ? "#4ade80" : "#f59e0b" }} className="font-bold">{result.spread_status}</span></p>
-        <p className="text-gray-600">Paper: <span style={{ color: result.paper_allowed ? "#4ade80" : "#ef4444" }} className="font-bold">{result.paper_allowed ? "✓" : "✗"}</span></p>
+        {result.volatility_status && (
+          <p className="text-gray-600">Vol: <span style={{ color: result.volatility_status === "OK" ? "#4ade80" : "#f59e0b" }} className="font-bold">
+            {result.volatility_status === "OK" ? "Normal" : result.volatility_status === "LOW" ? "Très calme" : "Élevée"}
+          </span></p>
+        )}
+        <p className="text-gray-600">Paper: <span style={{ color: result.paper_allowed ? "#4ade80" : "#ef4444" }} className="font-bold">{result.paper_allowed ? "✓ Enabled" : "✗ Disabled"}</span></p>
       </div>
+
+      {/* Volatility Warning */}
+      {result.volatility_status === "LOW" && (
+        <div className="mb-3 rounded px-2 py-1.5 text-[9px]" style={{ background: "#1a0a00", border: "1px solid #f59e0b55", color: "#fcd34d" }}>
+          <p>⚠️ Marché trop calme pour du scalp — volatilité insuffisante.</p>
+        </div>
+      )}
 
       {/* Signals/Warnings */}
       {result.signal_reasons.length > 0 && (
@@ -269,10 +308,10 @@ function CryptoScalpCard({ result, onSelect }: { result: CryptoScalpResult; onSe
       )}
 
       {result.blocked_reasons.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-gray-800">
-          <p className="text-[9px] font-bold text-red-400 mb-1">Blocked:</p>
+        <div className="mt-3 mb-3 rounded px-2 py-1.5 text-[9px]" style={{ background: "#2a0d0d", border: "1px solid #ef444440", color: "#fca5a5" }}>
+          <p className="font-bold mb-1">🔒 Signaux bloqués :</p>
           {result.blocked_reasons.map((b, i) => (
-            <p key={i} className="text-[9px] text-gray-500">• {b}</p>
+            <p key={i}>• {b}</p>
           ))}
         </div>
       )}
