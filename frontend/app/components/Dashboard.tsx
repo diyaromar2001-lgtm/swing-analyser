@@ -13,6 +13,7 @@ import { SignalTracker } from "./SignalTracker";
 import { CommandCenter } from "./CommandCenter";
 import { TradeJournal } from "./TradeJournal";
 import { DataFreshnessPanel } from "./DataFreshnessPanel";
+import { CollapsibleCard } from "./CollapsibleCard";
 import { AdminPanel } from "./AdminPanel";
 import { ensureApiResponse, getAdminApiKey, getAdminHeaders, getApiUrl, isAdminProtectedError } from "../lib/api";
 import { getActionsCacheStatus, getCryptoCacheStatus } from "../lib/cacheStatus";
@@ -1394,14 +1395,20 @@ export function Dashboard({ initialData }: { initialData: TickerResult[] }) {
         </div>
       )}
 
-        <DataFreshnessPanel
-          freshness={freshness}
-          onFullRefresh={() => void repairCaches()}
-          onPriceRefresh={refreshPricesOnly}
-          loading={loading || screenerRefreshing}
-          priceRefreshing={priceRefreshing}
-          adminActive={adminKeyPresent}
-        />
+        <CollapsibleCard
+          title="Data Freshness"
+          defaultOpen={true}
+          storageKey="datafreshness-panel-open"
+        >
+          <DataFreshnessPanel
+            freshness={freshness}
+            onFullRefresh={() => void repairCaches()}
+            onPriceRefresh={refreshPricesOnly}
+            loading={loading || screenerRefreshing}
+            priceRefreshing={priceRefreshing}
+            adminActive={adminKeyPresent}
+          />
+        </CollapsibleCard>
 
       {uiMode === "simple" && (
         isCrypto ? (
