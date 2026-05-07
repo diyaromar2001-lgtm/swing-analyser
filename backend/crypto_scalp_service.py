@@ -275,17 +275,35 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     # NOTE: Final paper_allowed decision comes from enhance_scalp_signal()
     # This is a preliminary check for basic requirements.
     # Hard blockers that definitely prevent paper trading:
+    check_data_fresh = result["data_status"] == "FRESH"
+    check_dq_not_blocked = not data_quality_blocked
+    check_grade = result["scalp_grade"] in ("SCALP_A+", "SCALP_A", "SCALP_B")
+    check_side = result["side"] in ("LONG", "SHORT")
+    check_spread = result["spread_status"] == "OK"
+    check_entry = result["entry"] is not None
+    check_stop = result["stop_loss"] is not None
+
     preliminary_paper_allowed = (
-        result["data_status"] == "FRESH"
-        and not data_quality_blocked
-        and result["scalp_grade"] in ("SCALP_A+", "SCALP_A", "SCALP_B")
-        and result["side"] in ("LONG", "SHORT")
-        and result["spread_status"] == "OK"
-        and result["entry"] is not None
-        and result["stop_loss"] is not None
+        check_data_fresh
+        and check_dq_not_blocked
+        and check_grade
+        and check_side
+        and check_spread
+        and check_entry
+        and check_stop
     )
 
     result["paper_allowed"] = preliminary_paper_allowed
+    result["_debug_checks"] = {  # DEBUG: Show which checks pass/fail
+        "data_fresh": check_data_fresh,
+        "dq_not_blocked": check_dq_not_blocked,
+        "grade_ok": check_grade,
+        "side_ok": check_side,
+        "spread_ok": check_spread,
+        "entry_not_none": check_entry,
+        "stop_not_none": check_stop,
+        "preliminary_result": preliminary_paper_allowed,
+    }
 
     # Add paper_confidence label based on grade (for UI hints)
     if result["scalp_grade"] == "SCALP_A+":
