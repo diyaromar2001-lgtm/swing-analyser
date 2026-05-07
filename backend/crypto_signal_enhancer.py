@@ -210,10 +210,6 @@ def enhance_scalp_signal(
     if signal_strength == "WEAK":
         all_warnings.append("Signal strength WEAK")
 
-    if delta < 5 and signal_strength != "REJECT":
-        # Already added "Conflicting signals" above
-        pass
-
     # ─ STEP 7: Finalize paper_allowed based on comprehensive rules ──
     # Paper trading requires: data FRESH, no DQ BLOCKED, good grade, clear side,
     # confidence >= 40, signal NORMAL/STRONG, no hard blockers
