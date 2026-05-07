@@ -199,7 +199,23 @@ def enhance_scalp_signal(
     long_strength = max(0, min(long_strength, 100))
     short_strength = max(0, min(short_strength, 100))
 
-    # ─ STEP 3: Classify signal_strength ──
+    # ─ STEP 3 (REORDERED): Calculate confidence_score FIRST ──
+    # (Option A: confidence_score is now the primary driver for signal classification)
+    # confidence_score is INDEPENDENT of signal_strength (breaks circular dependency)
+    # Pass "NORMAL" as placeholder - signal_strength adjustment is now optional refinement
+    confidence_score = _calculate_confidence(
+        scalp_grade=scalp_grade,
+        signal_strength="NORMAL",  # Placeholder (confidence base is now independent)
+        data_status=data_status,
+        volatility_status=volatility_status,
+        estimated_roundtrip_cost_pct=estimated_roundtrip_cost_pct,
+        preferred_side=preferred_side,
+        data_quality_status=data_quality_status,
+    )
+
+    # ─ STEP 4 (REORDERED): Classify signal_strength USING confidence_score ──
+    # Now signal_strength is based on confidence_score (source of truth)
+    # This replaces the old approach of using only long_strength/short_strength
     signal_strength = _classify_signal_strength(
         long_strength=long_strength,
         short_strength=short_strength,
@@ -207,18 +223,8 @@ def enhance_scalp_signal(
         data_status=data_status,
         data_quality_blocked=data_quality_blocked,
         blocked_reasons=blocked_reasons,
-        preferred_side=preferred_side,  # Enforce: if NONE, max is WEAK
-    )
-
-    # ─ STEP 4: Calculate confidence_score ──
-    confidence_score = _calculate_confidence(
-        scalp_grade=scalp_grade,
-        signal_strength=signal_strength,
-        data_status=data_status,
-        volatility_status=volatility_status,
-        estimated_roundtrip_cost_pct=estimated_roundtrip_cost_pct,
         preferred_side=preferred_side,
-        data_quality_status=data_quality_status,
+        confidence_score=confidence_score,  # NEW: confidence_score is now the primary driver
     )
 
     # ─ STEP 5: Generate reasons ──
@@ -276,12 +282,14 @@ def _classify_signal_strength(
     data_status: str,
     data_quality_blocked: bool,
     blocked_reasons: List[str],
-    preferred_side: str = "NONE",  # LONG, SHORT, or NONE
+    preferred_side: str,  # LONG, SHORT, or NONE
+    confidence_score: int,  # NEW: confidence is now the source of truth for signal strength
 ) -> str:
     """
     Classify signal strength: STRONG / NORMAL / WEAK / REJECT
 
-    Critical rule: If preferred_side=NONE (unclear direction), max is WEAK (never NORMAL/STRONG).
+    REORDERED LOGIC (Option A): confidence_score is now the primary driver.
+    long_strength/short_strength inform confidence but don't override it.
 
     Hard blocker rules (immediate REJECT):
     - scalp_grade == "SCALP_REJECT"
@@ -289,11 +297,15 @@ def _classify_signal_strength(
     - data_status == "UNAVAILABLE" or "STALE"
     - blocked_reasons contains critical hard blockers
 
-    Score-based classification (if no hard blockers):
-    - STRONG: max_strength >= 75 AND grade in [A+, A] AND preferred_side in [LONG, SHORT]
-    - NORMAL: max_strength >= 55 AND grade in [A+, A, B] AND preferred_side in [LONG, SHORT]
-    - WEAK: max_strength >= 35
-    - REJECT: otherwise
+    Confidence-based classification (if no hard blockers):
+    - If preferred_side=NONE: max WEAK (never NORMAL/STRONG)
+      - WEAK if confidence >= 30
+      - REJECT if confidence < 30
+    - If preferred_side in [LONG, SHORT]:
+      - STRONG if confidence >= 70
+      - NORMAL if confidence >= 45
+      - WEAK if confidence >= 30
+      - REJECT if confidence < 30
     """
 
     # Hard blocker checks - these are critical failures
@@ -313,27 +325,24 @@ def _classify_signal_strength(
         # Grade-based hard blockers
         return "REJECT"
 
-    # Score-based classification (soft warnings are applied as penalties, not auto-rejects)
-    max_strength = max(long_strength, short_strength)
+    # Confidence-based classification (NEW ORDER)
+    # confidence_score is calculated first and is the source of truth
 
     # CRITICAL: If preferred_side is NONE (unclear direction), cap at WEAK
     if preferred_side == "NONE":
         # Unclear direction - max is WEAK, never NORMAL/STRONG
-        if max_strength >= 35:
+        if confidence_score >= 30:
             return "WEAK"
         else:
             return "REJECT"
 
-    # Direction is clear (LONG or SHORT) - allow full range
-    if max_strength >= 75 and scalp_grade in ["SCALP_A+", "SCALP_A"]:
+    # Direction is clear (LONG or SHORT) - use confidence_score as primary driver
+    if confidence_score >= 70:
         return "STRONG"
-
-    elif max_strength >= 55 and scalp_grade in ["SCALP_A+", "SCALP_A", "SCALP_B"]:
+    elif confidence_score >= 45:
         return "NORMAL"
-
-    elif max_strength >= 35:
+    elif confidence_score >= 30:
         return "WEAK"
-
     else:
         return "REJECT"
 
@@ -350,29 +359,20 @@ def _calculate_confidence(
     """
     Calculate confidence score (0-100) using progressive formula.
 
-    Creates variation based on grade, direction clarity, and soft penalties.
-    No uniform floor at 20 - confidence reflects actual signal quality.
+    REORDERED (Option A): Base confidence is calculated independently,
+    then signal_strength adjustment is applied.
+
+    This breaks the circular dependency where signal_strength depended on confidence.
 
     Formula:
     1. Grade + Side base (A+/LONG 80, A/LONG 65, B/LONG 50, LONG/NONE 35, etc.)
-    2. Soft penalties:
-       - Very low ATR: -15
-       - Volume declining: -10
-       - Data Quality WARNING: -10
-       - Low volatility (if not already from ATR): -5
-       - No clear direction (side=NONE): -5 to -15
-       - Data STALE: -15
-       - Data UNAVAILABLE: -25
-       - High costs: -5 to -15
-    3. Signal strength adjustment (if not already REJECT):
-       - STRONG: +10
-       - NORMAL: +0
-       - WEAK: -10
+    2. Data/Volatility/Cost penalties (independent of signal_strength)
+    3. Signal strength adjustment (only for refinement, not core logic)
     4. Clamp to [0, 100]
     """
 
-    # Step 1: Grade + Side base confidence
-    # Higher base for clear directions, lower for NONE
+    # Step 1: Grade + Side base confidence (INDEPENDENT)
+    # This is the core confidence, not dependent on signal_strength
     if scalp_grade == "SCALP_A+":
         if preferred_side in ("LONG", "SHORT"):
             confidence = 80
@@ -391,17 +391,7 @@ def _calculate_confidence(
     else:  # SCALP_REJECT
         confidence = 20
 
-    # Step 2: Signal strength adjustment (before penalties for transparency)
-    if signal_strength == "STRONG":
-        confidence += 10
-    elif signal_strength == "NORMAL":
-        confidence += 0  # No adjustment
-    elif signal_strength == "WEAK":
-        confidence -= 10
-    elif signal_strength == "REJECT":
-        confidence = max(confidence, 20)  # Floor at 20 for REJECT, but don't reduce if already < 20
-
-    # Step 3: Data quality penalties
+    # Step 2: Data quality penalties (INDEPENDENT)
     if data_status == "STALE":
         confidence -= 15
     elif data_status == "UNAVAILABLE":
@@ -410,19 +400,28 @@ def _calculate_confidence(
     if data_quality_status == "WARNING":
         confidence -= 10  # Soft penalty for data quality warning (5-10% divergence)
 
-    # Step 4: Volatility penalty
+    # Step 3: Volatility penalty (INDEPENDENT)
     if volatility_status == "HIGH":
         confidence -= 10
     elif volatility_status == "LOW":
         confidence -= 5
 
-    # Step 5: Cost penalty (tiered)
+    # Step 4: Cost penalty (INDEPENDENT, tiered)
     if estimated_roundtrip_cost_pct > 2.0:
         confidence -= 15
     elif estimated_roundtrip_cost_pct > 1.0:
         confidence -= 10
     elif estimated_roundtrip_cost_pct > 0.5:
         confidence -= 5
+
+    # Step 5: Signal strength adjustment (OPTIONAL refinement)
+    # This is now secondary - confidence is already calculated above
+    if signal_strength == "STRONG":
+        confidence += 5  # Reduced bonus to avoid double-counting
+    elif signal_strength == "WEAK":
+        confidence -= 5   # Slight penalty, but not overriding core confidence
+    elif signal_strength == "REJECT" and confidence > 20:
+        confidence = max(confidence - 10, 20)  # Mild penalty for REJECT
 
     # Step 6: Clamp to [0, 100]
     confidence = max(0, min(confidence, 100))
