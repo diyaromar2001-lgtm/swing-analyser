@@ -704,13 +704,13 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
       {/* Phase 3B.1: Backtest Preview Section */}
       <div className="rounded-xl p-6" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-black text-white">🔬 Backtest Preview (7 days)</h3>
+          <h3 className="text-lg font-black text-white">🔬 Backtest Preview</h3>
           <button
             onClick={handleRunBacktest}
             disabled={backtestLoading}
             className="px-4 py-2 rounded-lg text-sm font-bold bg-purple-900 border border-purple-600 text-purple-300 hover:bg-purple-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {backtestLoading ? "⏳ Running..." : "▶ Run 7d Preview"}
+            {backtestLoading ? "⏳ Running..." : "▶ Run Backtest"}
           </button>
         </div>
 
@@ -768,13 +768,18 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
               </div>
             </div>
 
-            {/* Data Points */}
+            {/* Data Coverage */}
             <div className="rounded-lg p-3 bg-gray-900 mb-4">
-              <p className="text-[10px] font-bold text-gray-600 mb-1">Historical Data</p>
+              <p className="text-[10px] font-bold text-gray-600 mb-1">Historical Data Coverage</p>
               <p className="text-sm text-gray-400">
-                {backtestResult.period_days || 7} days — {backtestResult.timeframe || "5m"} candles —
-                {backtestResult.data_points || "N/A"} data points
+                {backtestResult.effective_period_days && backtestResult.effective_period_days < 6
+                  ? `Latest available data (~${backtestResult.effective_period_days.toFixed(2)} days)`
+                  : `${backtestResult.effective_period_days || backtestResult.requested_period_days || 7} days`}
+                {" "} — {backtestResult.timeframe || "5m"} candles — {backtestResult.candles_used || "N/A"} candles
               </p>
+              {backtestResult.data_source && (
+                <p className="text-xs text-gray-500 mt-1">Data source: {backtestResult.data_source}</p>
+              )}
             </div>
 
             {/* Disclaimer */}
@@ -791,8 +796,8 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
         {!backtestResult && !backtestError && (
           <div className="rounded-lg p-4" style={{ background: "#1a1a2e", border: "1px solid #6b728044" }}>
             <p className="text-sm text-gray-400">
-              Click "Run 7d Preview" to simulate this signal on 7 days of historical data.
-              Simulation only — no real execution.
+              Click "Run Backtest" to simulate this signal on recent historical data.
+              Uses latest available Binance candles. Simulation only — no real execution.
             </p>
           </div>
         )}

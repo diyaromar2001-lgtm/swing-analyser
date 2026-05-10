@@ -1,7 +1,7 @@
 """
 Phase 3B.1: Backtest Preview Ultra-Léger pour Crypto Scalp
 
-Simulation historique 7 jours uniquement.
+Simulation historique basée sur données Binance 5m (Crypto Scalp standard).
 Aucune exécution réelle, aucun Real trading, aucun levier.
 Simulation only.
 
@@ -11,53 +11,43 @@ IMPORTANT: This is Phase 3B.1 only. No Phase 3B.2, no 30/60/90j, no Kelly, no si
 import pandas as pd
 import numpy as np
 import time
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-def fetch_ohlcv_lite(symbol: str, days: int = 7, timeout: int = 10) -> Optional[pd.DataFrame]:
+def fetch_ohlcv_lite(symbol: str, days: int = 7) -> Tuple[Optional[pd.DataFrame], int, float]:
     """
-    Récupérer 7 jours de candles OHLCV en timeframe 5m.
-    Timeout 10 secondes pour éviter les blocages.
+    Récupérer candles OHLCV en timeframe 5m via Binance (même source que Crypto Scalp).
 
     Returns:
-        DataFrame with OHLCV data, or None if failed
+        Tuple: (DataFrame with OHLCV data, candles_count, effective_period_days)
+               Returns (None, 0, 0) if failed
     """
     try:
-        # Essayer yfinance d'abord (gratuit, stable)
-        import yfinance as yf
+        # Utiliser la même source que Crypto Scalp : get_crypto_ohlcv_intraday()
+        from crypto_data import get_crypto_ohlcv_intraday
 
-        symbol_yf = f"{symbol}USD" if not symbol.endswith("USDT") else symbol
+        df = get_crypto_ohlcv_intraday(symbol, interval="5m", allow_download=True)
 
-        # Télécharger avec timeout
-        ticker = yf.Ticker(symbol_yf)
-        df = ticker.history(period=f"{days}d", interval="5m", timeout=timeout)
+        if df is None or len(df) == 0:
+            logger.warning(f"[BACKTEST] No intraday data for {symbol}")
+            return None, 0, 0.0
 
-        if df is None or len(df) < 100:
-            logger.warning(f"[BACKTEST] yfinance insufficient data for {symbol}")
-            return None
+        # Calculer la période effective couverte par les candles
+        candles_count = len(df)
+        # 5m * candles / (24h * 60 min) = période en jours
+        effective_period_days = (candles_count * 5) / (24 * 60)
 
-        return df
+        logger.info(f"[BACKTEST] {symbol}: {candles_count} candles (~{effective_period_days:.1f} days)")
+
+        return df, candles_count, effective_period_days
 
     except Exception as e:
-        logger.warning(f"[BACKTEST] yfinance failed for {symbol}: {str(e)}")
-
-        # Fallback: Try Binance via yfinance
-        try:
-            import yfinance as yf
-            symbol_pair = f"{symbol}USDT"
-            ticker = yf.Ticker(symbol_pair)
-            df = ticker.history(period=f"{days}d", interval="5m", timeout=timeout)
-
-            if df is not None and len(df) >= 100:
-                return df
-        except Exception as e2:
-            logger.warning(f"[BACKTEST] Fallback Binance failed: {str(e2)}")
-
-        return None
+        logger.error(f"[BACKTEST] Failed to fetch data for {symbol}: {str(e)}")
+        return None, 0, 0.0
 
 
 def compute_long_score_lite(df_history: pd.DataFrame) -> float:
@@ -123,19 +113,21 @@ def backtest_crypto_scalp_lite(
     """
     Backtest ultra-léger Crypto Scalp.
 
+    Utilise get_crypto_ohlcv_intraday() pour données Binance 5m.
     Objectif: Valider architecture, pas produire un backtest parfait.
 
     Parameters:
         symbol: Crypto symbol (e.g., "BTC")
-        days: Fixe à 7 pour Phase 3B.1
+        days: Fixe à 7 pour Phase 3B.1 (mais retourne effective_period_days réel)
         max_candles_per_trade: Limiter recherche TP/SL à 50 candles
 
     Returns:
         {
             "symbol": "BTC",
-            "period_days": 7,
+            "requested_period_days": 7,
+            "effective_period_days": 1.04,
+            "candles_used": 300,
             "timeframe": "5m",
-            "data_points": 2016,
             "signals_detected": 5,
             "win_count": 3,
             "loss_count": 1,
@@ -165,15 +157,17 @@ def backtest_crypto_scalp_lite(
                 "simulation_only": True
             }
 
-        # Récupérer données
-        logger.info(f"[BACKTEST] Fetching {symbol} {days}d...")
-        df = fetch_ohlcv_lite(symbol, days=days, timeout=10)
+        # Récupérer données (utilise Binance via get_crypto_ohlcv_intraday)
+        logger.info(f"[BACKTEST] Fetching {symbol} intraday 5m...")
+        df, candles_count, effective_period_days = fetch_ohlcv_lite(symbol, days=days)
 
-        if df is None or len(df) < 100:
+        if df is None or len(df) < 50:
             return {
                 "error": f"Insufficient data for {symbol}",
                 "symbol": symbol,
-                "period_days": days,
+                "requested_period_days": days,
+                "effective_period_days": effective_period_days,
+                "candles_used": candles_count,
                 "signals_detected": 0,
                 "disclaimer": "Historical simulation only. Not a prediction. No real execution.",
                 "simulation_only": True,
@@ -181,7 +175,7 @@ def backtest_crypto_scalp_lite(
             }
 
         df_len = len(df)
-        logger.info(f"[BACKTEST] {symbol}: {df_len} candles")
+        logger.info(f"[BACKTEST] {symbol}: {df_len} candles (~{effective_period_days:.1f} days)")
 
         # Détecter signaux
         trades = []
@@ -295,9 +289,11 @@ def backtest_crypto_scalp_lite(
         # Réponse
         return {
             "symbol": symbol,
-            "period_days": days,
+            "requested_period_days": days,
+            "effective_period_days": round(effective_period_days, 2),
+            "candles_used": df_len,
             "timeframe": "5m",
-            "data_points": df_len,
+            "data_source": "Binance (via Crypto Scalp standard)",
             "signals_detected": total,
             "win_count": win_count,
             "loss_count": loss_count,
@@ -319,7 +315,9 @@ def backtest_crypto_scalp_lite(
         return {
             "error": f"Backtest failed: {str(e)}",
             "symbol": symbol,
-            "period_days": days,
+            "requested_period_days": days,
+            "effective_period_days": 0,
+            "candles_used": 0,
             "signals_detected": 0,
             "disclaimer": "Historical simulation only. Not a prediction. No real execution.",
             "simulation_only": True,
