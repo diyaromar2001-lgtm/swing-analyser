@@ -119,10 +119,10 @@ function generateRefusalExplanation(
     technicalDetails.scalp_grade = result.scalp_grade;
     secondaryCauses.push("Vérifiez les paramètres techniques du signal.");
   }
-  // CASE 5: Weak R/R
-  else if (result.rr_ratio && result.rr_ratio < 1) {
-    badgeStatus = "Watchlist Only";
-    mainCause = `Le ratio risque/rendement est faible (${result.rr_ratio.toFixed(2)}:1). Le gain potentiel ne compense pas assez le risque.`;
+  // CASE 5: Weak R/R (< 1.0 is BLOCKED, >= 1.0 shown in warning)
+  else if (result.rr_ratio && result.rr_ratio < 1.0) {
+    badgeStatus = "Blocked";
+    mainCause = `Le ratio risque/rendement est trop faible (${result.rr_ratio.toFixed(2)}:1). Le gain potentiel ne compense pas assez le risque.`;
     technicalDetails.rrRatio = result.rr_ratio;
   }
   // CASE 6: High spread/costs
@@ -640,6 +640,13 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
           {paperError && (
             <div className="px-4 py-2 rounded-lg text-sm font-bold bg-red-900 border border-red-600 text-red-300">
               ❌ Error: {paperError}
+            </div>
+          )}
+
+          {/* Low R/R Warning */}
+          {result.rr_ratio && 1.0 <= result.rr_ratio && result.rr_ratio < 1.2 && (
+            <div className="px-4 py-2 rounded-lg text-sm mt-3 bg-yellow-900 border border-yellow-600 text-yellow-300">
+              ⚠️ Faible ratio risque/rendement ({result.rr_ratio.toFixed(2)}:1) — nécessite un excellent taux de réussite.
             </div>
           )}
 

@@ -319,6 +319,12 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     check_entry = result["entry"] is not None
     check_stop = result["stop_loss"] is not None
 
+    # Add R/R check
+    rr_ratio = result.get("rr_ratio")
+    check_rr_acceptable = True  # Default: allow
+    if rr_ratio is not None and rr_ratio < 1.0:
+        check_rr_acceptable = False
+
     preliminary_paper_allowed = (
         check_data_fresh
         and check_dq_not_blocked
@@ -327,6 +333,7 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
         and check_spread
         and check_entry
         and check_stop
+        and check_rr_acceptable
     )
 
     result["paper_allowed"] = preliminary_paper_allowed
@@ -358,12 +365,20 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     if result["scalp_grade"] == "SCALP_REJECT":
         hard_blockers.append(f"Grade {result['scalp_grade']} — not tradeable")
 
+    # R/R too low is a hard blocker for paper trading
+    if rr_ratio is not None and rr_ratio < 1.0:
+        hard_blockers.append(f"Risk/reward too low ({rr_ratio:.2f}:1) — potential gain doesn't compensate risk")
+
     # SOFT WARNINGS: Issues that reduce confidence/signal_strength but don't auto-reject
     soft_warnings = list(score_warnings)  # Copy existing warnings from compute_scalp_score
 
     # "No clear LONG or SHORT signal" is now a SOFT WARNING, not a hard blocker
     if result["side"] == "NONE":
         soft_warnings.append("No clear LONG or SHORT signal")
+
+    # Low R/R (1.0 to 1.2) is a soft warning
+    if rr_ratio is not None and 1.0 <= rr_ratio < 1.2:
+        soft_warnings.append(f"Low risk/reward ratio ({rr_ratio:.2f}:1) — requires high win rate")
 
     # Data quality WARNING (5-10%) is a soft warning with penalty
     if data_quality_status == "WARNING" and price_difference_pct is not None:
@@ -399,6 +414,10 @@ def analyze_crypto_scalp_symbol(symbol: str) -> Dict[str, Any]:
     result["signal_reasons"] = enhanced.signal_reasons  # May be enriched by enhancer
     result["signal_warnings"] = enhanced.signal_warnings
     result["paper_allowed"] = enhanced.paper_allowed
+
+    # Update blocked_reasons with hard blockers for API response
+    if hard_blockers:
+        result["blocked_reasons"] = hard_blockers
 
     return result
 
