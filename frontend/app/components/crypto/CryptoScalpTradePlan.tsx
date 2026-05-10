@@ -168,6 +168,11 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
   const [isLoadingPaper, setIsLoadingPaper] = useState(false);
   const [paperError, setPaperError] = useState<string | null>(null);
 
+  // Phase 3B.1: Backtest Preview
+  const [backtestLoading, setBacktestLoading] = useState(false);
+  const [backtestResult, setBacktestResult] = useState<any>(null);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
+
   const handleAddToPaperJournal = useCallback(async () => {
     setIsLoadingPaper(true);
     setPaperError(null);
@@ -201,6 +206,36 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
       setIsLoadingPaper(false);
     }
   }, [result]);
+
+  // Phase 3B.1: Handle Backtest Preview
+  const handleRunBacktest = useCallback(async () => {
+    setBacktestLoading(true);
+    setBacktestError(null);
+    setBacktestResult(null);
+    try {
+      const response = await fetch(`/api/crypto/scalp/backtest-lite?symbol=${result.symbol.toUpperCase()}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      setBacktestResult(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Backtest error:', error);
+      setBacktestError(message);
+    } finally {
+      setBacktestLoading(false);
+    }
+  }, [result.symbol]);
 
   const gradeColor = result.scalp_grade === "SCALP_A+" ? "#4ade80"
     : result.scalp_grade === "SCALP_A" ? "#bef264"
@@ -604,7 +639,7 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
       )}
 
       {/* Actions */}
-      <div className="rounded-xl p-6" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
+      <div className="rounded-xl p-6 mb-6" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
         <div className="flex gap-3 flex-wrap">
           {result.watchlist_allowed && !toWatchlist && (
             <button
@@ -664,6 +699,103 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
             ? "💡 Paper Journal tracks paper trades for performance validation. Real trading is disabled in Phase 1."
             : "💡 Grade too low for Paper trading. Add to Watchlist to monitor."}
         </p>
+      </div>
+
+      {/* Phase 3B.1: Backtest Preview Section */}
+      <div className="rounded-xl p-6" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-black text-white">🔬 Backtest Preview (7 days)</h3>
+          <button
+            onClick={handleRunBacktest}
+            disabled={backtestLoading}
+            className="px-4 py-2 rounded-lg text-sm font-bold bg-purple-900 border border-purple-600 text-purple-300 hover:bg-purple-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {backtestLoading ? "⏳ Running..." : "▶ Run 7d Preview"}
+          </button>
+        </div>
+
+        {/* Backtest Error */}
+        {backtestError && (
+          <div className="rounded-lg p-4 mb-4" style={{ background: "#1f1f2e", border: "1px solid #ef4444" }}>
+            <p className="text-sm text-red-400 font-bold">❌ Backtest Error</p>
+            <p className="text-[11px] text-red-300 mt-2">{backtestError}</p>
+          </div>
+        )}
+
+        {/* Backtest Results */}
+        {backtestResult && !backtestError && (
+          <div>
+            {/* Badge */}
+            <div className="mb-4">
+              <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/50">
+                📊 Simulation Only — Historical Data
+              </span>
+            </div>
+
+            {/* Stats Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <div className="rounded-lg p-3 bg-gray-900">
+                <p className="text-[10px] font-bold text-gray-600 mb-1">Signals Detected</p>
+                <p className="text-2xl font-black text-cyan-400">{backtestResult.signals_detected || 0}</p>
+              </div>
+              <div className="rounded-lg p-3 bg-gray-900">
+                <p className="text-[10px] font-bold text-gray-600 mb-1">Win Count</p>
+                <p className="text-2xl font-black text-green-400">{backtestResult.win_count || 0}</p>
+              </div>
+              <div className="rounded-lg p-3 bg-gray-900">
+                <p className="text-[10px] font-bold text-gray-600 mb-1">Loss Count</p>
+                <p className="text-2xl font-black text-red-400">{backtestResult.loss_count || 0}</p>
+              </div>
+              <div className="rounded-lg p-3 bg-gray-900">
+                <p className="text-[10px] font-bold text-gray-600 mb-1">Expired</p>
+                <p className="text-2xl font-black text-yellow-400">{backtestResult.expired_count || 0}</p>
+              </div>
+            </div>
+
+            {/* Key Metrics */}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+              <div className="rounded-lg p-3 bg-gray-900">
+                <p className="text-[10px] font-bold text-gray-600 mb-1">Win Rate</p>
+                <p className="text-xl font-black text-green-400">{(backtestResult.win_rate || 0).toFixed(1)}%</p>
+              </div>
+              <div className="rounded-lg p-3 bg-gray-900">
+                <p className="text-[10px] font-bold text-gray-600 mb-1">Loss Rate</p>
+                <p className="text-xl font-black text-red-400">{(backtestResult.loss_rate || 0).toFixed(1)}%</p>
+              </div>
+              <div className="rounded-lg p-3 bg-gray-900">
+                <p className="text-[10px] font-bold text-gray-600 mb-1">Avg R</p>
+                <p className="text-xl font-black text-blue-400">{(backtestResult.avg_r || 0).toFixed(2)}</p>
+              </div>
+            </div>
+
+            {/* Data Points */}
+            <div className="rounded-lg p-3 bg-gray-900 mb-4">
+              <p className="text-[10px] font-bold text-gray-600 mb-1">Historical Data</p>
+              <p className="text-sm text-gray-400">
+                {backtestResult.period_days || 7} days — {backtestResult.timeframe || "5m"} candles —
+                {backtestResult.data_points || "N/A"} data points
+              </p>
+            </div>
+
+            {/* Disclaimer */}
+            <div className="rounded-lg p-4" style={{ background: "#1a1a2e", border: "1px solid #fbbf2444" }}>
+              <p className="text-xs font-bold text-amber-300 mb-1">⚠️ Important Disclaimer</p>
+              <p className="text-[11px] text-amber-200 leading-relaxed">
+                {backtestResult.disclaimer || "Historical simulation only. This is not a prediction of future performance. Past results do not guarantee future results. Backtest results are for validation purposes only."}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Initial State (no results yet) */}
+        {!backtestResult && !backtestError && (
+          <div className="rounded-lg p-4" style={{ background: "#1a1a2e", border: "1px solid #6b728044" }}>
+            <p className="text-sm text-gray-400">
+              Click "Run 7d Preview" to simulate this signal on 7 days of historical data.
+              Simulation only — no real execution.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

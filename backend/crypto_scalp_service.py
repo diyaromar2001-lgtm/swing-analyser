@@ -27,6 +27,7 @@ from crypto_cost_calculator import (
     estimate_net_rr,
 )
 from crypto_signal_enhancer import enhance_scalp_signal, determine_scalp_side
+from crypto_backtest_lite import backtest_crypto_scalp_lite
 
 _screener_cache: Dict[str, dict] = {}
 _SCREENER_TTL = 60
@@ -667,3 +668,39 @@ def warmup_crypto_scalp_intraday(
         "duration_ms": round(elapsed_ms, 1),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def crypto_scalp_backtest_lite_endpoint(symbol: str) -> Dict[str, Any]:
+    """
+    Phase 3B.1: Backtest Preview Ultra-Léger pour Crypto Scalp.
+
+    Wrapper for crypto_backtest_lite.backtest_crypto_scalp_lite().
+
+    Parameters:
+        symbol: Crypto symbol (e.g., "BTC")
+
+    Returns:
+        Backtest results or error
+
+    IMPORTANT: Simulation only. No real execution.
+    """
+    # Valider symbole
+    symbol_upper = symbol.upper()
+    if symbol_upper not in SCALP_WATCH_UNIVERSE:
+        return {
+            "error": f"Invalid symbol: {symbol}",
+            "simulation_only": True,
+            "no_execution": True
+        }
+
+    # Appeler backtest (7 jours fixe pour Phase 3B.1)
+    try:
+        result = backtest_crypto_scalp_lite(symbol_upper, days=7)
+        return result
+    except Exception as e:
+        return {
+            "error": f"Backtest failed: {str(e)}",
+            "symbol": symbol_upper,
+            "simulation_only": True,
+            "no_execution": True
+        }

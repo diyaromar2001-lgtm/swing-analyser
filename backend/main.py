@@ -1892,6 +1892,27 @@ def crypto_scalp_analyze_endpoint(symbol: str):
     return analyze_crypto_scalp_symbol(symbol.upper())
 
 
+# Scope: CRYPTO SCALP (Phase 3B.1: Backtest Preview)
+@app.get("/api/crypto/scalp/backtest-lite")
+def crypto_scalp_backtest_lite_endpoint(symbol: str):
+    """
+    Phase 3B.1: Backtest Preview Ultra-Léger.
+
+    Simulation only, 7 days, no real execution.
+
+    IMPORTANT: Historical simulation, not a prediction.
+    """
+    from crypto_scalp_service import crypto_scalp_backtest_lite_endpoint
+    try:
+        return crypto_scalp_backtest_lite_endpoint(symbol)
+    except Exception as e:
+        return {
+            "error": f"Backtest error: {str(e)}",
+            "simulation_only": True,
+            "no_execution": True
+        }
+
+
 # Scope: CRYPTO SCALP (Create journal entry)
 @app.post("/api/crypto/scalp/journal")
 def crypto_scalp_journal_endpoint(payload: dict):
