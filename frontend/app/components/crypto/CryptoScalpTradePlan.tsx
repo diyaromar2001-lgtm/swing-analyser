@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 
 export interface CryptoScalpResult {
   symbol: string;
@@ -165,6 +165,42 @@ function generateRefusalExplanation(
 export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) {
   const [toWatchlist, setToWatchlist] = useState(false);
   const [toPaper, setToPaper] = useState(false);
+  const [isLoadingPaper, setIsLoadingPaper] = useState(false);
+  const [paperError, setPaperError] = useState<string | null>(null);
+
+  const handleAddToPaperJournal = useCallback(async () => {
+    setIsLoadingPaper(true);
+    setPaperError(null);
+    try {
+      const response = await fetch('/api/crypto/scalp/journal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: result.symbol.toUpperCase(),
+          scalp_result: result,
+          status: 'SCALP_PAPER_PLANNED'
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.ok) {
+        setToPaper(true);
+      } else {
+        throw new Error(data.error || 'Failed to create trade');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Paper Journal error:', error);
+      setPaperError(message);
+    } finally {
+      setIsLoadingPaper(false);
+    }
+  }, [result]);
 
   const gradeColor = result.scalp_grade === "SCALP_A+" ? "#4ade80"
     : result.scalp_grade === "SCALP_A" ? "#bef264"
@@ -587,16 +623,23 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
 
           {result.paper_allowed && !toPaper && (
             <button
-              onClick={() => setToPaper(true)}
-              className="px-4 py-2 rounded-lg text-sm font-bold bg-green-900 border border-green-600 text-green-300 hover:bg-green-800 transition"
+              onClick={handleAddToPaperJournal}
+              disabled={isLoadingPaper}
+              className="px-4 py-2 rounded-lg text-sm font-bold bg-green-900 border border-green-600 text-green-300 hover:bg-green-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              📝 Add to Paper Journal (costs tracked)
+              {isLoadingPaper ? "⏳ Adding..." : "📝 Add to Paper Journal (costs tracked)"}
             </button>
           )}
 
           {toPaper && (
             <div className="px-4 py-2 rounded-lg text-sm font-bold bg-green-900 border border-green-600 text-green-300">
               ✓ Added to Paper Journal
+            </div>
+          )}
+
+          {paperError && (
+            <div className="px-4 py-2 rounded-lg text-sm font-bold bg-red-900 border border-red-600 text-red-300">
+              ❌ Error: {paperError}
             </div>
           )}
 
