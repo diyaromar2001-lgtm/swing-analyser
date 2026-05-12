@@ -389,7 +389,9 @@ def backtest_crypto_scalp_extended(
                 "incomplete": True,
                 "disclaimer": "Historical simulation only. Not a prediction. No real execution.",
                 "simulation_only": True,
-                "no_execution": True
+                "no_execution": True,
+                "_diagnostic_df_is_none": df is None,
+                "_diagnostic_df_len": len(df) if df is not None else 0
             }
 
         df_len = len(df)
