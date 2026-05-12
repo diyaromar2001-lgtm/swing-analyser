@@ -173,6 +173,11 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
   const [backtestResult, setBacktestResult] = useState<any>(null);
   const [backtestError, setBacktestError] = useState<string | null>(null);
 
+  // Phase 3B.2a: Extended Backtest Preview (7 days with trade details)
+  const [backtestExtendedLoading, setBacktestExtendedLoading] = useState(false);
+  const [backtestExtendedResult, setBacktestExtendedResult] = useState<any>(null);
+  const [backtestExtendedError, setBacktestExtendedError] = useState<string | null>(null);
+
   const handleAddToPaperJournal = useCallback(async () => {
     setIsLoadingPaper(true);
     setPaperError(null);
@@ -234,6 +239,39 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
       setBacktestError(message);
     } finally {
       setBacktestLoading(false);
+    }
+  }, [result.symbol]);
+
+  // Phase 3B.2a: Handle Extended Backtest Preview (7 days with trade details)
+  const handleRunExtendedBacktest = useCallback(async () => {
+    setBacktestExtendedLoading(true);
+    setBacktestExtendedError(null);
+    setBacktestExtendedResult(null);
+    try {
+      const response = await fetch(
+        `/api/crypto/scalp/backtest-extended?symbol=${result.symbol.toUpperCase()}&days=7`,
+        {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      setBacktestExtendedResult(data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Extended backtest error:', error);
+      setBacktestExtendedError(message);
+    } finally {
+      setBacktestExtendedLoading(false);
     }
   }, [result.symbol]);
 
@@ -798,6 +836,165 @@ export function CryptoScalpTradePlan({ result }: { result: CryptoScalpResult }) 
             <p className="text-sm text-gray-400">
               Click "Run Backtest" to simulate this signal on recent historical data.
               Uses latest available Binance candles. Simulation only — no real execution.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Phase 3B.2a: Extended Backtest Preview (7 days with trade details) */}
+      <div className="rounded-xl p-6 mt-8" style={{ background: "#0d0d18", border: "1px solid #1e1e2a" }}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-black text-white">📊 Historical Backtest — Simulation Only</h3>
+          <button
+            onClick={handleRunExtendedBacktest}
+            disabled={backtestExtendedLoading}
+            className="px-4 py-2 rounded-lg text-sm font-bold bg-blue-900 border border-blue-600 text-blue-300 hover:bg-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {backtestExtendedLoading ? "⏳ Running 7d..." : "▶ Run 7d Extended Preview"}
+          </button>
+        </div>
+
+        {/* Extended Backtest Error */}
+        {backtestExtendedError && (
+          <div className="rounded-lg p-4 mb-4" style={{ background: "#1f1f2e", border: "1px solid #ef4444" }}>
+            <p className="text-sm text-red-400 font-bold">❌ Extended Backtest Error</p>
+            <p className="text-[11px] text-red-300 mt-2">{backtestExtendedError}</p>
+          </div>
+        )}
+
+        {/* Extended Backtest Results */}
+        {backtestExtendedResult && !backtestExtendedError && (
+          <div>
+            {/* Badge */}
+            <div className="mb-4">
+              <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/50">
+                📊 Simulation Only — 7 Day Extended
+              </span>
+            </div>
+
+            {/* Data Coverage */}
+            <div className="rounded-lg p-3 bg-gray-900 mb-4">
+              <p className="text-[10px] font-bold text-gray-600 mb-1">Data Coverage</p>
+              <p className="text-sm text-gray-400">
+                {backtestExtendedResult.effective_period_days?.toFixed(2) || 0} of {backtestExtendedResult.requested_period_days || 7} days
+                {" "} — {backtestExtendedResult.candles_used || 0} candles
+              </p>
+              {backtestExtendedResult.incomplete && (
+                <p className="text-xs text-amber-400 mt-2">
+                  ⚠️ Limited data (timeout). {backtestExtendedResult.effective_period_days?.toFixed(2)} of 7.0 days available.
+                </p>
+              )}
+              {backtestExtendedResult.data_source && (
+                <p className="text-xs text-gray-500 mt-1">Data source: {backtestExtendedResult.data_source}</p>
+              )}
+            </div>
+
+            {/* Summary Stats Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <div className="rounded-lg p-3 bg-gray-900">
+                <p className="text-[10px] font-bold text-gray-600 mb-1">Total Trades</p>
+                <p className="text-2xl font-black text-cyan-400">{backtestExtendedResult.trades_count || 0}</p>
+              </div>
+              <div className="rounded-lg p-3 bg-gray-900">
+                <p className="text-[10px] font-bold text-gray-600 mb-1">Win Rate</p>
+                <p className="text-2xl font-black text-green-400">{(backtestExtendedResult.win_rate || 0).toFixed(1)}%</p>
+              </div>
+              <div className="rounded-lg p-3 bg-gray-900">
+                <p className="text-[10px] font-bold text-gray-600 mb-1">Loss Rate</p>
+                <p className="text-2xl font-black text-red-400">{(backtestExtendedResult.loss_rate || 0).toFixed(1)}%</p>
+              </div>
+              <div className="rounded-lg p-3 bg-gray-900">
+                <p className="text-[10px] font-bold text-gray-600 mb-1">Avg R</p>
+                <p className="text-2xl font-black text-blue-400">{(backtestExtendedResult.avg_r || 0).toFixed(2)}</p>
+              </div>
+            </div>
+
+            {/* Trade Outcome Breakdown */}
+            <div className="rounded-lg p-3 bg-gray-900 mb-4" style={{ background: "#1a1a2e", border: "1px solid #374151" }}>
+              <p className="text-xs font-bold text-gray-500 mb-2">Trade Outcomes</p>
+              <div className="grid grid-cols-3 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-gray-500">TP Touched</p>
+                  <p className="text-lg font-black text-green-400">{backtestExtendedResult.tp_touched || 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">SL Touched</p>
+                  <p className="text-lg font-black text-red-400">{backtestExtendedResult.sl_touched || 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Expired</p>
+                  <p className="text-lg font-black text-yellow-400">{backtestExtendedResult.expired || 0}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Trade-by-Trade Table */}
+            {backtestExtendedResult.trades && backtestExtendedResult.trades.length > 0 && (
+              <div className="mb-4 overflow-x-auto rounded-lg" style={{ background: "#1a1a2e", border: "1px solid #374151" }}>
+                <table className="w-full text-xs text-gray-300">
+                  <thead style={{ background: "#0d0d18" }}>
+                    <tr className="border-b border-gray-700">
+                      <th className="px-2 py-2 text-left text-gray-500">Entry Time</th>
+                      <th className="px-2 py-2 text-right text-gray-500">Entry Price</th>
+                      <th className="px-2 py-2 text-center text-gray-500">Side</th>
+                      <th className="px-2 py-2 text-right text-gray-500">Exit Price</th>
+                      <th className="px-2 py-2 text-center text-gray-500">Reason</th>
+                      <th className="px-2 py-2 text-right text-gray-500">R Value</th>
+                      <th className="px-2 py-2 text-right text-gray-500">PnL %</th>
+                      <th className="px-2 py-2 text-right text-gray-500">Candles</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backtestExtendedResult.trades.map((trade: any, idx: number) => (
+                      <tr key={idx} className="border-b border-gray-700 hover:bg-gray-900/50">
+                        <td className="px-2 py-2 text-xs">
+                          {new Date(trade.entry_time).toLocaleString('en-US', {
+                            month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+                          })}
+                        </td>
+                        <td className="px-2 py-2 text-right text-gray-300">${trade.entry_price?.toFixed(2) || 'N/A'}</td>
+                        <td className="px-2 py-2 text-center">
+                          <span className={trade.side === "LONG" ? "text-green-400 font-bold" : "text-red-400 font-bold"}>
+                            {trade.side}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-right text-gray-300">${trade.exit_price?.toFixed(2) || 'N/A'}</td>
+                        <td className="px-2 py-2 text-center">
+                          <span className={
+                            trade.exit_reason === "TP" ? "text-green-400 font-bold" :
+                            trade.exit_reason === "SL" ? "text-red-400 font-bold" :
+                            "text-yellow-400 font-bold"
+                          }>
+                            {trade.exit_reason}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-right font-semibold text-blue-300">{trade.r_value?.toFixed(2) || 'N/A'}</td>
+                        <td className="px-2 py-2 text-right text-gray-300">{((trade.pnl_pct || 0) * 100).toFixed(2)}%</td>
+                        <td className="px-2 py-2 text-right text-gray-400">{trade.candles_held || 0}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Disclaimer */}
+            <div className="rounded-lg p-4" style={{ background: "#1a1a2e", border: "1px solid #fbbf2444" }}>
+              <p className="text-xs font-bold text-amber-300 mb-1">⚠️ Important Disclaimer</p>
+              <p className="text-[11px] text-amber-200 leading-relaxed">
+                {backtestExtendedResult.disclaimer || "Historical simulation only. Not a prediction. No real execution."}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Initial State (no results yet) */}
+        {!backtestExtendedResult && !backtestExtendedError && (
+          <div className="rounded-lg p-4" style={{ background: "#1a1a2e", border: "1px solid #6b728044" }}>
+            <p className="text-sm text-gray-400">
+              Click "Run 7d Extended Preview" to see trade-by-trade details for the past 7 days.
+              Displays up to 20 latest trades with entry/exit times, R values, and outcomes.
+              Simulation only — no real execution.
             </p>
           </div>
         )}

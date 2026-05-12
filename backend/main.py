@@ -1913,6 +1913,53 @@ def crypto_scalp_backtest_lite_endpoint(symbol: str):
         }
 
 
+# Scope: CRYPTO SCALP (Phase 3B.2a: Extended Backtest Preview)
+@app.get("/api/crypto/scalp/backtest-extended")
+def crypto_scalp_backtest_extended_endpoint(symbol: str, days: int = 7):
+    """
+    Phase 3B.2a: Extended Backtest Preview (7 days with trade-by-trade details).
+
+    Simulation only, 7 days maximum (Phase 3B.2a), no real execution.
+    Returns trade-by-trade details, summary stats, and metadata.
+
+    Parameters:
+      symbol: Crypto symbol (BTC, ETH, SOL, ARB, INJ, etc.)
+      days: Number of days (7 only in Phase 3B.2a; 14/30 rejected with "not implemented yet")
+
+    Response:
+      - trades: Array of latest 20 trades with entry/exit, side, R value, PnL %
+      - win_rate, loss_rate, avg_r, best_trade_r, worst_trade_r
+      - effective_period_days: Actual coverage (may be < 7 if data unavailable)
+      - incomplete: true if timeout/partial data, false if complete
+      - simulation_only: true, no_execution: true (always)
+
+    IMPORTANT: Historical simulation, not a prediction. No real execution.
+    """
+    try:
+        from crypto_backtest_lite import backtest_crypto_scalp_extended
+
+        # Validate days parameter
+        if days not in [7]:
+            return {
+                "error": f"Phase 3B.2a supports only days=7. Got days={days}. (14/30 days coming in Phase 3B.2b)",
+                "simulation_only": True,
+                "no_execution": True,
+                "disclaimer": "Historical simulation only. Not a prediction. No real execution."
+            }
+
+        result = backtest_crypto_scalp_extended(symbol.upper(), days=days)
+        return result
+
+    except Exception as e:
+        return {
+            "error": f"Extended backtest error: {str(e)}",
+            "symbol": symbol,
+            "simulation_only": True,
+            "no_execution": True,
+            "disclaimer": "Historical simulation only. Not a prediction. No real execution."
+        }
+
+
 # Scope: CRYPTO SCALP (Create journal entry)
 @app.post("/api/crypto/scalp/journal")
 def crypto_scalp_journal_endpoint(payload: dict):

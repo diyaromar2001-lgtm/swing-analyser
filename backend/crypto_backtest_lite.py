@@ -323,3 +323,256 @@ def backtest_crypto_scalp_lite(
             "simulation_only": True,
             "no_execution": True
         }
+
+
+def backtest_crypto_scalp_extended(
+    symbol: str,
+    days: int = 7,
+    max_candles_per_trade: int = 50
+) -> Dict[str, Any]:
+    """
+    Phase 3B.2a: Extended Backtest Preview with trade-by-trade details (7 days only).
+
+    Uses get_crypto_ohlcv_extended() for paginated 7-day Binance 5m data.
+    Returns: symbol, period coverage, trades array (max 20 latest), summary stats.
+
+    Parameters:
+        symbol: Crypto symbol (e.g., "BTC")
+        days: Fixed to 7 for Phase 3B.2a
+        max_candles_per_trade: Limit TP/SL search to 50 candles
+
+    Returns:
+        Dict with trades[], summary stats, metadata
+        Always includes: simulation_only=true, no_execution=true, disclaimer
+
+    IMPORTANT: Simulation ONLY. Paper trading mode. No real execution.
+    """
+
+    start_time = time.time()
+
+    try:
+        # Validate days (Phase 3B.2a constraint: 7 days ONLY)
+        if days != 7:
+            return {
+                "error": f"Phase 3B.2a supports only 7 days. Got {days}. (14/30 coming in Phase 3B.2b)",
+                "simulation_only": True,
+                "no_execution": True,
+                "disclaimer": "Historical simulation only. Not a prediction. No real execution."
+            }
+
+        # Fetch extended data (7 days with pagination)
+        logger.info(f"[EXTENDED_BACKTEST] Fetching {symbol} extended 5m (7 days)...")
+        from crypto_data import get_crypto_ohlcv_extended
+
+        df, candles_count, effective_period_days = get_crypto_ohlcv_extended(symbol, interval="5m", days=7)
+
+        if df is None or len(df) < 50:
+            return {
+                "error": f"Insufficient data for {symbol}",
+                "symbol": symbol,
+                "requested_period_days": days,
+                "effective_period_days": effective_period_days,
+                "candles_used": candles_count,
+                "trades_count": 0,
+                "trades": [],
+                "win_count": 0,
+                "loss_count": 0,
+                "expired_count": 0,
+                "win_rate": 0,
+                "loss_rate": 0,
+                "avg_r": 0,
+                "best_trade_r": 0,
+                "worst_trade_r": 0,
+                "tp_touched": 0,
+                "sl_touched": 0,
+                "expired": 0,
+                "incomplete": True,
+                "disclaimer": "Historical simulation only. Not a prediction. No real execution.",
+                "simulation_only": True,
+                "no_execution": True
+            }
+
+        df_len = len(df)
+        logger.info(f"[EXTENDED_BACKTEST] {symbol}: {df_len} candles (~{effective_period_days:.2f} days)")
+
+        # Detect trades with detailed logging
+        trades = []
+
+        for i in range(20, len(df) - max_candles_per_trade):
+            df_history = df.iloc[max(0, i-20):i]
+            row = df.iloc[i]
+            df_future = df.iloc[i:min(len(df), i + max_candles_per_trade)]
+
+            # Score calculations
+            long_score = compute_long_score_lite(df_history)
+            short_score = compute_short_score_lite(df_history)
+            side = determine_side_lite(long_score, short_score)
+
+            if side == "NONE":
+                continue
+
+            # Calculate TP/SL
+            high_10 = df_history["High"].max()
+            low_10 = df_history["Low"].min()
+            atr = (high_10 - low_10) / 2
+
+            if atr < 0.001:
+                continue
+
+            entry = float(row["Close"])
+            entry_time = row.name.isoformat() + "Z"  # Entry time from index
+
+            if side == "LONG":
+                stop_loss = low_10 - atr
+                tp = entry + atr
+            else:  # SHORT
+                stop_loss = high_10 + atr
+                tp = entry - atr
+
+            # Simulate TP/SL exit
+            result = None
+            exit_price = None
+            exit_candle = None
+            exit_time = None
+
+            for j, (idx, future_row) in enumerate(df_future.iterrows()):
+                if side == "LONG":
+                    if future_row["High"] >= tp:
+                        result = "TP"
+                        exit_price = tp
+                        exit_candle = j
+                        exit_time = idx.isoformat() + "Z"
+                        break
+                    elif future_row["Low"] <= stop_loss:
+                        result = "SL"
+                        exit_price = stop_loss
+                        exit_candle = j
+                        exit_time = idx.isoformat() + "Z"
+                        break
+                else:  # SHORT
+                    if future_row["Low"] <= tp:
+                        result = "TP"
+                        exit_price = tp
+                        exit_candle = j
+                        exit_time = idx.isoformat() + "Z"
+                        break
+                    elif future_row["High"] >= stop_loss:
+                        result = "SL"
+                        exit_price = stop_loss
+                        exit_candle = j
+                        exit_time = idx.isoformat() + "Z"
+                        break
+
+            if result is None:
+                result = "EXPIRED"
+                exit_price = df_future.iloc[-1]["Close"]
+                exit_candle = len(df_future) - 1
+                exit_time = df_future.index[-1].isoformat() + "Z"
+
+            # Calculate R value
+            risk = abs(entry - stop_loss)
+            if result == "TP":
+                reward = abs(tp - entry)
+            elif result == "SL":
+                reward = -risk
+            else:
+                reward = 0
+
+            r_value = reward / risk if risk > 0 else 0
+
+            # Calculate PnL %
+            pnl_pct = (exit_price - entry) / entry
+
+            # Create trade object
+            trade = {
+                "entry_time": entry_time,
+                "exit_time": exit_time,
+                "side": side,
+                "entry_price": round(float(entry), 2),
+                "exit_price": round(float(exit_price), 2),
+                "exit_reason": result,
+                "r_value": round(r_value, 2),
+                "pnl_pct": round(pnl_pct, 4),
+                "candles_held": exit_candle
+            }
+            trades.append(trade)
+
+        # Calculate summary stats
+        wins = [t for t in trades if t["exit_reason"] == "TP"]
+        losses = [t for t in trades if t["exit_reason"] == "SL"]
+        expires = [t for t in trades if t["exit_reason"] == "EXPIRED"]
+
+        win_count = len(wins)
+        loss_count = len(losses)
+        expired_count = len(expires)
+        total = len(trades)
+
+        win_rate = (win_count / total * 100) if total > 0 else 0
+        loss_rate = (loss_count / total * 100) if total > 0 else 0
+        avg_r = (sum(t["r_value"] for t in trades) / total) if total > 0 else 0
+
+        # Best and worst trade R values
+        all_r_values = [t["r_value"] for t in trades]
+        best_trade_r = max(all_r_values) if all_r_values else 0
+        worst_trade_r = min(all_r_values) if all_r_values else 0
+
+        elapsed = time.time() - start_time
+        logger.info(f"[EXTENDED_BACKTEST] {symbol}: {total} trades in {elapsed:.2f}s, "
+                   f"WR={win_rate:.1f}%, Avg R={avg_r:.2f}")
+
+        # Limit trades to 20 latest trades max for response
+        trades_to_return = trades[-20:] if len(trades) > 20 else trades
+
+        # Response
+        return {
+            "symbol": symbol,
+            "requested_period_days": days,
+            "effective_period_days": round(effective_period_days, 2),
+            "candles_used": df_len,
+            "data_source": "Binance (via Crypto Scalp standard)",
+            "trades_count": total,
+            "win_count": win_count,
+            "loss_count": loss_count,
+            "expired_count": expired_count,
+            "win_rate": round(win_rate, 1),
+            "loss_rate": round(loss_rate, 1),
+            "avg_r": round(avg_r, 2),
+            "best_trade_r": round(best_trade_r, 2),
+            "worst_trade_r": round(worst_trade_r, 2),
+            "tp_touched": win_count,
+            "sl_touched": loss_count,
+            "expired": expired_count,
+            "trades": trades_to_return,
+            "incomplete": False,
+            "disclaimer": "Historical simulation only. Not a prediction. No real execution.",
+            "no_execution": True,
+            "simulation_only": True,
+            "timestamp": int(time.time() * 1000)
+        }
+
+    except Exception as e:
+        logger.error(f"[EXTENDED_BACKTEST] Exception for {symbol}: {str(e)}")
+        return {
+            "error": f"Extended backtest failed: {str(e)}",
+            "symbol": symbol,
+            "requested_period_days": days,
+            "effective_period_days": 0,
+            "candles_used": 0,
+            "trades_count": 0,
+            "trades": [],
+            "win_count": 0,
+            "loss_count": 0,
+            "expired_count": 0,
+            "win_rate": 0,
+            "loss_rate": 0,
+            "avg_r": 0,
+            "best_trade_r": 0,
+            "worst_trade_r": 0,
+            "tp_touched": 0,
+            "sl_touched": 0,
+            "expired": 0,
+            "incomplete": True,
+            "disclaimer": "Historical simulation only. Not a prediction. No real execution.",
+            "simulation_only": True,
+            "no_execution": True
+        }

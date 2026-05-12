@@ -830,6 +830,160 @@ def get_crypto_ohlcv_intraday(symbol: str, interval: str = "5m", allow_download:
     return None
 
 
+def _fetch_binance_klines_paginated(pair: str, interval: str, symbol: str, days: int = 7, timeout_seconds: int = 30) -> Optional[pd.DataFrame]:
+    """
+    Phase 3B.2a: Fetch Binance klines with pagination for extended period (7 days).
+    Uses startTime/endTime parameters to paginate through multiple requests.
+
+    Args:
+        pair: Binance pair (e.g., "BTCUSDT")
+        interval: Timeframe (e.g., "5m")
+        symbol: Crypto symbol for logging
+        days: Number of days to fetch (default 7, only 7 supported in Phase 3B.2a)
+        timeout_seconds: Total timeout for all requests (default 30)
+
+    Returns:
+        DataFrame with paginated OHLCV data, or None if failed
+    """
+    if days != 7:
+        return None
+
+    url = f"{BINANCE_BASE}/api/v3/klines"
+    started = _time.time()
+    all_data = []
+
+    try:
+        # Calculate end time (now) and start time (days ago)
+        end_time = int(_time.time() * 1000)  # Now in milliseconds
+        start_time = end_time - (days * 24 * 60 * 60 * 1000)  # days ago in milliseconds
+
+        # Interval in milliseconds: 5m = 5 * 60 * 1000 = 300000
+        interval_ms = {
+            "1m": 60 * 1000,
+            "5m": 5 * 60 * 1000,
+            "15m": 15 * 60 * 1000,
+        }.get(interval, 300000)
+
+        # Fetch in batches of 300 candles (Binance limit)
+        current_start = start_time
+        batch_count = 0
+
+        while current_start < end_time:
+            # Check total timeout
+            elapsed = _time.time() - started
+            if elapsed > timeout_seconds:
+                print(f"[BINANCE_PAGINATED_DEBUG] {symbol} {interval}: Timeout after {elapsed:.1f}s, {batch_count} batches, {len(all_data)} total candles")
+                if len(all_data) >= 50:
+                    # Return partial data if we have at least 50 candles
+                    break
+                else:
+                    return None
+
+            with _client() as client:
+                params = {
+                    "symbol": pair,
+                    "interval": interval,
+                    "startTime": int(current_start),
+                    "endTime": int(current_start + 300 * interval_ms),  # 300 candles
+                    "limit": 300
+                }
+                r = client.get(url, params=params, timeout=15.0)
+                r.raise_for_status()
+                raw = r.json()
+
+                if not raw:
+                    break  # No more data
+
+                all_data.extend(raw)
+                batch_count += 1
+
+                # Move start time to just after the last candle
+                if raw:
+                    last_close_time = int(raw[-1][6])  # close_time is element 6
+                    current_start = last_close_time + 1
+                else:
+                    break
+
+        if not all_data:
+            return None
+
+        # Create DataFrame from all batches
+        df = pd.DataFrame(
+            all_data,
+            columns=[
+                "open_time", "Open", "High", "Low", "Close", "Volume",
+                "close_time", "quote_volume", "trades",
+                "taker_buy_base", "taker_buy_quote", "ignore",
+            ],
+        )
+
+        for col in ["Open", "High", "Low", "Close", "Volume", "quote_volume"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        df["Date"] = pd.to_datetime(df["open_time"], unit="ms", utc=True)
+        df = df.set_index("Date")[["Open", "High", "Low", "Close", "Volume", "quote_volume"]].dropna()
+
+        ms = (_time.time() - started) * 1000
+        print(f"[BINANCE_PAGINATED_DEBUG] {symbol} {interval}: SUCCESS {len(df)} candles in {batch_count} batches ({ms:.1f}ms)")
+        _log_source_event("OK", "binance_paginated", symbol, f"ohlcv_extended_{interval}", ms, f"success {batch_count} batches", url=url, rows=len(df))
+
+        return df
+
+    except Exception as exc:
+        ms = (_time.time() - started) * 1000
+        exc_type = type(exc).__name__
+        exc_detail = str(exc)[:200]
+
+        http_status = ""
+        if hasattr(exc, "response") and exc.response is not None:
+            http_status = f" [HTTP {exc.response.status_code}]"
+
+        error_msg = f"{exc_type}: {exc_detail}{http_status}"
+        print(f"[BINANCE_PAGINATED_DEBUG] {symbol} {interval}: FAILED {error_msg} ({ms:.1f}ms)")
+        _log_source_event("FAIL", "binance_paginated", symbol, f"ohlcv_extended_{interval}", ms, error_msg, url=url, rows=0)
+
+        return None
+
+
+def get_crypto_ohlcv_extended(symbol: str, interval: str = "5m", days: int = 7) -> Optional[tuple[Optional[pd.DataFrame], int, float]]:
+    """
+    Phase 3B.2a: Fetch extended OHLCV data (7 days with pagination).
+
+    Args:
+        symbol: Crypto symbol (e.g., "BTC", "ETH")
+        interval: Timeframe (e.g., "5m")
+        days: Number of days (only 7 supported in Phase 3B.2a)
+
+    Returns:
+        Tuple: (DataFrame, candles_count, effective_period_days) or (None, 0, 0)
+    """
+    if days != 7:
+        return None, 0, 0
+
+    try:
+        sym = _normalize_symbol(symbol)
+        pair = _binance_pair(sym)
+
+        # Try paginated fetch from Binance
+        df = _fetch_binance_klines_paginated(pair, interval, sym, days=7)
+
+        if df is None or len(df) < 50:
+            print(f"[EXTENDED_DEBUG] {sym}: Binance paginated failed or insufficient data")
+            return None, 0, 0
+
+        # Calculate effective period
+        candles_count = len(df)
+        effective_period_days = (candles_count * 5) / (24 * 60)  # For 5m interval
+
+        print(f"[EXTENDED_DEBUG] {sym}: SUCCESS {candles_count} candles (~{effective_period_days:.2f} days)")
+
+        return df, candles_count, effective_period_days
+
+    except Exception as e:
+        print(f"[EXTENDED_DEBUG] {sym}: Exception {type(e).__name__}: {str(e)}")
+        return None, 0, 0
+
+
 def get_crypto_data_freshness() -> Dict[str, Optional[float]]:
     daily_ts = max((v.get("ts", 0) for v in _ohlcv_daily_cache.values()), default=0)
     h4_ts = max((v.get("ts", 0) for v in _ohlcv_4h_cache.values()), default=0)
