@@ -857,6 +857,10 @@ def _fetch_binance_klines_paginated(pair: str, interval: str, symbol: str, days:
         end_time = int(_time.time() * 1000)  # Now in milliseconds
         start_time = end_time - (days * 24 * 60 * 60 * 1000)  # days ago in milliseconds
 
+        # DIAGNOSTIC: Log initial timestamps
+        print(f"[PAGINATION_DIAG] {symbol} {interval}: start_time_ms={start_time} ({datetime.fromtimestamp(start_time/1000, tz=timezone.utc).isoformat()}Z)")
+        print(f"[PAGINATION_DIAG] {symbol} {interval}: end_time_ms={end_time} ({datetime.fromtimestamp(end_time/1000, tz=timezone.utc).isoformat()}Z)")
+
         # Interval in milliseconds: 5m = 5 * 60 * 1000 = 300000
         interval_ms = {
             "1m": 60 * 1000,
@@ -880,18 +884,31 @@ def _fetch_binance_klines_paginated(pair: str, interval: str, symbol: str, days:
 
             try:
                 with _client() as client:
+                    batch_end = int(min(current_start + 300 * interval_ms, end_time))
                     params = {
                         "symbol": pair,
                         "interval": interval,
                         "startTime": int(current_start),
-                        "endTime": int(min(current_start + 300 * interval_ms, end_time)),  # Don't exceed end_time
+                        "endTime": batch_end,
                         "limit": 300
                     }
+
+                    # DIAGNOSTIC: Log batch parameters
+                    print(f"[PAGINATION_DIAG_BATCH] {symbol} {interval}: Batch {batch_count+1}")
+                    print(f"[PAGINATION_DIAG_BATCH]   startTime={params['startTime']} ({datetime.fromtimestamp(params['startTime']/1000, tz=timezone.utc).isoformat()}Z)")
+                    print(f"[PAGINATION_DIAG_BATCH]   endTime={params['endTime']} ({datetime.fromtimestamp(params['endTime']/1000, tz=timezone.utc).isoformat()}Z)")
+                    print(f"[PAGINATION_DIAG_BATCH]   URL={url}?symbol={pair}&interval={interval}&startTime={params['startTime']}&endTime={params['endTime']}&limit=300")
+
                     r = client.get(url, params=params, timeout=15.0)
+
+                    print(f"[PAGINATION_DIAG_BATCH]   HTTP Status: {r.status_code}")
                     r.raise_for_status()
                     raw = r.json()
 
+                    print(f"[PAGINATION_DIAG_BATCH]   Response type: {type(raw)}, len={len(raw) if isinstance(raw, list) else 'N/A'}")
+
                     if not raw or len(raw) == 0:
+                        print(f"[PAGINATION_DIAG_BATCH]   ❌ Empty response - breaking loop")
                         break  # No more data
 
                     all_data.extend(raw)
@@ -912,6 +929,9 @@ def _fetch_binance_klines_paginated(pair: str, interval: str, symbol: str, days:
                 else:
                     # Got some data before error, use what we have
                     break
+
+        # DIAGNOSTIC: Check why all_data is empty
+        print(f"[PAGINATION_DIAG] {symbol} {interval}: After loop - all_data length={len(all_data)}, batches={batch_count}")
 
         if not all_data or len(all_data) < 20:
             print(f"[BINANCE_PAGINATED_DEBUG] {symbol} {interval}: Insufficient data {len(all_data)} candles")
