@@ -364,15 +364,25 @@ def backtest_crypto_scalp_extended(
         logger.info(f"[EXTENDED_BACKTEST] Fetching {symbol} extended 5m (7 days)...")
         from crypto_data import get_crypto_ohlcv_extended
 
-        df, candles_count, effective_period_days = get_crypto_ohlcv_extended(symbol, interval="5m", days=7)
+        df, candles_count, effective_period_days, metadata = get_crypto_ohlcv_extended(symbol, interval="5m", days=7)
 
         if df is None or len(df) < 50:
+            # Proper error response with provider diagnostics
+            error_msg = "Extended backtest unavailable"
+            if metadata.get("provider_errors"):
+                error_msg += f": providers failed (see provider_errors)"
+            else:
+                error_msg += f": insufficient data ({candles_count} candles)"
+
             return {
-                "error": f"Insufficient data for {symbol}",
+                "error": error_msg,
                 "symbol": symbol,
                 "requested_period_days": days,
                 "effective_period_days": effective_period_days,
                 "candles_used": candles_count,
+                "data_source": metadata.get("data_source"),
+                "provider_attempts": metadata.get("provider_attempts", []),
+                "provider_errors": metadata.get("provider_errors", {}),
                 "trades_count": 0,
                 "trades": [],
                 "win_count": 0,
@@ -389,9 +399,7 @@ def backtest_crypto_scalp_extended(
                 "incomplete": True,
                 "disclaimer": "Historical simulation only. Not a prediction. No real execution.",
                 "simulation_only": True,
-                "no_execution": True,
-                "_diagnostic_df_is_none": df is None,
-                "_diagnostic_df_len": len(df) if df is not None else 0
+                "no_execution": True
             }
 
         df_len = len(df)
@@ -531,7 +539,8 @@ def backtest_crypto_scalp_extended(
             "requested_period_days": days,
             "effective_period_days": round(effective_period_days, 2),
             "candles_used": df_len,
-            "data_source": "Binance (via Crypto Scalp standard)",
+            "data_source": metadata.get("data_source", "unknown"),
+            "provider_attempts": metadata.get("provider_attempts", []),
             "trades_count": total,
             "win_count": win_count,
             "loss_count": loss_count,

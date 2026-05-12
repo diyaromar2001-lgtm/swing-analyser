@@ -857,10 +857,6 @@ def _fetch_binance_klines_paginated(pair: str, interval: str, symbol: str, days:
         end_time = int(_time.time() * 1000)  # Now in milliseconds
         start_time = end_time - (days * 24 * 60 * 60 * 1000)  # days ago in milliseconds
 
-        # DIAGNOSTIC: Log initial timestamps
-        print(f"[PAGINATION_DIAG] {symbol} {interval}: start_time_ms={start_time} ({datetime.fromtimestamp(start_time/1000, tz=timezone.utc).isoformat()}Z)")
-        print(f"[PAGINATION_DIAG] {symbol} {interval}: end_time_ms={end_time} ({datetime.fromtimestamp(end_time/1000, tz=timezone.utc).isoformat()}Z)")
-
         # Interval in milliseconds: 5m = 5 * 60 * 1000 = 300000
         interval_ms = {
             "1m": 60 * 1000,
@@ -893,27 +889,16 @@ def _fetch_binance_klines_paginated(pair: str, interval: str, symbol: str, days:
                         "limit": 300
                     }
 
-                    # DIAGNOSTIC: Log batch parameters
-                    print(f"[PAGINATION_DIAG_BATCH] {symbol} {interval}: Batch {batch_count+1}")
-                    print(f"[PAGINATION_DIAG_BATCH]   startTime={params['startTime']} ({datetime.fromtimestamp(params['startTime']/1000, tz=timezone.utc).isoformat()}Z)")
-                    print(f"[PAGINATION_DIAG_BATCH]   endTime={params['endTime']} ({datetime.fromtimestamp(params['endTime']/1000, tz=timezone.utc).isoformat()}Z)")
-                    print(f"[PAGINATION_DIAG_BATCH]   URL={url}?symbol={pair}&interval={interval}&startTime={params['startTime']}&endTime={params['endTime']}&limit=300")
-
                     r = client.get(url, params=params, timeout=15.0)
-
-                    print(f"[PAGINATION_DIAG_BATCH]   HTTP Status: {r.status_code}")
                     r.raise_for_status()
                     raw = r.json()
 
-                    print(f"[PAGINATION_DIAG_BATCH]   Response type: {type(raw)}, len={len(raw) if isinstance(raw, list) else 'N/A'}")
-
                     if not raw or len(raw) == 0:
-                        print(f"[PAGINATION_DIAG_BATCH]   ❌ Empty response - breaking loop")
                         break  # No more data
 
                     all_data.extend(raw)
                     batch_count += 1
-                    print(f"[BINANCE_PAGINATED_DEBUG] {symbol} {interval}: Batch {batch_count} fetched {len(raw)} candles (total: {len(all_data)})")
+                    print(f"[BINANCE_PAGINATED] {symbol} {interval}: Batch {batch_count} fetched {len(raw)} candles (total: {len(all_data)})")
 
                     # Move start time to just after the last candle
                     last_close_time = int(raw[-1][6])  # close_time is element 6
@@ -929,9 +914,6 @@ def _fetch_binance_klines_paginated(pair: str, interval: str, symbol: str, days:
                 else:
                     # Got some data before error, use what we have
                     break
-
-        # DIAGNOSTIC: Check why all_data is empty
-        print(f"[PAGINATION_DIAG] {symbol} {interval}: After loop - all_data length={len(all_data)}, batches={batch_count}")
 
         if not all_data or len(all_data) < 20:
             print(f"[BINANCE_PAGINATED_DEBUG] {symbol} {interval}: Insufficient data {len(all_data)} candles")
@@ -979,48 +961,67 @@ def _fetch_binance_klines_paginated(pair: str, interval: str, symbol: str, days:
         return None
 
 
-def get_crypto_ohlcv_extended(symbol: str, interval: str = "5m", days: int = 7) -> Optional[tuple[Optional[pd.DataFrame], int, float]]:
+def get_crypto_ohlcv_extended(symbol: str, interval: str = "5m", days: int = 7) -> Optional[tuple[Optional[pd.DataFrame], int, float, dict]]:
     """
     Phase 3B.2a: Fetch extended OHLCV data (7 days with pagination).
 
-    Args:
-        symbol: Crypto symbol (e.g., "BTC", "ETH")
-        interval: Timeframe (e.g., "5m")
-        days: Number of days (only 7 supported in Phase 3B.2a)
+    Tries Binance paginated first. If blocked (HTTP 451/403) or fails,
+    fallback to get_crypto_ohlcv_intraday() which provides fallback provider chain.
 
     Returns:
-        Tuple: (DataFrame, candles_count, effective_period_days) or (None, 0, 0)
+        Tuple: (DataFrame, candles_count, effective_period_days, metadata)
+        metadata = {"data_source": str, "provider_attempts": list, "provider_errors": dict}
     """
     if days != 7:
-        return None, 0, 0
+        return None, 0, 0, {}
+
+    sym = _normalize_symbol(symbol)
+    pair = _binance_pair(sym)
+
+    metadata = {
+        "data_source": None,
+        "provider_attempts": ["binance_paginated"],
+        "provider_errors": {}
+    }
 
     try:
-        sym = _normalize_symbol(symbol)
-        pair = _binance_pair(sym)
-
-        # Try paginated fetch from Binance
-        print(f"[EXTENDED_WRAPPER] {sym}: About to call _fetch_binance_klines_paginated with pair={pair}, interval={interval}")
+        # Try Binance paginated first (preferred for 7 days)
         df = _fetch_binance_klines_paginated(pair, interval, sym, days=7)
 
-        df_type = type(df).__name__ if df is not None else 'None'
-        df_len = len(df) if df is not None else 'N/A'
-        print(f"[EXTENDED_WRAPPER] {sym}: Returned df={df_type}, len={df_len}")
-
-        if df is None or len(df) < 50:
-            print(f"[EXTENDED_DEBUG] {sym}: Binance paginated failed or insufficient data (df={df is None}, len={len(df) if df is not None else 0})")
-            return None, 0, 0
-
-        # Calculate effective period
-        candles_count = len(df)
-        effective_period_days = (candles_count * 5) / (24 * 60)  # For 5m interval
-
-        print(f"[EXTENDED_DEBUG] {sym}: SUCCESS {candles_count} candles (~{effective_period_days:.2f} days)")
-
-        return df, candles_count, effective_period_days
+        if df is not None and len(df) >= 50:
+            candles_count = len(df)
+            effective_period_days = (candles_count * 5) / (24 * 60)
+            metadata["data_source"] = "binance_paginated"
+            return df, candles_count, effective_period_days, metadata
+        else:
+            reason = f"{len(df) if df is not None else 0} candles"
+            metadata["provider_errors"]["binance_paginated"] = reason
 
     except Exception as e:
-        print(f"[EXTENDED_DEBUG] {sym}: Exception {type(e).__name__}: {str(e)}")
-        return None, 0, 0
+        error_detail = f"{type(e).__name__}: {str(e)[:100]}"
+        metadata["provider_errors"]["binance_paginated"] = error_detail
+
+    # Fallback: Use get_crypto_ohlcv_intraday which has provider fallback chain
+    try:
+        metadata["provider_attempts"].append("intraday_fallback_chain")
+        df = get_crypto_ohlcv_intraday(sym, interval="5m", allow_download=True)
+
+        if df is not None and len(df) >= 50:
+            candles_count = len(df)
+            effective_period_days = (candles_count * 5) / (24 * 60)
+            provider_used = _intraday_provider_used.get(sym, "unknown")
+            metadata["data_source"] = f"intraday_fallback ({provider_used})"
+            return df, candles_count, effective_period_days, metadata
+        else:
+            reason = f"{len(df) if df is not None else 0} candles"
+            metadata["provider_errors"]["intraday_fallback_chain"] = reason
+
+    except Exception as e:
+        error_detail = f"{type(e).__name__}: {str(e)[:100]}"
+        metadata["provider_errors"]["intraday_fallback_chain"] = error_detail
+
+    # All providers exhausted
+    return None, 0, 0, metadata
 
 
 def get_crypto_data_freshness() -> Dict[str, Optional[float]]:
