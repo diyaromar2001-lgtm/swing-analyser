@@ -999,10 +999,15 @@ def get_crypto_ohlcv_extended(symbol: str, interval: str = "5m", days: int = 7) 
         pair = _binance_pair(sym)
 
         # Try paginated fetch from Binance
+        print(f"[EXTENDED_WRAPPER] {sym}: About to call _fetch_binance_klines_paginated with pair={pair}, interval={interval}")
         df = _fetch_binance_klines_paginated(pair, interval, sym, days=7)
 
+        df_type = type(df).__name__ if df is not None else 'None'
+        df_len = len(df) if df is not None else 'N/A'
+        print(f"[EXTENDED_WRAPPER] {sym}: Returned df={df_type}, len={df_len}")
+
         if df is None or len(df) < 50:
-            print(f"[EXTENDED_DEBUG] {sym}: Binance paginated failed or insufficient data")
+            print(f"[EXTENDED_DEBUG] {sym}: Binance paginated failed or insufficient data (df={df is None}, len={len(df) if df is not None else 0})")
             return None, 0, 0
 
         # Calculate effective period
