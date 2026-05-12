@@ -1937,6 +1937,10 @@ def crypto_scalp_backtest_extended_endpoint(symbol: str, days: int = 7):
     """
     try:
         from crypto_backtest_lite import backtest_crypto_scalp_extended
+        import time
+
+        # Force redeploy trigger (timestamp marker)
+        _redeploy_marker = f"2026-05-13-{int(time.time())}"
 
         # Validate days parameter
         if days not in [7]:
