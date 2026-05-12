@@ -874,37 +874,47 @@ def _fetch_binance_klines_paginated(pair: str, interval: str, symbol: str, days:
             if elapsed > timeout_seconds:
                 print(f"[BINANCE_PAGINATED_DEBUG] {symbol} {interval}: Timeout after {elapsed:.1f}s, {batch_count} batches, {len(all_data)} total candles")
                 if len(all_data) >= 50:
-                    # Return partial data if we have at least 50 candles
                     break
                 else:
                     return None
 
-            with _client() as client:
-                params = {
-                    "symbol": pair,
-                    "interval": interval,
-                    "startTime": int(current_start),
-                    "endTime": int(current_start + 300 * interval_ms),  # 300 candles
-                    "limit": 300
-                }
-                r = client.get(url, params=params, timeout=15.0)
-                r.raise_for_status()
-                raw = r.json()
+            try:
+                with _client() as client:
+                    params = {
+                        "symbol": pair,
+                        "interval": interval,
+                        "startTime": int(current_start),
+                        "endTime": int(min(current_start + 300 * interval_ms, end_time)),  # Don't exceed end_time
+                        "limit": 300
+                    }
+                    r = client.get(url, params=params, timeout=15.0)
+                    r.raise_for_status()
+                    raw = r.json()
 
-                if not raw:
-                    break  # No more data
+                    if not raw or len(raw) == 0:
+                        break  # No more data
 
-                all_data.extend(raw)
-                batch_count += 1
+                    all_data.extend(raw)
+                    batch_count += 1
+                    print(f"[BINANCE_PAGINATED_DEBUG] {symbol} {interval}: Batch {batch_count} fetched {len(raw)} candles (total: {len(all_data)})")
 
-                # Move start time to just after the last candle
-                if raw:
+                    # Move start time to just after the last candle
                     last_close_time = int(raw[-1][6])  # close_time is element 6
+                    if last_close_time >= end_time:
+                        break  # Reached end of requested period
                     current_start = last_close_time + 1
+
+            except Exception as batch_exc:
+                print(f"[BINANCE_PAGINATED_DEBUG] {symbol} {interval}: Batch {batch_count} error: {type(batch_exc).__name__}")
+                if batch_count == 0:
+                    # First batch failed, return None
+                    raise
                 else:
+                    # Got some data before error, use what we have
                     break
 
-        if not all_data:
+        if not all_data or len(all_data) < 20:
+            print(f"[BINANCE_PAGINATED_DEBUG] {symbol} {interval}: Insufficient data {len(all_data)} candles")
             return None
 
         # Create DataFrame from all batches
@@ -922,6 +932,10 @@ def _fetch_binance_klines_paginated(pair: str, interval: str, symbol: str, days:
 
         df["Date"] = pd.to_datetime(df["open_time"], unit="ms", utc=True)
         df = df.set_index("Date")[["Open", "High", "Low", "Close", "Volume", "quote_volume"]].dropna()
+
+        if len(df) < 20:
+            print(f"[BINANCE_PAGINATED_DEBUG] {symbol} {interval}: After dropna only {len(df)} candles remain")
+            return None
 
         ms = (_time.time() - started) * 1000
         print(f"[BINANCE_PAGINATED_DEBUG] {symbol} {interval}: SUCCESS {len(df)} candles in {batch_count} batches ({ms:.1f}ms)")
